@@ -9,9 +9,9 @@ I used many resources when building this emulator.
 Without these, I would've had to reverse engineer
 the game boy, which is not something I can easily do.
 
-https://gbdev.io/pandocs/
-https://www.pastraiser.com/cpu/gameboy/gameboy_opcodes.html
-https://www.youtube.com/@lowleveldevel1712
+1. https://gbdev.io/pandocs/
+1. https://www.pastraiser.com/cpu/gameboy/gameboy_opcodes.html
+1. https://www.youtube.com/@lowleveldevel1712
 
 ## Building
 
