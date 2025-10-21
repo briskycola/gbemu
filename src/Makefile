@@ -40,7 +40,7 @@ $(TARGET): $(OBJS)
 	$(CC) $(OBJS) -o $(TARGET) -lSDL2 -lSDL2_ttf -pthread
 
 # compile .cpp files to .o files
-%.o: %.cpp
+%.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # clean up object files and binary
