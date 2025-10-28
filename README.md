@@ -3,6 +3,9 @@ This is a simple game boy emulator written in C
 The goal of this project is to gain a better
 understanding of computer architecture, emulation,
 and systems programming.
+![Super Mario Land](.images/1.png)
+![Tetris](.images/2.png)
+![Metroid](.images/3.png)
 
 ## References
 I used many resources when building this emulator.
@@ -21,7 +24,7 @@ along with SDL2 development libraries. Below are
 some commands to install the dependencies on
 most Linux distributions:
 
-Arch linux
+Arch Linux
 ```bash
 sudo pacman -S git base-devel sdl2
 ```
