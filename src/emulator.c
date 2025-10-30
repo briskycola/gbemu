@@ -1,4 +1,3 @@
-#include <stdio.h>
 #include "../include/emulator.h"
 #include "../include/cartridge.h"
 #include "../include/cpu.h"
@@ -6,12 +5,9 @@
 #include "../include/timer.h"
 #include "../include/dma.h"
 #include "../include/ppu.h"
-
-//TODO Add Windows Alternative...
 #include <stdio.h>
 #include <pthread.h>
 #include <unistd.h>
-#include <poll.h>
 
 /* 
   Emu components:
@@ -79,8 +75,7 @@ int emu_run(int argc, char **argv) {
     u32 prev_frame = 0;
 
     while(!ctx.die) {
-        //usleep(1000);
-        poll(NULL, 0, 1);
+        delay(1);
         ui_handle_events();
 
         if (prev_frame != ppu_get_context()->current_frame) {
