@@ -6,7 +6,7 @@
 #include "../include/dma.h"
 #include "../include/ppu.h"
 #include <stdio.h>
-#include <pthread.h>
+#include <omp.h>
 #include <unistd.h>
 
 /* 
@@ -26,7 +26,7 @@ emu_context *emu_get_context() {
     return &ctx;
 }
 
-void *cpu_run(void *p) {
+void cpu_run() {
     timer_init();
     cpu_init();
     ppu_init();
@@ -43,11 +43,34 @@ void *cpu_run(void *p) {
 
         if (!cpu_step()) {
             printf("CPU Stopped\n");
-            return 0;
+            #pragma omp critical
+            {
+                ctx.running = false;
+            }
+            break;
         }
     }
+}
 
-    return 0;
+void ui_run() {
+    u32 prev_frame = 0;
+    ui_init();
+
+    while (!ctx.die) {
+        delay(1);
+        ui_handle_events();
+
+        if (prev_frame != ppu_get_context()->current_frame) {
+            ui_update();
+        }
+
+        prev_frame = ppu_get_context()->current_frame;
+    }
+
+    #pragma omp critical
+    {
+        ctx.running = false;
+    }
 }
 
 int emu_run(int argc, char **argv) {
@@ -63,28 +86,19 @@ int emu_run(int argc, char **argv) {
 
     printf("Cart loaded..\n");
 
-    ui_init();
-    
-    pthread_t t1;
-
-    if (pthread_create(&t1, NULL, cpu_run, NULL)) {
-        fprintf(stderr, "FAILED TO START MAIN CPU THREAD!\n");
-        return -1;
-    }
-
-    u32 prev_frame = 0;
-
-    while(!ctx.die) {
-        delay(1);
-        ui_handle_events();
-
-        if (prev_frame != ppu_get_context()->current_frame) {
-            ui_update();
+    #pragma omp parallel sections
+    {
+        #pragma omp section
+        {
+            cpu_run();
         }
 
-        prev_frame = ppu_get_context()->current_frame;
+        #pragma omp section
+        {
+            ui_run();
+        }
     }
-
+    
     return 0;
 }
 

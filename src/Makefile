@@ -1,6 +1,6 @@
 # compiler and flags
 CC = gcc
-CFLAGS = -std=c11 -Wall -Werror
+CFLAGS = -std=c11 -Wall -Werror -fopenmp
 
 # source files
 SRCS = bus.c \
@@ -37,7 +37,7 @@ all: $(TARGET)
 
 # link the object files to create binary
 $(TARGET): $(OBJS)
-	$(CC) $(OBJS) -o $(TARGET) -lSDL2 -lSDL2_ttf -pthread
+	$(CC) $(OBJS) -o $(TARGET) -lSDL2 -lSDL2_ttf -fopenmp
 
 # compile .cpp files to .o files
 %.o: %.c
