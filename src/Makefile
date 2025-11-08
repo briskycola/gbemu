@@ -37,7 +37,7 @@ all: $(TARGET)
 
 # link the object files to create binary
 $(TARGET): $(OBJS)
-	$(CC) $(OBJS) -o $(TARGET) -lSDL2 -lSDL2_ttf -fopenmp
+	$(CC) $(OBJS) -o $(TARGET) -lSDL2 -fopenmp
 
 # compile .cpp files to .o files
 %.o: %.c
