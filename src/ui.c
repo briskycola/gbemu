@@ -5,8 +5,6 @@
 #include "../include/gamepad.h"
 
 #include <SDL2/SDL.h>
-#include <SDL2/SDL_keycode.h>
-#include <SDL2/SDL_ttf.h>
 
 SDL_Window *sdlWindow;
 SDL_Renderer *sdlRenderer;
@@ -23,9 +21,6 @@ static int scale = 4;
 void ui_init() {
     
     SDL_Init(SDL_INIT_VIDEO);
-    printf("SDL INIT\n");
-    TTF_Init();
-    printf("TTF INIT\n");
 
     SDL_CreateWindowAndRenderer(SCREEN_WIDTH, SCREEN_HEIGHT, 0, &sdlWindow, &sdlRenderer);
 
@@ -90,38 +85,6 @@ void display_tile(SDL_Surface *surface, u16 startLocation, u16 tileNum, int x, i
     }
 }
 
-void update_dbg_window() {
-    int xDraw = 0;
-    int yDraw = 0;
-    int tileNum = 0;
-
-    SDL_Rect rc;
-    rc.x = 0;
-    rc.y = 0;
-    rc.w = debugScreen->w;
-    rc.h = debugScreen->h;
-    SDL_FillRect(debugScreen, &rc, 0xFF111111);
-
-    u16 addr = 0x8000;
-
-    //384 tiles, 24 x 16
-    for (int y=0; y<24; y++) {
-        for (int x=0; x<16; x++) {
-            display_tile(debugScreen, addr, tileNum, xDraw + (x * scale), yDraw + (y * scale));
-            xDraw += (8 * scale);
-            tileNum++;
-        }
-
-        yDraw += (8 * scale);
-        xDraw = 0;
-    }
-
-	SDL_UpdateTexture(sdlDebugTexture, NULL, debugScreen->pixels, debugScreen->pitch);
-	SDL_RenderClear(sdlDebugRenderer);
-	SDL_RenderCopy(sdlDebugRenderer, sdlDebugTexture, NULL, NULL);
-	SDL_RenderPresent(sdlDebugRenderer);
-}
-
 void ui_update() {
     SDL_Rect rc;
     rc.x = rc.y = 0;
@@ -144,8 +107,6 @@ void ui_update() {
     SDL_RenderClear(sdlRenderer);
     SDL_RenderCopy(sdlRenderer, sdlTexture, NULL, NULL);
     SDL_RenderPresent(sdlRenderer);
-
-    update_dbg_window();
 }
 
 void ui_on_key(bool down, u32 key_code) {
