@@ -32,3 +32,12 @@ uint8_t getBitValue(const uint8_t value, const uint8_t bit);
 uint8_t setBit(const uint8_t value, const uint8_t bit);
 uint8_t clearBit(const uint8_t value, const uint8_t bit);
 uint8_t setBitTo(const uint8_t value, const uint8_t bit, const bool set);
+
+// Make a class to represent the number
+// of CPU cycles
+class Cycles
+{
+    public:
+        const uint32_t cycles;
+        Cycles(uint32_t cycles);
+};

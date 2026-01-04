@@ -1,5 +1,9 @@
 #include "common.hpp"
 
+Cycles::Cycles(uint32_t cycles) :
+    cycles(cycles)
+{}
+
 uint8_t composeBits(const uint8_t high, const uint8_t low)
 {
     return static_cast<uint8_t>(high << 1 | low);
