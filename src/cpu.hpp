@@ -5,6 +5,8 @@
 #include <cstdint>
 
 // https://gbdev.io/pandocs/CPU_Registers_and_Flags.html
+// https://gbdev.io/pandocs/CPU_Instruction_Set.html
+// https://gbdev.io/pandocs/Interrupts.html
 
 class Emulator;
 
@@ -32,6 +34,8 @@ static constexpr uint16_t INTERRUPT_LCDC_STATUS = 0x48;
 static constexpr uint16_t INTERRUPT_TIMER       = 0x50;
 static constexpr uint16_t INTERRUPT_SERIAL      = 0x58;
 static constexpr uint16_t INTERRUPT_JOYPAD      = 0x60;
+
+static constexpr uint16_t OPCODE_CB_PREFIX = 0xCB;
 
 class CPU
 {
@@ -64,6 +68,9 @@ class CPU
 
         // Stack Pointer
         WordRegister sp;
+
+        void handleInterrupts();
+        bool handleInterrupt(uint8_t interruptBit, uint16_t interruptVector, uint8_t firedInterrupts);
 
         void setFlagZero(bool set);
         void setFlagSubtract(bool set);
