@@ -20,5 +20,6 @@ class Emulator
         void tick();
     public:
         Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<uint8_t> &saveData = {});
-        std::vector<uint8_t>& getCartridgeRAM() const;
+        const std::vector<uint8_t>& getCartridgeRAM();
+        void run();
 };
