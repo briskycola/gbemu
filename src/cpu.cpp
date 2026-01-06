@@ -174,8 +174,7 @@ Cycles CPU::executeNormalOpcode(uint8_t opcode, uint16_t opcodePC)
 {
     std::cout << "0x"
           << std::uppercase << std::hex
-          << opcodePC << ": " << opcodeNames[opcode]
-          << " (0x" << opcode << ")";
+          << opcodePC << ": " << opcodeNames[opcode] << "\n";
     switch (opcode)
     {
         case 0x00: opcode_00(); break; case 0x01: opcode_01(); break; case 0x02: opcode_02(); break; case 0x03: opcode_03(); break; case 0x04: opcode_04(); break; case 0x05: opcode_05(); break; case 0x06: opcode_06(); break; case 0x07: opcode_07(); break; case 0x08: opcode_08(); break; case 0x09: opcode_09(); break; case 0x0A: opcode_0A(); break; case 0x0B: opcode_0B(); break; case 0x0C: opcode_0C(); break; case 0x0D: opcode_0D(); break; case 0x0E: opcode_0E(); break; case 0x0F: opcode_0F(); break;
@@ -202,8 +201,7 @@ Cycles CPU::executeCBOpcode(const uint8_t opcode, uint16_t opcodePC)
 {
     std::cout << "0x"
           << std::uppercase << std::hex
-          << opcodePC << ": " << opcodeCBNames[opcode]
-          << " (0x" << opcode << ")";
+          << opcodePC << ": " << opcodeCBNames[opcode] << "\n";
     switch (opcode)
     {
         case 0x00: opcode_CB_00(); break; case 0x01: opcode_CB_01(); break; case 0x02: opcode_CB_02(); break; case 0x03: opcode_CB_03(); break; case 0x04: opcode_CB_04(); break; case 0x05: opcode_CB_05(); break; case 0x06: opcode_CB_06(); break; case 0x07: opcode_CB_07(); break; case 0x08: opcode_CB_08(); break; case 0x09: opcode_CB_09(); break; case 0x0A: opcode_CB_0A(); break; case 0x0B: opcode_CB_0B(); break; case 0x0C: opcode_CB_0C(); break; case 0x0D: opcode_CB_0D(); break; case 0x0E: opcode_CB_0E(); break; case 0x0F: opcode_CB_0F(); break;
