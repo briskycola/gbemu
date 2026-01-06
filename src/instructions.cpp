@@ -216,8 +216,38 @@ void CPU::opcode_cpl()
 // DAA
 void CPU::opcode_daa()
 {
-    // TODO
-    return;
+    uint8_t reg = a.getValue();
+
+    uint16_t correction = f.CarryFlag() ? 0x60 : 0x00;
+
+    if (f.HalfCarryFlag() || !f.SubtractionFlag() && ((reg & 0x0F) > 9))
+    {
+        correction |= 0x06;
+    }
+
+    if (f.CarryFlag() || (!f.SubtractionFlag() && (reg > 0x99)))
+    {
+        correction |= 0x60;
+    }
+
+    if (f.SubtractionFlag())
+    {
+        reg = static_cast<uint8_t>(reg - correction);
+    }
+
+    else
+    {
+        reg = static_cast<uint8_t>(reg + correction);
+    }
+
+    if (((correction << 2) & 0x100) != 0)
+    {
+        setFlagCarry(true);
+    }
+
+    setFlagZero(reg == 0);
+    setFlagHalfCarry(false);
+    a.set(static_cast<uint8_t>(reg));
 }
 
 // DEC
@@ -351,136 +381,148 @@ void CPU::opcode_halt()
 // LD
 void CPU::opcode_ld(ByteRegister &reg)
 {
-    // TODO
-    return;
+    uint8_t byte = getByteFromPC();
+    reg.set(byte);
 }
 
 void CPU::opcode_ld(ByteRegister &reg, const ByteRegister &byteReg)
 {
-    // TODO
-    return;
+    reg.set(byteReg.getValue());
 }
 
 void CPU::opcode_ld(ByteRegister &reg, const Address &address)
 {
-    // TODO
-    return;
+    reg.set(emulator.mmu.read(address));
 }
 
-void opcode_ld(RegisterPair& reg)
+void CPU::opcode_ld(RegisterPair& reg)
 {
-    // TODO
-    return;
-}
-void opcode_ld(WordRegister& reg)
-{
-    // TODO
-    return;
+    uint16_t word = getWordFromPC();
+    reg.set(word);
 }
 
-void opcode_ld(WordRegister &reg, const RegisterPair &regPair)
+void CPU::opcode_ld(WordRegister& reg)
 {
-    // TODO
-    return;
+    uint16_t word = getWordFromPC();
+    reg.set(word);
 }
 
-void opcode_ld(const Address &address)
+void CPU::opcode_ld(WordRegister &reg, const RegisterPair &regPair)
 {
-    // TODO
-    return;
+    reg.set(regPair.getValue());
 }
 
-void opcode_ld(const Address &address, const ByteRegister &byteReg)
+void CPU::opcode_ld(const Address &address)
 {
-    // TODO
-    return;
+    uint8_t byte = getByteFromPC();
+    emulator.mmu.write(address, byte);
 }
 
-void opcode_ld(const Address &address, const WordRegister &wordReg)
+void CPU::opcode_ld(const Address &address, const ByteRegister &byteReg)
 {
-    // TODO
-    return;
+    emulator.mmu.write(address, byteReg.getValue());
+}
+
+void CPU::opcode_ld(const Address &address, const WordRegister &wordReg)
+{
+    emulator.mmu.write(address, wordReg.getLowByte());
+    emulator.mmu.write(address + 1, wordReg.getHighByte());
 }
 
 // (nn), A
-void opcode_ld_to_addr(const ByteRegister &reg)
+void CPU::opcode_ld_to_addr(const ByteRegister &reg)
 {
-    // TODO
-    return;
+    uint16_t address = getWordFromPC();
+    emulator.mmu.write(Address(address), reg.getValue());
 }
-void opcode_ld_from_addr(ByteRegister &reg)
+
+void CPU::opcode_ld_from_addr(ByteRegister &reg)
 {
-    // TODO
-    return;
+    uint16_t word = getWordFromPC();
+    reg.set(emulator.mmu.read(word));
 }
 
 // LDD
-uint8_t _opcode_ldd(uint8_t value)
+//uint8_t CPU::_opcode_ldd(uint8_t value)
+//{
+//    reg.set(emu)
+//}
+
+void CPU::opcode_ldd(ByteRegister &reg, const Address &address)
 {
-    // TODO
-    return 0x0;
+    reg.set(emulator.mmu.read(address));
+    hl.decrement();
 }
 
-void opcode_ldd(ByteRegister &reg, const Address &address)
+void CPU::opcode_ldd(const Address &address, const ByteRegister &reg)
 {
-    // TODO
-    return;
-}
-
-void opcode_ldd(const Address &address, const ByteRegister &reg)
-{
-    // TODO
-    return;
+    emulator.mmu.write(address, reg.getValue());
+    hl.decrement();
 }
 
 // LDH
 
 // A, (n)
-void opcode_ldh_into_a()
+void CPU::opcode_ldh_into_a()
 {
-    // TODO
-    return;
+    uint8_t offset = getByteFromPC();
+    Address address = Address(0xFF00 + offset);
+
+    uint8_t value = emulator.mmu.read(address);
+    a.set(value);
 }
 
 // (n), A
-void opcode_ldh_into_data()
+void CPU::opcode_ldh_into_data()
 {
-    // TODO
-    return;
+    uint8_t offset = getByteFromPC();
+    Address address = Address(0xFF00 + offset);
+
+    emulator.mmu.write(address, a.getValue());
 }
 
 // (reg), A
-void opcode_ldh_into_c()
+void CPU::opcode_ldh_into_c()
 {
-    // TODO
-    return;
+    uint8_t offset = c.getValue();
+    Address address = Address(0xFF00 + offset);
+
+    emulator.mmu.write(address, a.getValue());
 }
 
 // A, (reg)
-void opcode_ldh_c_into_a()
+void CPU::opcode_ldh_c_into_a()
 {
-    // TODO
-    return;
+    Address address = Address(0xFF00 + c.getValue());
+    a.set(emulator.mmu.read(address));
 }
 
 // LDHL
-void opcode_ldhl()
+void CPU::opcode_ldhl()
 {
-    // TODO
-    return;
+    uint16_t reg = sp.getValue();
+    int8_t value = getSignedByteFromPC();
+    int32_t result = static_cast<int32_t>(reg + value);
+
+    setFlagZero(false);
+    setFlagSubtract(false);
+    setFlagHalfCarry(((reg ^ value ^ (result & 0xFFFF)) & 0x10) == 0x10);
+    setFlagCarry(((reg ^ value ^ (result & 0xFFFF)) & 0x100) == 0x100);
+
+    hl.set(static_cast<uint16_t>(result));
 }
 
 // LDI
-void opcode_ldi(ByteRegister &reg, const Address &address)
+void CPU::opcode_ldi(ByteRegister &reg, const Address &address)
 {
-    // TODO
-    return;
+    reg.set(emulator.mmu.read(address));
+    hl.increment();
 }
 
-void opcode_ldi(const Address &address, const ByteRegister &reg)
+void CPU::opcode_ldi(const Address &address, const ByteRegister &reg)
 {
-    // TODO
-    return;
+    emulator.mmu.write(address, reg.getValue());
+    hl.increment();
 }
 
 // NOP
@@ -491,315 +533,448 @@ void CPU::opcode_nop()
 }
 
 // OR
-void _opcode_or(uint8_t value)
+void CPU::_opcode_or(uint8_t value)
 {
-    // TODO
-    return;
+    uint8_t reg = a.getValue();
+    uint8_t result = reg | value;
+
+    a.set(result);
+
+    setFlagZero(a.getValue() == 0);
+    setFlagSubtract(false);
+    setFlagHalfCarry(false);
+    setFlagCarry(false);
 }
 
-void opcode_or()
+void CPU::opcode_or()
 {
-    // TODO
-    return;
+    _opcode_or(getByteFromPC());
 }
 
-void opcode_or(const ByteRegister &reg)
+void CPU::opcode_or(const ByteRegister &reg)
 {
-    // TODO
-    return;
+    _opcode_or(reg.getValue());
 }
 
-void opcode_or(const Address &address)
+void CPU::opcode_or(const Address &address)
 {
-    // TODO
-    return;
+    _opcode_or(emulator.mmu.read(address));
 }
 
 // POP
-void opcode_pop(RegisterPair &reg)
+void CPU::opcode_pop(RegisterPair &reg)
 {
-    // TODO
-    return;
+    stackPop(reg);
 }
 
 // PUSH
-void opcode_push(const RegisterPair &reg)
+void CPU::opcode_push(const RegisterPair &reg)
 {
-    // TODO
-    return;
+    stackPush(reg);
 }
 
 // RES
-void opcode_res(uint8_t bit, ByteRegister &reg)
+void CPU::opcode_res(uint8_t bit, ByteRegister &reg)
 {
-    // TODO
-    return;
+    uint8_t result = clearBit(reg.getValue(), bit);
+    reg.set(result);
 }
 
-void opcode_res(uint8_t bit, Address &&address)
+void CPU::opcode_res(uint8_t bit, Address &&address)
 {
-    // TODO
-    return;
+    uint8_t value = emulator.mmu.read(address);
+    uint8_t result = clearBit(value, bit);
+    emulator.mmu.write(address, value);
 }
 
 // RET
-void opcode_ret()
+void CPU::opcode_ret()
 {
-    // TODO
-    return;
+    stackPop(pc);
 }
 
-void opcode_ret(Condition condition)
+void CPU::opcode_ret(Condition condition)
 {
-    // TODO
-    return;
+    if (isConditon(condition))
+    {
+        opcode_ret();
+    }
 }
 
 // RETI
-void opcode_reti()
+void CPU::opcode_reti()
 {
-    // TODO
-    return;
+    opcode_ret();
+    opcode_ei();
 }
 
 // RL
-uint8_t _opcode_rl(uint8_t value)
+uint8_t CPU::_opcode_rl(uint8_t value)
 {
-    // TODO
-    return 0x0;
+    uint8_t carry = f.getCarryFlagValue();
+    bool willCarry = checkBit(value, 7);
+    uint8_t result = static_cast<uint8_t>(value << 7);
+
+    setFlagCarry(willCarry);
+    result |= carry;
+
+    setFlagZero(result == 0);
+    setFlagSubtract(false);
+    setFlagHalfCarry(false);
+
+    return result;
 }
 
-void opcode_rla()
+void CPU::opcode_rl(ByteRegister &reg)
 {
-    // TODO
-    return;
+    uint8_t result = _opcode_rl(reg.getValue());
+    reg.set(result);
 }
 
-void opcode_rl(ByteRegister &reg)
+void CPU::opcode_rl(Address &&address)
 {
-    // TODO
-    return;
+    uint8_t result = _opcode_rl(emulator.mmu.read(address));
+    emulator.mmu.write(address, result);
 }
 
-void opcode_rl(Address &&address)
+// RLA
+void CPU::opcode_rla()
 {
-    // TODO
-    return;
+    opcode_rl(a);
+    setFlagZero(false);
 }
 
 // RLC
-uint8_t _opcode_rlc(uint8_t value)
+uint8_t CPU::_opcode_rlc(uint8_t value)
 {
-    // TODO
-    return 0x0;
+    uint8_t carryFlag = checkBit(value, 7);
+    uint8_t truncatedBit = checkBit(value, 7);
+    uint8_t result = static_cast<uint8_t>((value << 1) | truncatedBit);
+
+    setFlagZero(result == 0);
+    setFlagSubtract(false);
+    setFlagHalfCarry(false);
+    setFlagCarry(carryFlag);
+
+    return result;
 }
 
-void opcode_rlca()
+void CPU::opcode_rlc(ByteRegister &reg)
 {
-    // TODO
-    return;
+    uint8_t result = _opcode_rlc(reg.getValue());
+    reg.set(result);
 }
 
-void opcode_rlc(ByteRegister &reg)
+void CPU::opcode_rlc(Address &&address)
 {
-    // TODO
-    return;
+    uint8_t result = _opcode_rlc(emulator.mmu.read(address));
+    emulator.mmu.write(address, result);
 }
 
-void opcode_rlc(Address &&address)
+// RLCA
+void CPU::opcode_rlca()
 {
-    // TODO
-    return;
+    opcode_rlc(a);
+    setFlagZero(false);
 }
 
 // RR
-uint8_t _opcode_rr(uint8_t value)
+uint8_t CPU::_opcode_rr(uint8_t value)
 {
-    // TODO
-    return 0x0;
+    uint8_t carry = f.getCarryFlagValue();
+    bool willCarry = checkBit(value, 0);
+    uint8_t result = static_cast<uint8_t>(value >> 1);
+
+    result |= (carry << 7);
+
+    setFlagZero(result == 0);
+    setFlagSubtract(false);
+    setFlagHalfCarry(false);
+    setFlagCarry(willCarry);
+
+    return result;
 }
 
-void opcode_rra()
+void CPU::opcode_rr(ByteRegister &reg)
 {
-    // TODO
-    return;
+    uint8_t result = _opcode_rr(reg.getValue());
+    reg.set(result);
 }
 
-void opcode_rr(ByteRegister &reg)
+void CPU::opcode_rr(Address &&address)
 {
-    // TODO
-    return;
+    uint8_t result = _opcode_rr(emulator.mmu.read(address));
+    emulator.mmu.write(address, result);
 }
 
-void opcode_rr(Address &&address)
+// RRA
+void CPU::opcode_rra()
 {
-    // TODO
-    return;
+    opcode_rr(a);
+    setFlagZero(false);
 }
 
 // RRC
-uint8_t _opcode_rrc(uint8_t value)
+uint8_t CPU::_opcode_rrc(uint8_t value)
 {
-    // TODO
-    return 0x0;
+    uint8_t carryFlag = checkBit(value, 0);
+    uint8_t truncatedBit = checkBit(value, 0);
+    uint8_t result = static_cast<uint8_t>((value >> 1) | (truncatedBit << 7));
+
+    setFlagZero(result == 0);
+    setFlagSubtract(false);
+    setFlagHalfCarry(false);
+    setFlagCarry(carryFlag);
+
+    return result;
 }
 
-void opcode_rrca()
+void CPU::opcode_rrc(ByteRegister &reg)
 {
-    // TODO
-    return;
+    uint8_t result = _opcode_rrc(reg.getValue());
+    reg.set(result);
 }
 
-void opcode_rrc(ByteRegister &reg)
+void CPU::opcode_rrc(Address &&address)
 {
-    // TODO
-    return;
+    uint8_t result = _opcode_rrc(emulator.mmu.read(address));
+    emulator.mmu.write(address, result);
 }
 
-void opcode_rrc(Address &&address)
+// RRCA
+void CPU::opcode_rrca()
 {
-    // TODO
-    return;
+    opcode_rrc(a);
+    setFlagZero(false);
 }
 
 // RST
-void opcode_rst(uint8_t offset)
+void CPU::opcode_rst(uint8_t offset)
 {
-    // TODO
-    return;
+    stackPush(pc);
+    pc.set(offset);
+}
+
+// SBC
+void CPU::_opcode_sbc(const uint8_t value)
+{
+    uint8_t carry = f.getCarryFlagValue();
+    uint8_t reg = a.getValue();
+
+    int32_t fullResult = reg - value - carry;
+    uint8_t result = static_cast<uint8_t>(fullResult);
+
+    setFlagZero(result == 0);
+    setFlagSubtract(true);
+    setFlagHalfCarry(((reg & 0xF) - (value & 0xF) - carry) < 0);
+    setFlagCarry(fullResult < 0);
+}
+
+void CPU::opcode_sbc()
+{
+    _opcode_sbc(getByteFromPC());
+}
+
+void CPU::opcode_sbc(ByteRegister &reg)
+{
+    _opcode_sbc(reg.getValue());
+}
+
+void CPU::opcode_sbc(Address &&address)
+{
+    _opcode_sbc(emulator.mmu.read(address));
 }
 
 // SCF
-void opcode_scf()
+void CPU::opcode_scf()
 {
-    // TODO
-    return;
+    setFlagSubtract(false);
+    setFlagHalfCarry(false);
+    setFlagCarry(true);
 }
 
 // SET
-void opcode_set(uint8_t bit, ByteRegister &reg)
+void CPU::opcode_set(uint8_t bit, ByteRegister &reg)
 {
-    // TODO
-    return;
+    uint8_t result = setBit(reg.getValue(), bit);
+    reg.set(result);
 }
 
-void opcode_set(uint8_t bit, Address &&address)
+void CPU::opcode_set(uint8_t bit, Address &&address)
 {
-    // TODO
-    return;
+    uint8_t value = emulator.mmu.read(address);
+    uint8_t result = setBit(value, bit);
+    emulator.mmu.write(address, result);
 }
 
 // SLA
-uint8_t _opcode_sla(uint8_t value)
+uint8_t CPU::_opcode_sla(uint8_t value)
 {
-    // TODO
-    return 0x0;
+    uint8_t carryBit = checkBit(value, 7);
+    uint8_t result = static_cast<uint8_t>(value << 1);
+
+    setFlagZero(result == 0);
+    setFlagSubtract(false);
+    setFlagHalfCarry(false);
+    setFlagCarry(carryBit);
+
+    return result;
 }
 
-void opcode_sla(ByteRegister &reg)
+void CPU::opcode_sla(ByteRegister &reg)
 {
-    // TODO
-    return;
+    uint8_t result = _opcode_sla(reg.getValue());
+    reg.set(result);
 }
 
-void opcode_sla(Address &&address)
+void CPU::opcode_sla(Address &&address)
 {
-    // TODO
-    return;
+    uint8_t result = _opcode_sla(emulator.mmu.read(address));
+    emulator.mmu.write(address, result);
 }
 
 // SRA
-uint8_t _opcode_sra(uint8_t value)
+uint8_t CPU::_opcode_sra(uint8_t value)
 {
-    // TODO
-    return 0x0;
+    uint8_t carryBit = checkBit(value, 0);
+    uint8_t topBit = checkBit(value, 7);
+    uint8_t result = static_cast<uint8_t>(value >> 1);
+
+    result = setBitTo(result, 7, topBit);
+
+    setFlagZero(result == 0);
+    setFlagSubtract(false);
+    setFlagHalfCarry(false);
+    setFlagCarry(carryBit);
+
+    return result;
 }
 
-void opcode_sra(ByteRegister &reg)
+void CPU::opcode_sra(ByteRegister &reg)
 {
-    // TODO
-    return;
+    uint8_t result = _opcode_sra(reg.getValue());
+    reg.set(result);
 }
 
-void opcode_sra(Address &&address)
+void CPU::opcode_sra(Address &&address)
 {
-    // TODO
-    return;
+    uint8_t result = _opcode_sra(emulator.mmu.read(address));
+    emulator.mmu.write(address, result);
 }
 
 // SRL
-uint8_t _opcode_srl(uint8_t value)
+uint8_t CPU::_opcode_srl(uint8_t value)
 {
-    // TODO
-    return 0x0;
+    bool leastBitSet = checkBit(value, 0);
+    uint8_t result = (value >> 1);
+
+    setFlagZero(result == 0);
+    setFlagSubtract(false);
+    setFlagHalfCarry(false);
+    setFlagCarry(leastBitSet);
+
+    return result;
 }
 
-void opcode_srl(ByteRegister &reg)
+void CPU::opcode_srl(ByteRegister &reg)
 {
-    // TODO
-    return;
+    uint8_t result = _opcode_srl(reg.getValue());
+    reg.set(result);
 }
 
-void opcode_srl(Address &&address)
+void CPU::opcode_srl(Address &&address)
 {
-    // TODO
-    return;
+    uint8_t result = _opcode_srl(emulator.mmu.read(address));
+    emulator.mmu.write(address, result);
 }
 
 // STOP
-void opcode_stop()
+void CPU::opcode_stop()
 {
-    // TODO
-    return;
+    isHalted = true;
 }
 
 // SUB
-void _opcode_sub(uint8_t value)
+void CPU::_opcode_sub(uint8_t value)
 {
-    // TODO
-    return;
+    uint8_t reg = a.getValue();
+    uint8_t result = static_cast<uint8_t>(reg - value);
+
+    a.set(result);
+
+    setFlagZero(a.getValue() == 0);
+    setFlagSubtract(true);
+    setFlagHalfCarry(((reg & 0xF) - (value & 0xF)) < 0);
+    setFlagCarry(reg < value);
+}
+
+void CPU::opcode_sub()
+{
+    _opcode_sub(getByteFromPC());
+}
+
+void CPU::opcode_sub(ByteRegister &reg)
+{
+    _opcode_sub(reg.getValue());
+}
+
+void CPU::opcode_sub(Address &&address)
+{
+    _opcode_sub(emulator.mmu.read(address));
 }
 
 // SWAP
-uint8_t _opcode_swap(uint8_t value)
+uint8_t CPU::_opcode_swap(uint8_t value)
 {
-    // TODO
-    return 0x0;
+    uint8_t lowerNibble = value & 0x0F;
+    uint8_t upperNibble = (value & 0xF0) >> 4;
+    uint8_t result = composeNibbles(lowerNibble, upperNibble);
+
+    setFlagZero(result == 0);
+    setFlagSubtract(false);
+    setFlagHalfCarry(false);
+    setFlagCarry(false);
+
+    return result;
 }
 
-void opcode_swap(ByteRegister &reg)
+void CPU::opcode_swap(ByteRegister &reg)
 {
-    // TODO
-    return;
+    uint8_t result = _opcode_swap(reg.getValue());
+    reg.set(result);
 }
 
-void opcode_swap(Address &&address)
+void CPU::opcode_swap(Address &&address)
 {
-    // TODO
-    return;
+    uint8_t result = _opcode_swap(emulator.mmu.read(address));
+    emulator.mmu.write(address, result);
 }
 
 // XOR
-void _opcode_xor(uint8_t value)
+void CPU::_opcode_xor(uint8_t value)
 {
-    // TODO
-    return;
+    uint8_t reg = a.getValue();
+    uint8_t result = reg ^ value;
+
+    setFlagZero(result == 0);
+    setFlagSubtract(false);
+    setFlagHalfCarry(false);
+    setFlagCarry(false);
+
+    a.set(result);
 }
 
-void opcode_xor()
+void CPU::opcode_xor()
 {
-    // TODO
-    return;
+    _opcode_xor(getByteFromPC());
 }
 
-void opcode_xor(const ByteRegister &reg)
+void CPU::opcode_xor(const ByteRegister &reg)
 {
-    // TODO
-    return;
+    _opcode_xor(reg.getValue());
 }
 
-void opcode_xor(const Address &address)
+void CPU::opcode_xor(const Address &address)
 {
-    // TODO
-    return;
+    _opcode_xor(emulator.mmu.read(address));
 }
