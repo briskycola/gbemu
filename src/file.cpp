@@ -1,11 +1,10 @@
 #include "file.hpp"
-#include "cartridge_metadata.hpp"
 #include <iostream>
 #include <fstream>
 #include <vector>
 #include <cstdint>
 
-void readFile(const std::string &filename)
+std::vector<uint8_t> readFile(const std::string &filename)
 {
     std::ifstream romFile;
     std::vector<uint8_t> romData;
@@ -42,5 +41,5 @@ void readFile(const std::string &filename)
     // dynamic array of bytes to better
     // represent the ROM data
     romData = std::vector<uint8_t>(fileContents.begin(), fileContents.end());
-    getInfo(romData);
+    return romData;
 }

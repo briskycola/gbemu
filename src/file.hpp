@@ -1,3 +1,5 @@
 #include <string>
+#include <vector>
+#include <cstdint>
 
-void readFile(const std::string &filename);
+std::vector<uint8_t> readFile(const std::string &filename);
