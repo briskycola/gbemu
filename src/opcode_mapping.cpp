@@ -1,4 +1,4 @@
-//#include "cpu.hpp"
+#include "cpu.hpp"
 
 // Credit: jgilchrist
 // https://raw.githubusercontent.com/jgilchrist/gbemu/refs/heads/master/src/cpu/opcode_mapping.cc
@@ -11,7 +11,7 @@
  * by the Gameboy's processor.
  */
 
-//void CPU::opcode_00() { opcode_nop(); }
+void CPU::opcode_00() { opcode_nop(); }
 //void CPU::opcode_01() { opcode_ld(bc); }
 //void CPU::opcode_02() { opcode_ld(Address(bc), a); }
 //void CPU::opcode_03() { opcode_inc(bc); }
