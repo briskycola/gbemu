@@ -64,7 +64,7 @@ std::string getTitleFromCartridge(const std::vector<uint8_t> &rom)
         name[i] = static_cast<char>(rom[TITLE_START_ADDRESS + i]);
     }
 
-    return name;
+    return std::string(name, TITLE_LENGTH);
 }
 
 ROMSize getRomSize(uint8_t size)

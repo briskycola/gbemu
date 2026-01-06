@@ -10,7 +10,7 @@ Cartridge::Cartridge(std::vector<uint8_t> rom, const std::vector<uint8_t> &ram,
     ram(std::move(ram)),
     cartridgeInfo(std::move(cartridgeInfo))
 {
-    uint32_t cartridgeRAMSize = getActualRamSize(cartridgeInfo->ramSize);
+    uint32_t cartridgeRAMSize = getActualRamSize(this->cartridgeInfo->ramSize);
 
     if (!ram.empty())
     {
