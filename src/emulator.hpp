@@ -4,6 +4,8 @@
 #include "cartridge.hpp"
 #include "mmu.hpp"
 #include "timer.hpp"
+#include "serial.hpp"
+#include "input.hpp"
 #include <memory>
 
 class Emulator
@@ -19,6 +21,12 @@ class Emulator
 
         friend class Timer;
         Timer timer;
+
+        friend class Serial;
+        Serial serial;
+
+        friend class Input;
+        Input input;
 
         uint32_t elapsedCycles = 0;
         void tick();

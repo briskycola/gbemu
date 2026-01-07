@@ -4,7 +4,8 @@ Emulator::Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<
     cartridge(getCartridge(cartridgeData, saveData)),
     cpu(*this),
     mmu(*this),
-    timer(*this)
+    timer(*this),
+    serial()
 {}
 
 const std::vector<uint8_t>& Emulator::getCartridgeRAM()
