@@ -3,6 +3,7 @@
 #include "cpu.hpp"
 #include "cartridge.hpp"
 #include "mmu.hpp"
+#include "timer.hpp"
 #include <memory>
 
 class Emulator
@@ -15,6 +16,9 @@ class Emulator
 
         friend class MMU;
         MMU mmu;
+
+        friend class Timer;
+        Timer timer;
 
         uint32_t elapsedCycles = 0;
         void tick();

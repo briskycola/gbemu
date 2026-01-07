@@ -3,7 +3,8 @@
 Emulator::Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<uint8_t> &saveData) :
     cartridge(getCartridge(cartridgeData, saveData)),
     cpu(*this),
-    mmu(*this)
+    mmu(*this),
+    timer(*this)
 {}
 
 const std::vector<uint8_t>& Emulator::getCartridgeRAM()
