@@ -29,3 +29,13 @@ void Emulator::run()
         tick();
     }
 }
+
+void Emulator::buttonPressed(GBButton button)
+{
+    input.buttonPressed(button);
+}
+
+void Emulator::buttonReleased(GBButton button)
+{
+    input.buttonReleased(button);
+}

@@ -34,4 +34,7 @@ class Emulator
         Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<uint8_t> &saveData = {});
         const std::vector<uint8_t>& getCartridgeRAM();
         void run();
+
+        void buttonPressed(GBButton button);
+        void buttonReleased(GBButton button);
 };
