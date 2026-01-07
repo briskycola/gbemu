@@ -16,6 +16,7 @@ void Emulator::tick()
 {
     Cycles cycles = cpu.tick();
     elapsedCycles += cycles.cycles;
+    timer.tick(cycles.cycles);
 }
 
 void Emulator::run()
