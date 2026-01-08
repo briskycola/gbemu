@@ -5,7 +5,8 @@ Emulator::Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<
     cpu(*this),
     mmu(*this),
     timer(*this),
-    serial()
+    serial(),
+    ppu(*this)
 {}
 
 const std::vector<uint8_t>& Emulator::getCartridgeRAM()
@@ -15,16 +16,20 @@ const std::vector<uint8_t>& Emulator::getCartridgeRAM()
 
 void Emulator::tick()
 {
-    Cycles cycles = cpu.tick();
-    elapsedCycles += cycles.cycles;
-    timer.tick(cycles.cycles);
+    Cycles m = cpu.tick();    // M-cycles
+    Cycles t{ m.cycles * 4 }; // T-cycles
+
+    elapsedCycles += t.cycles;
+    ppu.tick(t);
+    timer.tick(t.cycles);
 }
 
-void Emulator::run()
+void Emulator::run(std::function<bool()> shoudCloseCallback, std::function<void(const FrameBuffer&)> vblankCallback)
 {
-    // Right now, I'm just going to make
-    // sure NOP runs infinitely
-    while (true)
+    this->shouldCloseCallback = shoudCloseCallback;
+    ppu.registerVBlankCallback(vblankCallback);
+
+    while (!shoudCloseCallback())
     {
         tick();
     }

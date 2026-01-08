@@ -22,11 +22,10 @@ class NoCopy
         NoCopy &operator = (const NoCopy&) = delete;
 };
 
-
 // Some useful bitwise operations
 uint8_t composeBits(const uint8_t high, const uint8_t low);
 uint8_t composeNibbles(const uint8_t high, const uint8_t low);
-uint8_t composeBytes(const uint8_t high, const uint8_t low);
+uint16_t composeBytes(const uint8_t high, const uint8_t low);
 bool checkBit(const uint8_t value, const uint8_t bit);
 uint8_t getBitValue(const uint8_t value, const uint8_t bit);
 uint8_t setBit(const uint8_t value, const uint8_t bit);
@@ -40,4 +39,29 @@ class Cycles
     public:
         const uint32_t cycles;
         Cycles(uint32_t cycles);
+};
+
+enum class GBColor
+{
+    Color0, // White
+    Color1, // Light gray
+    Color2, // Dark gray
+    Color3, // Black
+};
+
+enum class Color
+{
+    White,
+    LightGray,
+    DarkGray,
+    Black,
+};
+
+class colorPalette
+{
+    public:
+        Color color0 = Color::White;
+        Color color1 = Color::LightGray;
+        Color color2 = Color::DarkGray;
+        Color color3 = Color::Black;
 };

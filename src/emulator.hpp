@@ -6,12 +6,15 @@
 #include "timer.hpp"
 #include "serial.hpp"
 #include "input.hpp"
+#include "ppu.hpp"
 #include <memory>
 
 class Emulator
 {
     private:
         std::shared_ptr<Cartridge> cartridge;
+        std::function<bool()> shouldCloseCallback;
+        uint32_t elapsedCycles = 0;
 
         friend class CPU;
         CPU cpu;
@@ -28,12 +31,14 @@ class Emulator
         friend class Input;
         Input input;
 
-        uint32_t elapsedCycles = 0;
+        friend class PPU;
+        PPU ppu;
+
         void tick();
     public:
         Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<uint8_t> &saveData = {});
         const std::vector<uint8_t>& getCartridgeRAM();
-        void run();
+        void run(std::function<bool()> shouldCloseCallback, std::function<void(const FrameBuffer&)> vblankCallback);
 
         void buttonPressed(GBButton button);
         void buttonReleased(GBButton button);

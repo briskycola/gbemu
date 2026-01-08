@@ -584,7 +584,7 @@ void CPU::opcode_res(uint8_t bit, Address &&address)
 {
     uint8_t value = emulator.mmu.read(address);
     uint8_t result = clearBit(value, bit);
-    emulator.mmu.write(address, value);
+    emulator.mmu.write(address, result);
 }
 
 // RET
@@ -613,7 +613,7 @@ uint8_t CPU::_opcode_rl(uint8_t value)
 {
     uint8_t carry = f.getCarryFlagValue();
     bool willCarry = checkBit(value, 7);
-    uint8_t result = static_cast<uint8_t>(value << 7);
+    uint8_t result = static_cast<uint8_t>(value << 1);
 
     setFlagCarry(willCarry);
     result |= carry;
@@ -768,6 +768,8 @@ void CPU::_opcode_sbc(const uint8_t value)
     setFlagSubtract(true);
     setFlagHalfCarry(((reg & 0xF) - (value & 0xF) - carry) < 0);
     setFlagCarry(fullResult < 0);
+
+    a.set(result);
 }
 
 void CPU::opcode_sbc()

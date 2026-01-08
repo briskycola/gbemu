@@ -27,6 +27,7 @@ uint8_t Input::getInput() const
         buttons = setBitTo(buttons, 1, !left);
         buttons = setBitTo(buttons, 2, !up);
         buttons = setBitTo(buttons, 3, !down);
+        buttons &= 0x0F;
     }
 
     if (buttonSwitch)
@@ -35,12 +36,14 @@ uint8_t Input::getInput() const
         buttons = setBitTo(buttons, 1, !b);
         buttons = setBitTo(buttons, 2, !select);
         buttons = setBitTo(buttons, 3, !start);
+        buttons &= 0x0F;
     }
 
     buttons = setBitTo(buttons, 4, !directionSwitch);
     buttons = setBitTo(buttons, 5, !buttonSwitch);
 
-    return buttons;
+    //return buttons;
+    return buttons | 0b1100'0000;
 }
 
 void Input::setButton(GBButton button, bool set)

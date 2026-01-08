@@ -21,15 +21,14 @@ uint8_t MMU::read(const Address &address) const
     // Cartridge ROM
     if (address.inRange(CARTRIDGE_ROM_ADDRESS_START, CARTRIDGE_ROM_ADDRESS_END))
     {
-        if (address.inRange(0x0, 0xFF)) return bootROM[address.getValue()];
+        if (address.inRange(0x0, 0xFF) && isBootROMActive()) return bootROM[address.getValue()];
         return emulator.cartridge->read(address);
     }
 
     // VRAM
     if (address.inRange(VRAM_ADDRESS_START, VRAM_ADDRESS_END))
     {
-        // TODO
-        return 0xFF;
+        return emulator.ppu.read(address.getValue() - 0x8000);
     }
 
     // Cartridge RAM (external)
@@ -59,15 +58,14 @@ uint8_t MMU::read(const Address &address) const
     // Reading from unsuable memory
     if (address.inRange(0xFEA0, 0xFEFF))
     {
-        std::cerr << "Reading from unusable memory: " << std::hex << address.getValue();
+        std::cerr << "Reading from unusable memory: " << std::hex << address.getValue() << "\n";
         return 0xFF;
     }
 
     // I/O Registers
     if (address.inRange(IO_ADDRESS_START, IO_ADDRESS_END))
     {
-        // TODO
-        return 0xFF;
+        return readIO(address);
     }
 
     // HRAM
@@ -91,7 +89,7 @@ uint8_t MMU::readIO(const Address &address) const
         case 0xFF00: return emulator.input.getInput();
         case 0xFF01: return emulator.serial.read();
         case 0xFF02: return 0xFF;
-        case 0xFF03: return 0xFF; /* TODO */
+        case 0xFF03: return 0xFF;
         case 0xFF04: return emulator.timer.getDivider();
         case 0xFF05: return emulator.timer.getTimer();
         case 0xFF06: return emulator.timer.getTimerModulo();
@@ -171,19 +169,18 @@ uint8_t MMU::readIO(const Address &address) const
         case 0xFF3E:
         case 0xFF3F: return 0xFF;
 
-        // TODO: Video
-        case 0xFF40: /* TODO */
-        case 0xFF41: /* TODO */
-        case 0xFF42: /* TODO */
-        case 0xFF43: /* TODO */
-        case 0xFF44: /* TODO */
-        case 0xFF45: /* TODO */
-        case 0xFF46: /* TODO */
-        case 0xFF47: /* TODO */
-        case 0xFF48: /* TODO */
-        case 0xFF49: /* TODO */
-        case 0xFF4A: /* TODO */
-        case 0xFF4B: /* TODO */
+        case 0xFF40: return emulator.ppu.controlByte;
+        case 0xFF41: return emulator.ppu.lcdStatus.getValue();
+        case 0xFF42: return emulator.ppu.scrollY.getValue();
+        case 0xFF43: return emulator.ppu.scrollX.getValue();
+        case 0xFF44: return emulator.ppu.line.getValue();
+        case 0xFF45: return emulator.ppu.lyCompare.getValue();
+        case 0xFF46: return 0xFF;
+        case 0xFF47: return emulator.ppu.bgPalette.getValue();
+        case 0xFF48: return emulator.ppu.spritePalette0.getValue();
+        case 0xFF49: return emulator.ppu.spritePalette1.getValue();
+        case 0xFF4A: return emulator.ppu.windowY.getValue();
+        case 0xFF4B: return emulator.ppu.windowX.getValue();
 
         // Unimplemented: CGB mode behavior
         case 0xFF4C: return 0xFF;
@@ -192,7 +189,7 @@ uint8_t MMU::readIO(const Address &address) const
         case 0xFF4F: return 0xFF;
 
         // Boot ROM
-        case 0xFF50: return 0xFF;
+        case 0xFF50: return disableBootROMSwitch.getValue();
         case 0xFF51: return 0xFF;
         case 0xFF52: return 0xFF;
         case 0xFF53: return 0xFF;
@@ -273,7 +270,7 @@ void MMU::write(const Address &address, const uint8_t value)
     // VRAM
     if (address.inRange(VRAM_ADDRESS_START, VRAM_ADDRESS_END))
     {
-        // TODO
+        emulator.ppu.write(address.getValue() - 0x8000, value);
         return;
     }
 
@@ -281,6 +278,7 @@ void MMU::write(const Address &address, const uint8_t value)
     if (address.inRange(CARTRIDGE_RAM_ADDRESS_START, CARTRIDGE_RAM_ADDRESS_END))
     {
         emulator.cartridge->write(address, value);
+        return;
     }
 
     // WRAM
@@ -307,14 +305,14 @@ void MMU::write(const Address &address, const uint8_t value)
     // Reading from unsuable memory
     if (address.inRange(UNUSABLE_ADDRESS_START, UNUSABLE_ADDRESS_END))
     {
-        std::cerr << "Writing to unusable memory: " << std::hex << address.getValue();
+        //std::cerr << "Writing to unusable memory: " << std::hex << address.getValue() << "\n";
         return;
     }
 
     // I/O Registers
     if (address.inRange(IO_ADDRESS_START, IO_ADDRESS_END))
     {
-        // TODO
+        writeIO(address, value);
         return;
     }
 
@@ -343,7 +341,7 @@ void MMU::writeIO(const Address &address, const uint8_t value)
         case 0xFF01: emulator.serial.write(value); return;
 
         // Serial data transfer (SB)
-        case 0xFF02: emulator.serial.writeControl(value);
+        case 0xFF02: emulator.serial.writeControl(value); return;
 
         case 0xFF03: return;
 
@@ -432,27 +430,29 @@ void MMU::writeIO(const Address &address, const uint8_t value)
         case 0xFF3E:
         case 0xFF3F: return;
 
-
-        // TODO: Video
         // Switch on LCD
-        case 0xFF40: return;
-        case 0xFF41: return;
+        case 0xFF40: emulator.ppu.controlByte = value; return;
+        case 0xFF41: emulator.ppu.lcdStatus.set(value); return;
 
         // Vertical Scroll Register
-        case 0xFF42: return;
+        case 0xFF42: emulator.ppu.scrollY.set(value); return;
 
         // Horizontal Scroll Register
-        case 0xFF43: return;
+        case 0xFF43: emulator.ppu.scrollX.set(value); return;
 
         // LY - Line Y coordinate
-        case 0xFF44: /* Writing will reset the counter */ return;
-        case 0xFF45: return;
+        case 0xFF44:
+            /* Writing will reset the counter */
+            emulator.ppu.line.set(0x0);
+            return;
+
+        case 0xFF45: emulator.ppu.lyCompare.set(value); return;
         case 0xFF46: dmaTransfer(value); return;
-        case 0xFF47: return;
-        case 0xFF48: return;
-        case 0xFF49: return;
-        case 0xFF4A: return;
-        case 0xFF4B: return;
+        case 0xFF47: emulator.ppu.bgPalette.set(value); return;
+        case 0xFF48: emulator.ppu.spritePalette0.set(value); return;
+        case 0xFF49: emulator.ppu.spritePalette1.set(value); return;
+        case 0xFF4A: emulator.ppu.windowY.set(value); return;
+        case 0xFF4B: emulator.ppu.windowX.set(value); return;
 
         // Unimplemented: CGB mode behavior
         case 0xFF4C: return;
@@ -461,7 +461,7 @@ void MMU::writeIO(const Address &address, const uint8_t value)
         case 0xFF4F: return;
 
         // Boot ROM
-        case 0xFF50: return;
+        case 0xFF50: disableBootROMSwitch.set(value); return;
 
         case 0xFF51: return;
         case 0xFF52: return;
@@ -536,13 +536,19 @@ void MMU::writeIO(const Address &address, const uint8_t value)
 void MMU::dmaTransfer(const uint8_t value)
 {
     uint8_t valueAtAddress;
-    Address startAddress = value * DMA_SOURCE_PAGE_SHIFT;
+    Address startAddress = value * 0x100;
 
-    for (uint8_t i = 0; i <= DMA_TRANSFER_LENGTH; i++)
+    for (uint8_t i = 0x0; i <= 0x9F; i++)
     {
         Address fromAddress = startAddress.getValue() + i;
-        Address toAddress = OAM_OFFSET + i;
+        Address toAddress = 0xFE00 + i;
         valueAtAddress = read(fromAddress);
         write(toAddress, valueAtAddress);
     }
+}
+
+bool MMU::isBootROMActive() const
+{
+    //return read(0xFF50) != 0x1;
+    return disableBootROMSwitch.getValue() == 0;
 }

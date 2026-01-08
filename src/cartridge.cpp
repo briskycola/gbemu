@@ -60,15 +60,15 @@ std::shared_ptr<Cartridge> getCartridge(const std::vector<uint8_t> &rom,
         case CartridgeType::MBC1:
             return std::make_shared<MBC1>(rom, ram, std::move(cartridgeInfo));
         case CartridgeType::MBC2:
-            std::runtime_error("MBC2 is not implemented");
+            throw std::runtime_error("MBC2 is not implemented");
         case CartridgeType::MBC3:
             return std::make_shared<MBC3>(rom, ram, std::move(cartridgeInfo));
         case CartridgeType::MBC4:
-            std::runtime_error("MBC4 is not implemented");
+            throw std::runtime_error("MBC4 is not implemented");
         case CartridgeType::MBC5:
-            std::runtime_error("MBC5 is not implemented");
+            throw std::runtime_error("MBC5 is not implemented");
         case CartridgeType::NotImplemented:
-            std::runtime_error("Not implemented");
+            throw std::runtime_error("Not implemented");
         default:
             std::runtime_error("Unknown cartridge type");
     }
@@ -115,7 +115,8 @@ uint8_t MBC1::read(const Address &address) const
     // other 16 KB of the ROM.
     if (address.inRange(0x4000, 0x7FFF))
     {
-        uint16_t addressIntoBank, bankOffset, addressInROM;
+        uint16_t addressIntoBank;
+        uint32_t bankOffset, addressInROM;
         addressIntoBank = address.getValue() - 0x4000;
         bankOffset = 0x4000 * romBank.getValue();
         addressInROM = addressIntoBank + bankOffset;
@@ -125,7 +126,7 @@ uint8_t MBC1::read(const Address &address) const
     if (address.inRange(0xA000, 0xBFFF))
     {
         if (!isRAMEnabled || ram.empty()) return 0xFF;   // read case
-        uint16_t offsetIntoRAM = 0x2000 * ramBank.getValue();
+        uint32_t offsetIntoRAM = 0x2000 * ramBank.getValue();
         Address addressInRAM((address - 0xA000) + offsetIntoRAM);
         return ram.at(addressInRAM.getValue());
     }
@@ -141,23 +142,31 @@ void MBC1::write(const Address &address, uint8_t value)
 
     if (address.inRange(0x2000, 0x3FFF))
     {
-        switch (value)
+        if (value == 0x0)
         {
-            case 0x0:
-                romBank.set(0x1);
-                return;
-            case 0x20:
-                romBank.set(0x21);
-                return;
-            case 0x40:
-                romBank.set(0x41);
-                return;
-            case 0x60:
-                romBank.set(0x61);
-                return;
+            romBank.set(0x1);
         }
 
-        romBank.set(value & 0x1F);
+        if (value == 0x20)
+        {
+            romBank.set(0x21);
+            return;
+        }
+
+        if (value == 0x40)
+        {
+            romBank.set(0x41);
+            return;
+        }
+
+        if (value == 0x60)
+        {
+            romBank.set(0x61);
+            return;
+        }
+
+        uint16_t romBankBits = value & 0x1F;
+        romBank.set(romBankBits);
     }
 
     if (address.inRange(0x4000, 0x5FFF))
@@ -172,14 +181,14 @@ void MBC1::write(const Address &address, uint8_t value)
 
     if (address.inRange(0xA000, 0xBFFF))
     {
-        if (!isRAMEnabled || ram.empty())
+        if (!isRAMEnabled)
         {
             return;
         }
 
         else
         {
-            uint16_t offsetIntoRAM = 0x2000 * ramBank.getValue();
+            uint32_t offsetIntoRAM = 0x2000 * ramBank.getValue();
             Address addressInRAM((address - 0xA000) + offsetIntoRAM);
             ram.at(addressInRAM.getValue()) = value;
         }
@@ -201,7 +210,8 @@ uint8_t MBC3::read(const Address &address) const
     // other 16 KB of the ROM.
     if (address.inRange(0x4000, 0x7FFF))
     {
-        uint16_t addressIntoBank, bankOffset, addressInROM;
+        uint16_t addressIntoBank;
+        uint32_t bankOffset, addressInROM;
         addressIntoBank = address.getValue() - 0x4000;
         bankOffset = 0x4000 * romBank.getValue();
         addressInROM = addressIntoBank + bankOffset;
@@ -210,8 +220,8 @@ uint8_t MBC3::read(const Address &address) const
 
     if (address.inRange(0xA000, 0xBFFF))
     {
-        if (!isRAMEnabled || ram.empty()) return 0xFF;   // read case
-        uint16_t offsetIntoRAM = 0x2000 * ramBank.getValue();
+        //if (!isRAMEnabled || ram.empty()) return 0xFF;   // read case
+        uint32_t offsetIntoRAM = 0x2000 * ramBank.getValue();
         Address addressInRAM((address - 0xA000) + offsetIntoRAM);
         return ram.at(addressInRAM.getValue());
     }
@@ -227,7 +237,7 @@ void MBC3::write(const Address &address, uint8_t value)
             isRAMEnabled = true;
         }
 
-        else
+        if (value == 0x0)
         {
             isRAMEnabled = false;
         }
@@ -239,7 +249,9 @@ void MBC3::write(const Address &address, uint8_t value)
         {
             romBank.set(0x1);
         }
-        romBank.set(value & 0x7F);
+
+        uint16_t romBankBits = value & 0x7F;
+        romBank.set(romBankBits);
     }
 
     if (address.inRange(0x4000, 0x5FFF))
@@ -250,7 +262,7 @@ void MBC3::write(const Address &address, uint8_t value)
             ramBank.set(value);
         }
 
-        if (value >= 0x08 && value <= 0x0C)
+        if (value >= 0x08 && value <= 0xC)
         {
             isRAMOverRTC = false;
         }
@@ -263,14 +275,14 @@ void MBC3::write(const Address &address, uint8_t value)
 
     if (address.inRange(0xA000, 0xBFFF))
     {
-        if (!isRAMEnabled || ram.empty())
+        if (!isRAMEnabled)
         {
             return;
         }
 
         if (isRAMOverRTC)
         {
-            uint16_t offsetIntoRAM = 0x2000 * ramBank.getValue();
+            uint32_t offsetIntoRAM = 0x2000 * ramBank.getValue();
             Address addressInRAM((address - 0xA000) + offsetIntoRAM);
             ram.at(addressInRAM.getValue()) = value;
         }

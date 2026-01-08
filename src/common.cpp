@@ -14,7 +14,7 @@ uint8_t composeNibbles(const uint8_t high, const uint8_t low)
     return static_cast<uint8_t>(high << 4 | low);
 }
 
-uint8_t composeBytes(const uint8_t high, const uint8_t low)
+uint16_t composeBytes(const uint8_t high, const uint8_t low)
 {
     return static_cast<uint16_t>(high << 8 | low);
 }

@@ -13,3 +13,7 @@ file(GLOB SRC_FILES src/*.cpp)
 
 # Create executable
 add_executable(gbemu ${SRC_FILES})
+
+# ---- SDL3 ----
+find_package(SDL2 CONFIG REQUIRED)
+target_link_libraries(gbemu PRIVATE SDL2::SDL2)

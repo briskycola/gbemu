@@ -1,9 +1,8 @@
 #pragma once
 
 #include "address.hpp"
-#include "cartridge.hpp"
+#include "register.hpp"
 #include <vector>
-#include <memory>
 
 // https://gbdev.io/pandocs/Memory_Map.html
 
@@ -39,6 +38,7 @@ static constexpr uint16_t HRAM_OFFSET     = 0xFF80;
 static constexpr uint16_t WRAM_SIZE_BYTES = 0x8000;
 static constexpr uint16_t OAM_SIZE_BYTES  = 0xA0;
 static constexpr uint16_t HRAM_SIZE_BYTES = 0x80;
+static constexpr uint16_t VRAM_SIZE_BYTES = 0x4000;
 
 // Offsets for DMA
 static constexpr uint16_t DMA_SOURCE_PAGE_SHIFT = 0x100;
@@ -53,10 +53,12 @@ class MMU
         std::vector<uint8_t> workRAM;
         std::vector<uint8_t> oamRAM;
         std::vector<uint8_t> highRAM;
+        ByteRegister disableBootROMSwitch;
 
         uint8_t readIO(const Address &address) const;
         void writeIO(const Address &address, const uint8_t value);
         void dmaTransfer(uint8_t value);
+        bool isBootROMActive() const;
     public:
         MMU(Emulator &emulator);
         uint8_t read(const Address &address) const;
