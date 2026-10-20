@@ -18,6 +18,7 @@ static constexpr uint32_t height = GAMEBOY_HEIGHT * pixelSize;
 static SDL_Window *window;
 static SDL_Renderer *renderer;
 static SDL_Texture *gbScreenTexture;
+static SDL_AudioDeviceID audioDevice;
 
 static std::unique_ptr<Emulator> emulator;
 static bool shouldExit = false;
@@ -196,6 +197,19 @@ void processSDLEvents()
 void draw(const FrameBuffer &buffer)
 {
     processSDLEvents();
+
+    std::vector<int16_t> audioSamples = emulator->takeAudioSamples();
+    if (audioDevice != 0)
+    {
+        if (!audioSamples.empty())
+        {
+            const uint32_t queuedBytes = SDL_GetQueuedAudioSize(audioDevice);
+            if (queuedBytes > 192000) SDL_ClearQueuedAudio(audioDevice);
+            SDL_QueueAudio(audioDevice, audioSamples.data(),
+                static_cast<uint32_t>(audioSamples.size() * sizeof(int16_t)));
+        }
+    }
+
     SDL_RenderClear(renderer);
 
     void *pixelsPointer = nullptr;
@@ -230,6 +244,18 @@ int main(int argc, char **argv)
     {
         std::cerr << "Failed to initalize SDL\n";
         return 2;
+    }
+
+    if (SDL_InitSubSystem(SDL_INIT_AUDIO) == 0)
+    {
+        SDL_AudioSpec audioSpec{};
+        audioSpec.freq = 48000;
+        audioSpec.format = AUDIO_S16SYS;
+        audioSpec.channels = 2;
+        audioSpec.samples = 1024;
+        audioDevice = SDL_OpenAudioDevice(nullptr, 0, &audioSpec, nullptr, 0);
+        if (audioDevice != 0) SDL_PauseAudioDevice(audioDevice, 0);
+        else std::cerr << "Audio output unavailable: " << SDL_GetError() << "\n";
     }
 
     //SDL_Init(SDL_INIT_VIDEO);
@@ -270,6 +296,7 @@ int main(int argc, char **argv)
     SDL_DestroyTexture(gbScreenTexture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
+    if (audioDevice != 0) SDL_CloseAudioDevice(audioDevice);
     SDL_Quit();
 
     return 0;

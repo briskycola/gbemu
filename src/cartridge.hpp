@@ -43,7 +43,22 @@ class Cartridge
 
         virtual uint8_t read(const Address &address) const = 0;
         virtual void write(const Address &address, uint8_t value) = 0;
-        const std::vector<uint8_t>& getCartridgeRAM() const;
+        virtual const std::vector<uint8_t>& getCartridgeRAM() const;
+};
+
+class MBC2 : public Cartridge
+{
+    private:
+        uint8_t romBank = 1;
+        bool ramEnabled = false;
+        std::vector<uint8_t> nibbleRAM;
+
+    public:
+        MBC2(std::vector<uint8_t> rom, const std::vector<uint8_t> &ram,
+             std::unique_ptr<CartridgeInfo> cartridgeInfo);
+        uint8_t read(const Address &address) const override;
+        void write(const Address &address, uint8_t value) override;
+        const std::vector<uint8_t>& getCartridgeRAM() const override;
 };
 
 // The ram parameter is optional since not all
@@ -92,6 +107,20 @@ class MBC3 : public Cartridge
         MBC3(std::vector<uint8_t> rom, const std::vector<uint8_t> &ram,
              const std::unique_ptr<CartridgeInfo> cartridgeInfo);
 
+        uint8_t read(const Address &address) const override;
+        void write(const Address &address, uint8_t value) override;
+};
+
+class MBC5 : public Cartridge
+{
+    private:
+        uint16_t romBank = 1;
+        uint8_t ramBank = 0;
+        bool ramEnabled = false;
+
+    public:
+        MBC5(std::vector<uint8_t> rom, const std::vector<uint8_t> &ram,
+             std::unique_ptr<CartridgeInfo> cartridgeInfo);
         uint8_t read(const Address &address) const override;
         void write(const Address &address, uint8_t value) override;
 };

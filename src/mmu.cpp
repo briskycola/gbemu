@@ -105,43 +105,41 @@ uint8_t MMU::readIO(const Address &address) const
         case 0xFF0E: return 0xFF;
         case 0xFF0F: return 0xE0 | (emulator.cpu.interruptFlag.getValue() & 0x1F);
 
-        // Unimplemented: Audio - Channel 1: Tone & Sweep
+        // Audio channel 1
         case 0xFF10:
         case 0xFF11:
         case 0xFF12:
         case 0xFF13:
-        case 0xFF14: return 0xFF;
+        case 0xFF14: return emulator.apu.read(address.getValue());
 
         case 0xFF15: return 0xFF;
 
-        // Unimplemented: Audio - Channel 2: Tone
+        // Audio channel 2
         case 0xFF16:
         case 0xFF17:
         case 0xFF18:
-        case 0xFF19: return 0xFF;
+        case 0xFF19: return emulator.apu.read(address.getValue());
 
-        // Unimplemented: Audio - Channel 3: Wave Output
+        // Audio channel 3
         case 0xFF1A:
         case 0xFF1B:
         case 0xFF1C:
         case 0xFF1D:
-        case 0xFF1E:
+        case 0xFF1E: return emulator.apu.read(address.getValue());
         case 0xFF1F: return 0xFF;
 
-        // Unimplemented: Audio - Channel 4: Noise
+        // Audio channel 4
         case 0xFF20:
         case 0xFF21:
         case 0xFF22:
-        case 0xFF23: return 0xFF;
+        case 0xFF23: return emulator.apu.read(address.getValue());
 
-        // Unimplemented: Audio - Channel control/ON-OFF/Volume
-        case 0xFF24: return 0xFF;
+        // Audio master volume, routing, and power
+        case 0xFF24: return emulator.apu.read(address.getValue());
 
-        // Unimplemented: Audio - Selection of sound output terminal
-        case 0xFF25: return 0xFF;
+        case 0xFF25: return emulator.apu.read(address.getValue());
 
-        // Unimplemented: Audio - Sound on/off
-        case 0xFF26: return 0xFF;
+        case 0xFF26: return emulator.apu.read(address.getValue());
 
         case 0xFF27:
         case 0xFF28:
@@ -153,7 +151,7 @@ uint8_t MMU::readIO(const Address &address) const
         case 0xFF2E:
         case 0xFF2F: return 0xFF;
 
-        // Unimplemented: Audio - Wave pattern RAM
+        // Audio wave pattern RAM
         case 0xFF30:
         case 0xFF31:
         case 0xFF32:
@@ -169,7 +167,7 @@ uint8_t MMU::readIO(const Address &address) const
         case 0xFF3C:
         case 0xFF3D:
         case 0xFF3E:
-        case 0xFF3F: return 0xFF;
+        case 0xFF3F: return emulator.apu.read(address.getValue());
 
         case 0xFF40: return emulator.ppu.controlByte;
         case 0xFF41: return 0x80 | emulator.ppu.lcdStatus.getValue();
@@ -367,44 +365,40 @@ void MMU::writeIO(const Address &address, const uint8_t value)
         // Set CPU interrupt flag
         case 0xFF0F: emulator.cpu.interruptFlag.set(value & 0x1F); return;
 
-        // Unimplemented: Audio - Channel 1: Tone & Sweep
+        // Audio channel registers
         case 0xFF10:
         case 0xFF11:
         case 0xFF12:
         case 0xFF13:
-        case 0xFF14: return;
+        case 0xFF14: emulator.apu.write(address.getValue(), value); return;
 
         case 0xFF15: return;
 
-        // Unimplemented: Audio - Channel 2: Tone
+        // Audio channel 2
         case 0xFF16:
         case 0xFF17:
         case 0xFF18:
-        case 0xFF19: return;
+        case 0xFF19: emulator.apu.write(address.getValue(), value); return;
 
-        // Unimplemented: Audio - Channel 3: Wave Output
+        // Audio channel 3
         case 0xFF1A:
         case 0xFF1B:
         case 0xFF1C:
         case 0xFF1D:
-        case 0xFF1E: return;
+        case 0xFF1E: emulator.apu.write(address.getValue(), value); return;
 
         case 0xFF1F: return;
 
-        // Unimplemented: Audio - Channel 4: Noise
+        // Audio channel 4
         case 0xFF20:
         case 0xFF21:
         case 0xFF22:
-        case 0xFF23: return;
+        case 0xFF23: emulator.apu.write(address.getValue(), value); return;
 
-        // Unimplemented: Audio - Channel control/ON-OFF/Volume
-        case 0xFF24: return;
-
-        // Unimplemented: Audio - Selection of sound output terminal
-        case 0xFF25: return;
-
-        // Unimplemented: Audio - Sound on/off
-        case 0xFF26: return;
+        // Audio master volume and output routing
+        case 0xFF24:
+        case 0xFF25:
+        case 0xFF26: emulator.apu.write(address.getValue(), value); return;
 
         case 0xFF27:
         case 0xFF28:
@@ -416,7 +410,7 @@ void MMU::writeIO(const Address &address, const uint8_t value)
         case 0xFF2E:
         case 0xFF2F: return;
 
-        // Unimplemented: Audio - Wave pattern RAM
+        // Audio wave pattern RAM
         case 0xFF30:
         case 0xFF31:
         case 0xFF32:
@@ -432,7 +426,7 @@ void MMU::writeIO(const Address &address, const uint8_t value)
         case 0xFF3C:
         case 0xFF3D:
         case 0xFF3E:
-        case 0xFF3F: return;
+        case 0xFF3F: emulator.apu.write(address.getValue(), value); return;
 
         // Switch on LCD
         case 0xFF40: emulator.ppu.setControlByte(value); return;

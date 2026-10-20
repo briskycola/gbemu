@@ -7,6 +7,7 @@
 #include "serial.hpp"
 #include "input.hpp"
 #include "ppu.hpp"
+#include "apu.hpp"
 #include <memory>
 
 class Emulator
@@ -35,10 +36,14 @@ class Emulator
         friend class PPU;
         PPU ppu;
 
+        friend class MMU;
+        APU apu;
+
         void tick();
     public:
         Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<uint8_t> &saveData = {});
         const std::vector<uint8_t>& getCartridgeRAM();
+        std::vector<int16_t> takeAudioSamples();
         void run(std::function<bool()> shouldCloseCallback, std::function<void(const FrameBuffer&)> vblankCallback);
 
         void buttonPressed(GBButton button);

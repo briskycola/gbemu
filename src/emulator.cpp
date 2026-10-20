@@ -6,12 +6,18 @@ Emulator::Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<
     mmu(*this),
     timer(*this),
     serial(),
-    ppu(*this)
+    ppu(*this),
+    apu()
 {}
 
 const std::vector<uint8_t>& Emulator::getCartridgeRAM()
 {
     return cartridge->getCartridgeRAM();
+}
+
+std::vector<int16_t> Emulator::takeAudioSamples()
+{
+    return apu.takeSamples();
 }
 
 void Emulator::tick()
@@ -22,6 +28,7 @@ void Emulator::tick()
     elapsedCycles += t.cycles;
     ppu.tick(t);
     timer.tick(t.cycles);
+    apu.tick(t.cycles);
 }
 
 void Emulator::run(std::function<bool()> shoudCloseCallback, std::function<void(const FrameBuffer&)> vblankCallback)
