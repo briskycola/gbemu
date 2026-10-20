@@ -43,6 +43,8 @@ class CPU
         Emulator &emulator;
         bool isInterruptEnabled = false;
         bool isHalted = false;
+        bool haltBug = false;
+        uint8_t imeEnableDelay = 0;
         bool branchTaken = false;
 
         // CPU Registers
@@ -69,7 +71,7 @@ class CPU
         // Stack Pointer
         WordRegister sp;
 
-        void handleInterrupts();
+        bool handleInterrupts();
         bool handleInterrupt(uint8_t interruptBit, uint16_t interruptVector, uint8_t firedInterrupts);
 
         void setFlagZero(bool set);

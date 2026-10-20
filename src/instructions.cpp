@@ -285,12 +285,13 @@ void CPU::opcode_dec(Address &&addr)
 void CPU::opcode_di()
 {
     isInterruptEnabled = false;
+    imeEnableDelay = 0;
 }
 
 // EI
 void CPU::opcode_ei()
 {
-    isInterruptEnabled = true;
+    imeEnableDelay = 2;
 }
 
 // INC
@@ -375,7 +376,25 @@ void CPU::opcode_jr(Condition condition)
 // HALT
 void CPU::opcode_halt()
 {
-    isHalted = true;
+    const uint8_t pendingInterrupts =
+        emulator.mmu.read(Address(0xFF0F)) & emulator.mmu.read(Address(0xFFFF)) & 0x1F;
+
+    if (!isInterruptEnabled && pendingInterrupts != 0)
+    {
+        if (imeEnableDelay > 0)
+        {
+            isInterruptEnabled = true;
+            imeEnableDelay = 0;
+        }
+        else
+        {
+            haltBug = true;
+        }
+    }
+    else
+    {
+        isHalted = true;
+    }
 }
 
 // LD
@@ -605,7 +624,8 @@ void CPU::opcode_ret(Condition condition)
 void CPU::opcode_reti()
 {
     opcode_ret();
-    opcode_ei();
+    isInterruptEnabled = true;
+    imeEnableDelay = 0;
 }
 
 // RL

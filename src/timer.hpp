@@ -1,25 +1,25 @@
 #pragma once
 
 #include "register.hpp"
+#include <cstdint>
 
 // https://gbdev.io/pandocs/Timer_and_Divider_Registers.html
-
-static constexpr uint8_t CLOCKS_PER_CYCLE = 4;
 
 class Emulator;
 
 class Timer
 {
     private:
-        uint32_t clocks = 0;
         Emulator &emulator;
 
-        ByteRegister divider;
+        uint16_t dividerCounter = 0;
         ByteRegister timerCounter;
         ByteRegister timerModulo;
         ByteRegister timerControl;
+        uint8_t reloadDelay = 0;
 
-        uint32_t clocksNeededToIncrement();
+        bool timerInput() const;
+        void incrementTimer();
     public:
         Timer(Emulator &emulator);
 

@@ -11,6 +11,7 @@ PPU::PPU(Emulator &emulator) :
     backgroundMap(BACKGROUND_MAP_SIZE, BACKGROUND_MAP_SIZE)
 {
     videoRAM = std::vector<uint8_t>(VRAM_SIZE_BYTES);
+    controlByte = 0;
 }
 
 uint8_t PPU::read(const Address &address)
@@ -25,6 +26,22 @@ void PPU::write(const Address &address, uint8_t value)
 
 void PPU::tick(Cycles cycles)
 {
+    if (!displayEnabled()) return;
+
+    if (screenEnableDelay > 0)
+    {
+        if (cycles.cycles < screenEnableDelay)
+        {
+            screenEnableDelay -= cycles.cycles;
+            return;
+        }
+        screenEnableDelay = 0;
+        currentMode = VideoMode::ACCESS_OAM;
+        cycleCounter = 0;
+        lcdStatus.setBitTo(1, true);
+        lcdStatus.setBitTo(0, false);
+    }
+
     cycleCounter += cycles.cycles;
 
     switch (currentMode)
@@ -122,7 +139,48 @@ void PPU::tick(Cycles cycles)
     }
 }
 
+void PPU::setControlByte(uint8_t value)
+{
+    const bool wasEnabled = displayEnabled();
+    const bool nowEnabled = checkBit(value, 7);
+    controlByte = value;
+
+    if (wasEnabled && !nowEnabled)
+    {
+        screenEnableDelay = 0;
+        cycleCounter = 0;
+        currentMode = VideoMode::HBLANK;
+        line.set(0);
+        lcdStatus.setBitTo(0, false);
+        lcdStatus.setBitTo(1, false);
+        lcdStatus.setBitTo(2, lyCompare.getValue() == 0);
+        buffer.reset();
+    }
+    else if (!wasEnabled && nowEnabled)
+    {
+        screenEnableDelay = 244;
+        cycleCounter = 0;
+        currentMode = VideoMode::HBLANK;
+        line.set(0);
+        lcdStatus.setBitTo(0, false);
+        lcdStatus.setBitTo(1, false);
+        lcdStatus.setBitTo(2, lyCompare.getValue() == 0);
+    }
+}
+
 bool PPU::displayEnabled() const { return checkBit(controlByte, 7); }
+bool PPU::cpuCanAccessVRAM() const
+{
+    return !displayEnabled() || (lcdStatus.getValue() & 0x03) != 3;
+}
+
+bool PPU::cpuCanAccessOAM() const
+{
+    if (!displayEnabled()) return true;
+    const uint8_t mode = lcdStatus.getValue() & 0x03;
+    return mode != 2 && mode != 3;
+}
+
 bool PPU::windowTileMap() const { return checkBit(controlByte, 6); }
 bool PPU::windowEnabled() const { return checkBit(controlByte, 5); }
 bool PPU::bgWindowTileData() const { return checkBit(controlByte, 4); }
@@ -197,7 +255,7 @@ void PPU::drawBGLine(uint32_t currentLine)
         Address tileIDAddress = tileMapAddress + tileIndex;
 
         // Grab the ID of the tile we'll get data from
-        uint8_t tileID = emulator.mmu.read(tileIDAddress);
+        uint8_t tileID = emulator.mmu.read(tileIDAddress, true);
 
         // Calculate the offset from the start of the tile data
         // memory where the data from in the tile map
@@ -210,8 +268,8 @@ void PPU::drawBGLine(uint32_t currentLine)
         uint32_t tileDataLineOffset = tilePixelY * 2;
         Address tileLineDataStartAddress = tileSetAddress + tileDataMemoryOffset + tileDataLineOffset;
 
-        uint8_t pixelsOne = emulator.mmu.read(tileLineDataStartAddress);
-        uint8_t pixelsTwo = emulator.mmu.read(tileLineDataStartAddress + 1);
+        uint8_t pixelsOne = emulator.mmu.read(tileLineDataStartAddress, true);
+        uint8_t pixelsTwo = emulator.mmu.read(tileLineDataStartAddress + 1, true);
 
         GBColor pixelColor = getPixelFromLine(pixelsOne, pixelsTwo, tilePixelX);
         Color screenColor = getColorFromPalette(pixelColor, palette);
@@ -257,7 +315,7 @@ void PPU::drawWindowLine(uint32_t currentLine)
         Address tileIDAddress = tileMapAddress + tileIndex;
 
         // Grab the ID of the tile we'll get data from
-        uint8_t tileID = emulator.mmu.read(tileIDAddress);
+        uint8_t tileID = emulator.mmu.read(tileIDAddress, true);
 
         // Calculate the offset from the start of the tile data
         // memory where the data from in the tile map
@@ -270,8 +328,8 @@ void PPU::drawWindowLine(uint32_t currentLine)
         uint32_t tileDataLineOffset = tilePixelY * 2;
         Address tileLineDataStartAddress = tileSetAddress + tileDataMemoryOffset + tileDataLineOffset;
 
-        uint8_t pixelsOne = emulator.mmu.read(tileLineDataStartAddress);
-        uint8_t pixelsTwo = emulator.mmu.read(tileLineDataStartAddress + 1);
+        uint8_t pixelsOne = emulator.mmu.read(tileLineDataStartAddress, true);
+        uint8_t pixelsTwo = emulator.mmu.read(tileLineDataStartAddress + 1, true);
 
         GBColor pixelColor = getPixelFromLine(pixelsOne, pixelsTwo, tilePixelX);
         Color screenColor = getColorFromPalette(pixelColor, palette);
@@ -286,8 +344,8 @@ void PPU::drawSprite(const uint32_t sprite)
     Address offsetInOAM = sprite * SPRITE_BYTES;
 
     Address oamStart = 0xFE00 + offsetInOAM.getValue();
-    uint8_t spriteY = emulator.mmu.read(oamStart);
-    uint8_t spriteX = emulator.mmu.read(oamStart + 1);
+    uint8_t spriteY = emulator.mmu.read(oamStart, true);
+    uint8_t spriteX = emulator.mmu.read(oamStart + 1, true);
 
     // If the sprite would be drawn outside the screen,
     // don't draw it at all
@@ -299,8 +357,8 @@ void PPU::drawSprite(const uint32_t sprite)
     // Sprites are always taken from the first tile set
     Address tileSetLocation = TILE_SET_ZERO_ADDRESS;
 
-    uint8_t pattern = emulator.mmu.read(oamStart + 2);
-    uint8_t spriteAttributes = emulator.mmu.read(oamStart + 3);
+    uint8_t pattern = emulator.mmu.read(oamStart + 2, true);
+    uint8_t spriteAttributes = emulator.mmu.read(oamStart + 3, true);
 
     // Bits 0-3 are used only for CGB
     bool usePaletteOne = checkBit(spriteAttributes, 4);

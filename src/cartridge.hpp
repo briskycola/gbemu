@@ -68,7 +68,7 @@ class MBC1 : public Cartridge
         WordRegister ramBank;
 
         bool isRAMEnabled = false;
-        //bool romBankingMode = true;
+        bool bankingMode = false;
 
     public:
         MBC1(std::vector<uint8_t> rom, const std::vector<uint8_t> &ram,

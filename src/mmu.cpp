@@ -16,7 +16,7 @@ MMU::MMU(Emulator &emulator) :
     highRAM = std::vector<uint8_t>(HRAM_SIZE_BYTES);
 }
 
-uint8_t MMU::read(const Address &address) const
+uint8_t MMU::read(const Address &address, bool bypassPPURestrictions) const
 {
     // Cartridge ROM
     if (address.inRange(CARTRIDGE_ROM_ADDRESS_START, CARTRIDGE_ROM_ADDRESS_END))
@@ -28,6 +28,7 @@ uint8_t MMU::read(const Address &address) const
     // VRAM
     if (address.inRange(VRAM_ADDRESS_START, VRAM_ADDRESS_END))
     {
+        if (!bypassPPURestrictions && !emulator.ppu.cpuCanAccessVRAM()) return 0xFF;
         return emulator.ppu.read(address.getValue() - 0x8000);
     }
 
@@ -46,12 +47,13 @@ uint8_t MMU::read(const Address &address) const
     // Echo RAM
     if (address.inRange(ECHO_RAM_ADDRESS_START, ECHO_RAM_ADDRESS_END))
     {
-        return read(address.getValue() - 0x2000);
+        return read(address.getValue() - 0x2000, bypassPPURestrictions);
     }
 
     // OAM
     if (address.inRange(OAM_ADDRESS_START, OAM_ADDRESS_END))
     {
+        if (!bypassPPURestrictions && !emulator.ppu.cpuCanAccessOAM()) return 0xFF;
         return oamRAM.at(address.getValue() - 0xFE00);
     }
 
@@ -77,7 +79,7 @@ uint8_t MMU::read(const Address &address) const
     // Interrupt Enable Register
     if (address == INTERRUPT_ENABLE_REGISTER)
     {
-        return emulator.cpu.interruptEnabled.getValue();
+        return 0xE0 | (emulator.cpu.interruptEnabled.getValue() & 0x1F);
     }
     return 0xFF;
 }
@@ -93,7 +95,7 @@ uint8_t MMU::readIO(const Address &address) const
         case 0xFF04: return emulator.timer.getDivider();
         case 0xFF05: return emulator.timer.getTimer();
         case 0xFF06: return emulator.timer.getTimerModulo();
-        case 0xFF07: return emulator.timer.getTimerControl();
+        case 0xFF07: return 0xF8 | emulator.timer.getTimerControl();
         case 0xFF08:
         case 0xFF09:
         case 0xFF0A:
@@ -101,7 +103,7 @@ uint8_t MMU::readIO(const Address &address) const
         case 0xFF0C:
         case 0xFF0D:
         case 0xFF0E: return 0xFF;
-        case 0xFF0F: return emulator.cpu.interruptFlag.getValue();
+        case 0xFF0F: return 0xE0 | (emulator.cpu.interruptFlag.getValue() & 0x1F);
 
         // Unimplemented: Audio - Channel 1: Tone & Sweep
         case 0xFF10:
@@ -170,7 +172,7 @@ uint8_t MMU::readIO(const Address &address) const
         case 0xFF3F: return 0xFF;
 
         case 0xFF40: return emulator.ppu.controlByte;
-        case 0xFF41: return emulator.ppu.lcdStatus.getValue();
+        case 0xFF41: return 0x80 | emulator.ppu.lcdStatus.getValue();
         case 0xFF42: return emulator.ppu.scrollY.getValue();
         case 0xFF43: return emulator.ppu.scrollX.getValue();
         case 0xFF44: return emulator.ppu.line.getValue();
@@ -258,7 +260,7 @@ uint8_t MMU::readIO(const Address &address) const
     return 0xFF;
 }
 
-void MMU::write(const Address &address, const uint8_t value)
+void MMU::write(const Address &address, const uint8_t value, bool bypassPPURestrictions)
 {
     // Cartridge ROM
     if (address.inRange(CARTRIDGE_ROM_ADDRESS_START, CARTRIDGE_ROM_ADDRESS_END))
@@ -270,6 +272,7 @@ void MMU::write(const Address &address, const uint8_t value)
     // VRAM
     if (address.inRange(VRAM_ADDRESS_START, VRAM_ADDRESS_END))
     {
+        if (!bypassPPURestrictions && !emulator.ppu.cpuCanAccessVRAM()) return;
         emulator.ppu.write(address.getValue() - 0x8000, value);
         return;
     }
@@ -291,13 +294,14 @@ void MMU::write(const Address &address, const uint8_t value)
     // Echo RAM
     if (address.inRange(ECHO_RAM_ADDRESS_START, ECHO_RAM_ADDRESS_END))
     {
-        write(address.getValue() - ECHO_RAM_OFFSET, value);
+        write(address.getValue() - ECHO_RAM_OFFSET, value, bypassPPURestrictions);
         return;
     }
 
     // OAM
     if (address.inRange(OAM_ADDRESS_START, OAM_ADDRESS_END))
     {
+        if (!bypassPPURestrictions && !emulator.ppu.cpuCanAccessOAM()) return;
         oamRAM.at(address.getValue() - OAM_OFFSET) = value;
         return;
     }
@@ -326,7 +330,7 @@ void MMU::write(const Address &address, const uint8_t value)
     // Interrupt Enable Register
     if (address == INTERRUPT_ENABLE_REGISTER)
     {
-        emulator.cpu.interruptEnabled.set(value);
+        emulator.cpu.interruptEnabled.set(value & 0x1F);
     }
     return;
 }
@@ -361,7 +365,7 @@ void MMU::writeIO(const Address &address, const uint8_t value)
         case 0xFF0E: return;
 
         // Set CPU interrupt flag
-        case 0xFF0F: emulator.cpu.interruptFlag.set(value); return;
+        case 0xFF0F: emulator.cpu.interruptFlag.set(value & 0x1F); return;
 
         // Unimplemented: Audio - Channel 1: Tone & Sweep
         case 0xFF10:
@@ -431,8 +435,8 @@ void MMU::writeIO(const Address &address, const uint8_t value)
         case 0xFF3F: return;
 
         // Switch on LCD
-        case 0xFF40: emulator.ppu.controlByte = value; return;
-        case 0xFF41: emulator.ppu.lcdStatus.set(value); return;
+        case 0xFF40: emulator.ppu.setControlByte(value); return;
+        case 0xFF41: emulator.ppu.lcdStatus.set((emulator.ppu.lcdStatus.getValue() & 0x07) | (value & 0x78) | 0x80); return;
 
         // Vertical Scroll Register
         case 0xFF42: emulator.ppu.scrollY.set(value); return;
@@ -542,9 +546,11 @@ void MMU::dmaTransfer(const uint8_t value)
     {
         Address fromAddress = startAddress.getValue() + i;
         Address toAddress = 0xFE00 + i;
-        valueAtAddress = read(fromAddress);
-        write(toAddress, valueAtAddress);
+        valueAtAddress = read(fromAddress, true);
+        write(toAddress, valueAtAddress, true);
     }
+    // A DMG OAM DMA transfer occupies the CPU bus for 160 machine cycles.
+    emulator.dmaCyclesRemaining = 160;
 }
 
 bool MMU::isBootROMActive() const

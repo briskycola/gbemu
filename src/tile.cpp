@@ -20,8 +20,8 @@ Tile::Tile(Address &address, MMU &mmu, uint32_t sizeMultiplier)
         uint32_t indexIntoTile = 2 * tileLine;
         Address lineStart = address + indexIntoTile;
 
-        uint8_t pixelsOne = mmu.read(lineStart);
-        uint8_t pixelsTwo = mmu.read(lineStart + 1);
+        uint8_t pixelsOne = mmu.read(lineStart, true);
+        uint8_t pixelsTwo = mmu.read(lineStart + 1, true);
 
         std::vector<uint8_t> pixelLine = getPixelLine(pixelsOne, pixelsTwo);
 

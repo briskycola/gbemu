@@ -10,7 +10,7 @@ Timer::Timer(Emulator &emulator) :
 
 uint8_t Timer::getDivider() const
 {
-    return divider.getValue();
+    return static_cast<uint8_t>(dividerCounter >> 8);
 }
 
 uint8_t Timer::getTimer() const
@@ -27,17 +27,20 @@ uint8_t Timer::getTimerModulo() const
 // are usable.
 uint8_t Timer::getTimerControl() const
 {
-    return timerControl.getValue() & 0x3;
+    return timerControl.getValue() & 0x07;
 }
 
 void Timer::resetDivider()
 {
-    divider.set(0x0);
+    const bool wasHigh = timerInput();
+    dividerCounter = 0;
+    if (wasHigh && !timerInput()) incrementTimer();
 }
 
 void Timer::setTimer(uint8_t value)
 {
     timerCounter.set(value);
+    if (reloadDelay > 0) reloadDelay = 0;
 }
 
 void Timer::setTimerModulo(uint8_t value)
@@ -47,45 +50,51 @@ void Timer::setTimerModulo(uint8_t value)
 
 void Timer::setTimerControl(uint8_t value)
 {
-    timerControl.set(value);
+    const bool wasHigh = timerInput();
+    timerControl.set(value & 0x07);
+    if (wasHigh && !timerInput()) incrementTimer();
 }
 
-uint32_t Timer::clocksNeededToIncrement()
+bool Timer::timerInput() const
 {
-    switch (getTimerControl())
+    if (!timerControl.checkBit(2)) return false;
+    static constexpr uint8_t dividerBits[4] = {9, 3, 5, 7};
+    return (dividerCounter & (1u << dividerBits[timerControl.getValue() & 0x03])) != 0;
+}
+
+void Timer::incrementTimer()
+{
+    if (reloadDelay > 0) return;
+    if (timerCounter.getValue() == 0xFF)
     {
-        case 0: return GAMEBOY_CLOCK_RATE / 4096;
-        case 1: return GAMEBOY_CLOCK_RATE / 262144;
-        case 2: return GAMEBOY_CLOCK_RATE / 65536;
-        case 3: return GAMEBOY_CLOCK_RATE / 16384;
-        default: std::runtime_error("Invalid calculation in timer");
+        timerCounter.set(0);
+        reloadDelay = 4;
     }
-    return 0x0;
+    else
+    {
+        timerCounter.increment();
+    }
 }
 
 void Timer::tick(uint32_t cycles)
 {
-    uint8_t newDivider = static_cast<uint8_t>(divider.getValue() + cycles);
-    divider.set(newDivider);
-
-    clocks += cycles * CLOCKS_PER_CYCLE;
-
-    bool isTimerOn = timerControl.checkBit(2);
-    if (isTimerOn == 0) return;
-
-    uint32_t clockLimit = clocksNeededToIncrement();
-
-    if (clocks >= clockLimit)
+    // Timer and divider inputs are driven by falling edges of the internal
+    // divider counter. Step per T-cycle so writes and overflows retain order.
+    for (uint32_t cycle = 0; cycle < cycles; ++cycle)
     {
-        clocks = clocks % clockLimit;
+        const bool wasHigh = timerInput();
+        ++dividerCounter;
 
-        uint8_t oldTimerCounter = timerCounter.getValue();
-        timerCounter.increment();
-
-        if (timerCounter.getValue() < oldTimerCounter)
+        if (reloadDelay > 0)
         {
-            emulator.cpu.interruptFlag.setBitTo(2, true);
-            timerCounter.set(timerModulo.getValue());
+            --reloadDelay;
+            if (reloadDelay == 0)
+            {
+                timerCounter.set(timerModulo.getValue());
+                emulator.cpu.interruptFlag.setBitTo(2, true);
+            }
         }
+
+        if (wasHigh && !timerInput()) incrementTimer();
     }
 }

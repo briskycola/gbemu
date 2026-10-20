@@ -61,6 +61,6 @@ class MMU
         bool isBootROMActive() const;
     public:
         MMU(Emulator &emulator);
-        uint8_t read(const Address &address) const;
-        void write(const Address &address, const uint8_t value);
+        uint8_t read(const Address &address, bool bypassPPURestrictions = false) const;
+        void write(const Address &address, const uint8_t value, bool bypassPPURestrictions = false);
 };

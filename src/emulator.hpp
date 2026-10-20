@@ -15,6 +15,7 @@ class Emulator
         std::shared_ptr<Cartridge> cartridge;
         std::function<bool()> shouldCloseCallback;
         uint32_t elapsedCycles = 0;
+        uint16_t dmaCyclesRemaining = 0;
 
         friend class CPU;
         CPU cpu;

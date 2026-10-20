@@ -47,6 +47,7 @@ class PPU
 
         VideoMode currentMode = VideoMode::ACCESS_OAM;
         uint32_t cycleCounter = 0;
+        uint32_t screenEnableDelay = 0;
 
         std::function<void(const FrameBuffer&)> vblankCallback;
 
@@ -80,10 +81,13 @@ class PPU
         PPU(Emulator &emulator);
 
         void tick(Cycles cycles);
+        void setControlByte(uint8_t value);
         void registerVBlankCallback(const std::function<void(const FrameBuffer&)> &vblankCallback);
 
         uint8_t read(const Address &address);
         void write(const Address &address, uint8_t value);
+        bool cpuCanAccessVRAM() const;
+        bool cpuCanAccessOAM() const;
 
         uint8_t controlByte;
 

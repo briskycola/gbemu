@@ -19,30 +19,31 @@ void Input::write(uint8_t set)
 
 uint8_t Input::getInput() const
 {
-    uint8_t buttons = 0b1111;
+    uint8_t directionButtons = 0b1111;
+    uint8_t actionButtons = 0b1111;
 
     if (directionSwitch)
     {
-        buttons = setBitTo(buttons, 0, !right);
-        buttons = setBitTo(buttons, 1, !left);
-        buttons = setBitTo(buttons, 2, !up);
-        buttons = setBitTo(buttons, 3, !down);
-        buttons &= 0x0F;
+        directionButtons = setBitTo(directionButtons, 0, !right);
+        directionButtons = setBitTo(directionButtons, 1, !left);
+        directionButtons = setBitTo(directionButtons, 2, !up);
+        directionButtons = setBitTo(directionButtons, 3, !down);
     }
 
     if (buttonSwitch)
     {
-        buttons = setBitTo(buttons, 0, !a);
-        buttons = setBitTo(buttons, 1, !b);
-        buttons = setBitTo(buttons, 2, !select);
-        buttons = setBitTo(buttons, 3, !start);
-        buttons &= 0x0F;
+        actionButtons = setBitTo(actionButtons, 0, !a);
+        actionButtons = setBitTo(actionButtons, 1, !b);
+        actionButtons = setBitTo(actionButtons, 2, !select);
+        actionButtons = setBitTo(actionButtons, 3, !start);
     }
 
+    uint8_t buttons = directionSwitch && buttonSwitch
+        ? directionButtons & actionButtons
+        : (directionSwitch ? directionButtons : actionButtons);
     buttons = setBitTo(buttons, 4, !directionSwitch);
     buttons = setBitTo(buttons, 5, !buttonSwitch);
 
-    //return buttons;
     return buttons | 0b1100'0000;
 }
 

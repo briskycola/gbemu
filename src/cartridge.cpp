@@ -105,7 +105,10 @@ uint8_t MBC1::read(const Address &address) const
     // Read into the first ROM bank
     if (address.inRange(0x0000, 0x3FFF))
     {
-        return rom.at(address.getValue());
+        const uint32_t bank = bankingMode ? (romBank.getValue() & 0x60) : 0;
+        const uint32_t bankCount = static_cast<uint32_t>(rom.size() / 0x4000);
+        const uint32_t offset = bankCount ? (bank % bankCount) * 0x4000 : 0;
+        return rom.at(offset + address.getValue());
     }
 
     // Read into the second ROM Bank
@@ -118,7 +121,9 @@ uint8_t MBC1::read(const Address &address) const
         uint16_t addressIntoBank;
         uint32_t bankOffset, addressInROM;
         addressIntoBank = address.getValue() - 0x4000;
-        bankOffset = 0x4000 * romBank.getValue();
+        const uint32_t bankCount = static_cast<uint32_t>(rom.size() / 0x4000);
+        const uint32_t bank = bankCount ? (romBank.getValue() % bankCount) : 0;
+        bankOffset = 0x4000 * bank;
         addressInROM = addressIntoBank + bankOffset;
         return rom.at(addressInROM);
     }
@@ -126,7 +131,9 @@ uint8_t MBC1::read(const Address &address) const
     if (address.inRange(0xA000, 0xBFFF))
     {
         if (!isRAMEnabled || ram.empty()) return 0xFF;   // read case
-        uint32_t offsetIntoRAM = 0x2000 * ramBank.getValue();
+        const uint32_t bankCount = (static_cast<uint32_t>(ram.size()) + 0x1FFF) / 0x2000;
+        const uint32_t bank = bankCount ? ramBank.getValue() % bankCount : 0;
+        uint32_t offsetIntoRAM = 0x2000 * bank;
         Address addressInRAM((address - 0xA000) + offsetIntoRAM);
         return ram.at(addressInRAM.getValue());
     }
@@ -137,46 +144,27 @@ void MBC1::write(const Address &address, uint8_t value)
 {
     if (address.inRange(0x0000, 0x1FFF))
     {
-        isRAMEnabled = true;
+        isRAMEnabled = (value & 0x0F) == 0x0A;
     }
 
     if (address.inRange(0x2000, 0x3FFF))
     {
-        if (value == 0x0)
-        {
-            romBank.set(0x1);
-        }
-
-        if (value == 0x20)
-        {
-            romBank.set(0x21);
-            return;
-        }
-
-        if (value == 0x40)
-        {
-            romBank.set(0x41);
-            return;
-        }
-
-        if (value == 0x60)
-        {
-            romBank.set(0x61);
-            return;
-        }
-
-        uint16_t romBankBits = value & 0x1F;
-        romBank.set(romBankBits);
+        uint16_t lowBits = value & 0x1F;
+        if (lowBits == 0) lowBits = 1;
+        romBank.set((romBank.getValue() & 0x60) | lowBits);
     }
 
     if (address.inRange(0x4000, 0x5FFF))
     {
-        //throw std::runtime_error("Not Implemented");
+        const uint16_t upperBits = (value & 0x03) << 5;
+        romBank.set(upperBits | (romBank.getValue() & 0x1F));
+        ramBank.set(bankingMode ? (value & 0x03) : 0);
     }
 
     if (address.inRange(0x6000, 0x7FFF))
     {
-        //throw std::runtime_error("Not Implemented");
+        bankingMode = (value & 0x01) != 0;
+        ramBank.set(bankingMode ? ((romBank.getValue() >> 5) & 0x03) : 0);
     }
 
     if (address.inRange(0xA000, 0xBFFF))
@@ -188,7 +176,9 @@ void MBC1::write(const Address &address, uint8_t value)
 
         else
         {
-            uint32_t offsetIntoRAM = 0x2000 * ramBank.getValue();
+            const uint32_t bankCount = (static_cast<uint32_t>(ram.size()) + 0x1FFF) / 0x2000;
+            const uint32_t bank = bankCount ? ramBank.getValue() % bankCount : 0;
+            uint32_t offsetIntoRAM = 0x2000 * bank;
             Address addressInRAM((address - 0xA000) + offsetIntoRAM);
             ram.at(addressInRAM.getValue()) = value;
         }

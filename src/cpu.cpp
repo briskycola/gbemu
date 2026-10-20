@@ -31,14 +31,30 @@ Cycles CPU::executeOpcode(uint8_t opcode, uint16_t opcodePC)
 
 Cycles CPU::tick()
 {
+    if (emulator.dmaCyclesRemaining > 0)
+    {
+        --emulator.dmaCyclesRemaining;
+        return Cycles(1);
+    }
+
     // Take care of interrupts before next CPU tick
-    handleInterrupts();
+    if (handleInterrupts()) return Cycles(5);
 
     if (isHalted) return 1;
 
     uint16_t opcodePC = pc.getValue();
     uint8_t opcode = getByteFromPC();
     Cycles cycles = executeOpcode(opcode, opcodePC);
+
+    if (imeEnableDelay > 0)
+    {
+        --imeEnableDelay;
+        if (imeEnableDelay == 0)
+        {
+            isInterruptEnabled = true;
+        }
+    }
+
     return cycles;
 }
 
@@ -52,12 +68,10 @@ bool CPU::handleInterrupt(uint8_t interruptBit, uint16_t interruptVector, uint8_
     return true;
 }
 
-void CPU::handleInterrupts()
+bool CPU::handleInterrupts()
 {
-    uint8_t firedInterrupts;
-    bool handledInterrupt;
-    firedInterrupts = interruptFlag.getValue() & interruptEnabled.getValue();
-    if (!firedInterrupts) return;
+    const uint8_t firedInterrupts = interruptFlag.getValue() & interruptEnabled.getValue() & 0x1F;
+    if (!firedInterrupts) return false;
 
     if (isHalted && firedInterrupts != 0x0)
     {
@@ -66,33 +80,34 @@ void CPU::handleInterrupts()
 
     if (!isInterruptEnabled)
     {
-        return;
+        return false;
     }
 
     stackPush(pc);
-    handledInterrupt = false;
 
     // Handle all possible interrupts.
-    handledInterrupt = handleInterrupt(0, INTERRUPT_VBLANK, firedInterrupts);
-    if (handledInterrupt) return;
+    if (handleInterrupt(0, INTERRUPT_VBLANK, firedInterrupts)) return true;
 
-    handledInterrupt = handleInterrupt(1, INTERRUPT_LCDC_STATUS, firedInterrupts);
-    if (handledInterrupt) return;
+    if (handleInterrupt(1, INTERRUPT_LCDC_STATUS, firedInterrupts)) return true;
 
-    handledInterrupt = handleInterrupt(2, INTERRUPT_TIMER, firedInterrupts);
-    if (handledInterrupt) return;
+    if (handleInterrupt(2, INTERRUPT_TIMER, firedInterrupts)) return true;
 
-    handledInterrupt = handleInterrupt(3, INTERRUPT_SERIAL, firedInterrupts);
-    if (handledInterrupt) return;
+    if (handleInterrupt(3, INTERRUPT_SERIAL, firedInterrupts)) return true;
 
-    handledInterrupt = handleInterrupt(4, INTERRUPT_JOYPAD, firedInterrupts);
-    if (handledInterrupt) return;   
+    return handleInterrupt(4, INTERRUPT_JOYPAD, firedInterrupts);
 }
 
 uint8_t CPU::getByteFromPC()
 {
     uint8_t byte = emulator.mmu.read(Address(pc));
-    pc.increment();
+    if (haltBug)
+    {
+        haltBug = false;
+    }
+    else
+    {
+        pc.increment();
+    }
     return byte;
 }
 
