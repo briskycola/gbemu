@@ -352,6 +352,7 @@ class CPU
         void opcode_CB_F0(); void opcode_CB_F1(); void opcode_CB_F2(); void opcode_CB_F3(); void opcode_CB_F4(); void opcode_CB_F5(); void opcode_CB_F6(); void opcode_CB_F7(); void opcode_CB_F8(); void opcode_CB_F9(); void opcode_CB_FA(); void opcode_CB_FB(); void opcode_CB_FC(); void opcode_CB_FD(); void opcode_CB_FE(); void opcode_CB_FF();
     public:
         CPU(Emulator &emulator);
+        void initializeCGBPostBoot();
         Cycles tick();
         Cycles executeOpcode(uint8_t opcode, uint16_t opcodePC);
         Cycles executeNormalOpcode(uint8_t opcode, uint16_t opcodePC);

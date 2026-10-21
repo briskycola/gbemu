@@ -21,6 +21,10 @@ uint8_t MMU::read(const Address &address, bool bypassPPURestrictions) const
     // Cartridge ROM
     if (address.inRange(CARTRIDGE_ROM_ADDRESS_START, CARTRIDGE_ROM_ADDRESS_END))
     {
+        if (emulator.cgbMode && !cgbBootROM.empty() &&
+            (address.getValue() < 0x0100 || (address.getValue() >= 0x0200 && address.getValue() < 0x0900)) &&
+            isBootROMActive())
+            return cgbBootROM[address.getValue()];
         if (address.inRange(0x0, 0xFF) && isBootROMActive()) return bootROM[address.getValue()];
         return emulator.cartridge->read(address);
     }
@@ -615,4 +619,15 @@ bool MMU::isBootROMActive() const
 {
     //return read(0xFF50) != 0x1;
     return disableBootROMSwitch.getValue() == 0;
+}
+
+bool MMU::loadCGBBootROM(const std::vector<uint8_t> &rom)
+{
+    if (rom.size() != 0x900)
+    {
+        std::cerr << "CGB boot ROM must be exactly 0x900 bytes\n";
+        return false;
+    }
+    cgbBootROM = rom;
+    return true;
 }

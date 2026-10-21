@@ -19,6 +19,7 @@ static SDL_Window *window;
 static SDL_Renderer *renderer;
 static SDL_Texture *gbScreenTexture;
 static SDL_AudioDeviceID audioDevice;
+static constexpr uint32_t maxQueuedAudioBytes = 19200; // 100 ms at 48 kHz, stereo S16
 
 static std::unique_ptr<Emulator> emulator;
 static bool shouldExit = false;
@@ -203,7 +204,7 @@ void draw(const FrameBuffer &buffer)
         if (!audioSamples.empty())
         {
             const uint32_t queuedBytes = SDL_GetQueuedAudioSize(audioDevice);
-            if (queuedBytes > 192000) SDL_ClearQueuedAudio(audioDevice);
+            if (queuedBytes > maxQueuedAudioBytes) SDL_ClearQueuedAudio(audioDevice);
             SDL_QueueAudio(audioDevice, audioSamples.data(),
                 static_cast<uint32_t>(audioSamples.size() * sizeof(int16_t)));
         }
@@ -235,7 +236,7 @@ int main(int argc, char **argv)
 {
     if (argc < 2)
     {
-        std::cerr << "Usage: " << argv[0] << " <rom-file>\n";
+        std::cerr << "Usage: " << argv[0] << " <rom-file> [cgb-bootrom-file]\n";
         return 1;
     }
 
@@ -286,7 +287,8 @@ int main(int argc, char **argv)
 
     std::vector<uint8_t> romData = readFile(argv[1]);
     std::vector<uint8_t> saveData = loadState(argv[1]);
-    emulator = std::make_unique<Emulator>(romData, saveData);
+    std::vector<uint8_t> cgbBootROM = argc >= 3 ? readFile(argv[2]) : std::vector<uint8_t>{};
+    emulator = std::make_unique<Emulator>(romData, saveData, cgbBootROM);
     emulator->run(&isClosed, &draw);
 
     saveState(argv[1]);

@@ -12,6 +12,22 @@ CPU::CPU(Emulator &emulator) :
     hl(h, l)
 {}
 
+void CPU::initializeCGBPostBoot()
+{
+    // Values left by the CGB boot ROM when it hands control to a native
+    // color cartridge at $0100.
+    af.set(0x1180);
+    bc.set(0x0000);
+    de.set(0xFF56);
+    hl.set(0x000D);
+    sp.set(0xFFFE);
+    pc.set(0x0100);
+    isInterruptEnabled = false;
+    isHalted = false;
+    haltBug = false;
+    imeEnableDelay = 0;
+}
+
 Cycles CPU::executeOpcode(uint8_t opcode, uint16_t opcodePC)
 {
     uint8_t cbOpcode;

@@ -47,7 +47,8 @@ class Emulator
 
         void tick();
     public:
-        Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<uint8_t> &saveData = {});
+        Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<uint8_t> &saveData = {},
+                 const std::vector<uint8_t> &cgbBootROM = {});
         const std::vector<uint8_t>& getCartridgeRAM();
         std::vector<int16_t> takeAudioSamples();
         void run(std::function<bool()> shouldCloseCallback, std::function<void(const FrameBuffer&)> vblankCallback);

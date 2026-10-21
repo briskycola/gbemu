@@ -54,6 +54,7 @@ class MMU
         std::vector<uint8_t> oamRAM;
         std::vector<uint8_t> highRAM;
         uint8_t workRAMBank = 1;
+        std::vector<uint8_t> cgbBootROM;
         uint16_t hdmaSource = 0;
         uint16_t hdmaDestination = 0x8000;
         uint8_t hdmaBlocksRemaining = 0;
@@ -70,4 +71,6 @@ class MMU
         uint8_t read(const Address &address, bool bypassPPURestrictions = false) const;
         void write(const Address &address, const uint8_t value, bool bypassPPURestrictions = false);
         void hblankDMA();
+        bool loadCGBBootROM(const std::vector<uint8_t> &rom);
+        bool hasCGBBootROM() const { return !cgbBootROM.empty(); }
 };
