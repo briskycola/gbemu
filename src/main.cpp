@@ -76,8 +76,7 @@ void setPixels(uint32_t *pixels, const FrameBuffer& buffer)
     {
         for (uint32_t x = 0; x < GAMEBOY_WIDTH; x++)
         {
-            Color color = buffer.getPixel(x, y);
-            uint32_t pixelARGB = getRealColor(color);
+            uint32_t pixelARGB = 0xFF000000 | buffer.getPixelRGB(x, y);
             setLargePixel(pixels, x, y, pixelARGB);
         }
     }
@@ -287,7 +286,6 @@ int main(int argc, char **argv)
 
     std::vector<uint8_t> romData = readFile(argv[1]);
     std::vector<uint8_t> saveData = loadState(argv[1]);
-
     emulator = std::make_unique<Emulator>(romData, saveData);
     emulator->run(&isClosed, &draw);
 

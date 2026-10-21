@@ -8,6 +8,7 @@
 #include "input.hpp"
 #include "ppu.hpp"
 #include "apu.hpp"
+#include "sgb.hpp"
 #include <memory>
 
 class Emulator
@@ -17,6 +18,11 @@ class Emulator
         std::function<bool()> shouldCloseCallback;
         uint32_t elapsedCycles = 0;
         uint16_t dmaCyclesRemaining = 0;
+        bool cgbMode = false;
+        bool doubleSpeed = false;
+        bool speedSwitchPrepared = false;
+        bool sgbMode = false;
+        SGB sgb;
 
         friend class CPU;
         CPU cpu;

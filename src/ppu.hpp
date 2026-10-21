@@ -6,6 +6,7 @@
 #include "common.hpp"
 #include <vector>
 #include <functional>
+#include <array>
 
 static constexpr uint32_t CLOCKS_PER_HBLANK        = 204;  // Mode 0
 static constexpr uint32_t CLOCKS_PER_VBLANK        = 4560; // Mode 1
@@ -48,6 +49,13 @@ class PPU
         VideoMode currentMode = VideoMode::ACCESS_OAM;
         uint32_t cycleCounter = 0;
         uint32_t screenEnableDelay = 0;
+        uint8_t vramBank = 0;
+        uint8_t objectPriorityMode = 0;
+        std::array<uint8_t, 64> bgColorPalettes{};
+        std::array<uint8_t, 64> objColorPalettes{};
+        uint8_t bgPaletteIndex = 0;
+        uint8_t objPaletteIndex = 0;
+        std::array<uint8_t, GAMEBOY_WIDTH * GAMEBOY_HEIGHT> bgAttributePriority{};
 
         std::function<void(const FrameBuffer&)> vblankCallback;
 
@@ -88,6 +96,14 @@ class PPU
         void write(const Address &address, uint8_t value);
         bool cpuCanAccessVRAM() const;
         bool cpuCanAccessOAM() const;
+        void setVRAMBank(uint8_t bank) { vramBank = bank & 1; }
+        uint8_t getVRAMBank() const { return vramBank; }
+        void setObjectPriorityMode(uint8_t mode) { objectPriorityMode = mode & 1; }
+        uint8_t getObjectPriorityMode() const { return objectPriorityMode; }
+        uint8_t readCGBPaletteRegister(uint16_t address) const;
+        void writeCGBPaletteRegister(uint16_t address, uint8_t value);
+        uint8_t readVRAMBank(uint16_t offset, uint8_t bank) const;
+        uint32_t getCGBColor(bool objectPalette, uint8_t palette, uint8_t color) const;
 
         uint8_t controlByte;
 

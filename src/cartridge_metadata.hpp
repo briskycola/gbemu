@@ -73,6 +73,7 @@ class CartridgeInfo
         // or Super Game Boy
         // enhancements
         bool supportsCGB;
+        bool cgbOnly;
         bool supportsSGB;
 };
 

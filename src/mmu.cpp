@@ -41,7 +41,10 @@ uint8_t MMU::read(const Address &address, bool bypassPPURestrictions) const
     // WRAM
     if (address.inRange(WRAM_ADDRESS_START, WRAM_ADDRESS_END))
     {
-        return workRAM.at(address.getValue() - 0xC000);
+        const uint16_t offset = address.getValue() - 0xC000;
+        if (emulator.cgbMode && offset >= 0x1000)
+            return workRAM.at(0x1000 + static_cast<size_t>(workRAMBank - 1) * 0x1000 + (offset - 0x1000));
+        return workRAM.at(offset);
     }
 
     // Echo RAM
@@ -88,7 +91,13 @@ uint8_t MMU::readIO(const Address &address) const
 {
     switch (address.getValue())
     {
-        case 0xFF00: return emulator.input.getInput();
+        case 0xFF00:
+        {
+            uint8_t input = emulator.input.getInput();
+            if (emulator.sgbMode && (input & 0x30) == 0x30)
+                input = static_cast<uint8_t>((input & 0xF0) | emulator.sgb.getPlayerId());
+            return input;
+        }
         case 0xFF01: return emulator.serial.read();
         case 0xFF02: return 0xFF;
         case 0xFF03: return 0xFF;
@@ -182,19 +191,24 @@ uint8_t MMU::readIO(const Address &address) const
         case 0xFF4A: return emulator.ppu.windowY.getValue();
         case 0xFF4B: return emulator.ppu.windowX.getValue();
 
-        // Unimplemented: CGB mode behavior
-        case 0xFF4C: return 0xFF;
-        case 0xFF4D: return 0xFF;
+        // KEY0 reports native CGB CPU mode. This emulator enters color mode
+        // for cartridges whose header advertises CGB support.
+        case 0xFF4C: return emulator.cgbMode ? 0x00 : 0xFF;
+        case 0xFF4D: return emulator.cgbMode
+            ? static_cast<uint8_t>(0x7E | (emulator.doubleSpeed ? 0x80 : 0) | (emulator.speedSwitchPrepared ? 1 : 0))
+            : 0xFF;
         case 0xFF4E:
-        case 0xFF4F: return 0xFF;
+        case 0xFF4F: return emulator.cgbMode ? static_cast<uint8_t>(0xFE | emulator.ppu.getVRAMBank()) : 0xFF;
 
         // Boot ROM
         case 0xFF50: return disableBootROMSwitch.getValue();
-        case 0xFF51: return 0xFF;
-        case 0xFF52: return 0xFF;
-        case 0xFF53: return 0xFF;
-        case 0xFF54: return 0xFF;
-        case 0xFF55: return 0xFF;
+        case 0xFF51: return emulator.cgbMode ? static_cast<uint8_t>(hdmaSource >> 8) : 0xFF;
+        case 0xFF52: return emulator.cgbMode ? static_cast<uint8_t>(hdmaSource & 0xF0) : 0xFF;
+        case 0xFF53: return emulator.cgbMode ? static_cast<uint8_t>(0xE0 | ((hdmaDestination >> 8) & 0x1F)) : 0xFF;
+        case 0xFF54: return emulator.cgbMode ? static_cast<uint8_t>(hdmaDestination & 0xF0) : 0xFF;
+        case 0xFF55: return emulator.cgbMode
+            ? static_cast<uint8_t>((hdmaHBlank && hdmaBlocksRemaining ? 0 : 0x80) | (hdmaBlocksRemaining ? hdmaBlocksRemaining - 1 : 0x7F))
+            : 0xFF;
         case 0xFF56: return 0xFF;
 
         case 0xFF57:
@@ -215,26 +229,22 @@ uint8_t MMU::readIO(const Address &address) const
         case 0xFF66:
         case 0xFF67: return 0xFF;
             
-        // Unimplemented: Background color palette spec/index
-        case 0xFF68: return 0xFF;
-            
-        // Unimplemented: Background color palette data
-        case 0xFF69: return 0xFF;
+        case 0xFF68:
+        case 0xFF6A:
+            return emulator.cgbMode ? emulator.ppu.readCGBPaletteRegister(address.getValue()) : 0xFF;
+        case 0xFF69:
+        case 0xFF6B:
+            if (!emulator.cgbMode || !emulator.ppu.cpuCanAccessVRAM()) return 0xFF;
+            return emulator.ppu.readCGBPaletteRegister(address.getValue());
 
-        // Unimplemented: OBJ color palette spec/index
-        case 0xFF6A: return 0xFF;
-
-        // Unimplemented: OBJ color palette data
-        case 0xFF6B: return 0xFF;
-
-        // Unimplemented: Object priority mode
-        case 0xFF6C: return 0xFF;
+        case 0xFF6C: return emulator.cgbMode
+            ? static_cast<uint8_t>(0xFE | emulator.ppu.getObjectPriorityMode()) : 0xFF;
         case 0xFF6D:
         case 0xFF6E:
         case 0xFF6F: return 0xFF;
 
         // Unimplemented: CGB WRAM bank
-        case 0xFF70: return 0xFF;
+        case 0xFF70: return emulator.cgbMode ? static_cast<uint8_t>(0xF8 | workRAMBank) : 0xFF;
 
         // Unimplemented: Some undocumented registers in this range
         case 0xFF71:
@@ -285,7 +295,11 @@ void MMU::write(const Address &address, const uint8_t value, bool bypassPPURestr
     // WRAM
     if (address.inRange(WRAM_ADDRESS_START, WRAM_ADDRESS_END))
     {
-        workRAM.at(address.getValue() - WRAM_OFFSET) = value;
+        const uint16_t offset = address.getValue() - WRAM_OFFSET;
+        if (emulator.cgbMode && offset >= 0x1000)
+            workRAM.at(0x1000 + static_cast<size_t>(workRAMBank - 1) * 0x1000 + (offset - 0x1000)) = value;
+        else
+            workRAM.at(offset) = value;
         return;
     }
 
@@ -337,7 +351,10 @@ void MMU::writeIO(const Address &address, const uint8_t value)
 {
     switch (address.getValue())
     {
-        case 0xFF00: emulator.input.write(value); return;
+        case 0xFF00:
+            if (emulator.sgbMode) emulator.sgb.writeJOYP(value);
+            emulator.input.write(value);
+            return;
 
         // Serial data transfer (SB)
         case 0xFF01: emulator.serial.write(value); return;
@@ -454,19 +471,41 @@ void MMU::writeIO(const Address &address, const uint8_t value)
 
         // Unimplemented: CGB mode behavior
         case 0xFF4C: return;
-        case 0xFF4D: return;
+        case 0xFF4D:
+            if (emulator.cgbMode) emulator.speedSwitchPrepared = (value & 1) != 0;
+            return;
         case 0xFF4E:
-        case 0xFF4F: return;
+        case 0xFF4F:
+            if (emulator.cgbMode) emulator.ppu.setVRAMBank(value & 1);
+            return;
 
         // Boot ROM
         case 0xFF50: disableBootROMSwitch.set(value); return;
 
-        case 0xFF51: return;
-        case 0xFF52: return;
-        case 0xFF53: return;
-
-        case 0xFF54: return;
-        case 0xFF55: return;
+        case 0xFF51:
+            if (emulator.cgbMode) hdmaSource = static_cast<uint16_t>((value << 8) | (hdmaSource & 0x00F0));
+            return;
+        case 0xFF52:
+            if (emulator.cgbMode) hdmaSource = static_cast<uint16_t>((hdmaSource & 0xFF00) | (value & 0xF0));
+            return;
+        case 0xFF53:
+            if (emulator.cgbMode) hdmaDestination = static_cast<uint16_t>(0x8000 | ((value & 0x1F) << 8) | (hdmaDestination & 0x00F0));
+            return;
+        case 0xFF54:
+            if (emulator.cgbMode) hdmaDestination = static_cast<uint16_t>((hdmaDestination & 0xFF00) | (value & 0xF0));
+            return;
+        case 0xFF55:
+            if (!emulator.cgbMode) return;
+            if (hdmaHBlank && hdmaBlocksRemaining)
+            {
+                if (!(value & 0x80)) hdmaHBlank = false;
+                return;
+            }
+            hdmaBlocksRemaining = (value & 0x7F) + 1;
+            hdmaHBlank = (value & 0x80) != 0 && (emulator.ppu.controlByte & 0x80) != 0;
+            if (!hdmaHBlank)
+                while (hdmaBlocksRemaining) transferHDMABlock();
+            return;
         case 0xFF56: return;
 
         case 0xFF57:
@@ -487,27 +526,28 @@ void MMU::writeIO(const Address &address, const uint8_t value)
         case 0xFF66:
         case 0xFF67: return;
 
-        // Unimplemented: Background color palette spec/index
-        case 0xFF68: return;
+        case 0xFF68:
+        case 0xFF6A:
+            if (emulator.cgbMode) emulator.ppu.writeCGBPaletteRegister(address.getValue(), value);
+            return;
+        case 0xFF69:
+        case 0xFF6B:
+            if (emulator.cgbMode && emulator.ppu.cpuCanAccessVRAM())
+                emulator.ppu.writeCGBPaletteRegister(address.getValue(), value);
+            return;
 
-        // Unimplemented: Background color palette data
-        case 0xFF69: return;
-
-        // Unimplemented: OBJ color palette spec/index
-        case 0xFF6A: return;
-
-        // Unimplemented: OBJ color palette data
-        case 0xFF6B: return;
-
-        // Unimplemented: Object priority mode
-        case 0xFF6C: return;
+        case 0xFF6C:
+            if (emulator.cgbMode) emulator.ppu.setObjectPriorityMode(value);
+            return;
 
         case 0xFF6D:
         case 0xFF6E:
         case 0xFF6F: return;
 
         /* Unimplemented: CGB WRAM bank */
-        case 0xFF70: return;
+        case 0xFF70:
+            if (emulator.cgbMode) { workRAMBank = value & 7; if (workRAMBank == 0) workRAMBank = 1; }
+            return;
 
         /* Unimplemented: Some undocumented registers in this range */
         case 0xFF71:
@@ -545,6 +585,30 @@ void MMU::dmaTransfer(const uint8_t value)
     }
     // A DMG OAM DMA transfer occupies the CPU bus for 160 machine cycles.
     emulator.dmaCyclesRemaining = 160;
+}
+
+void MMU::transferHDMABlock()
+{
+    if (!hdmaBlocksRemaining) return;
+    for (uint8_t i = 0; i < 0x10; ++i)
+    {
+        const uint16_t source = hdmaSource + i;
+        const uint16_t destination = hdmaDestination + i;
+        const uint8_t data = source <= 0x7FFF || (source >= 0xA000 && source <= 0xFDFF)
+            ? read(Address(source), true) : 0xFF;
+        if (destination >= 0x8000 && destination <= 0x9FFF)
+            write(Address(destination), data, true);
+    }
+    hdmaSource += 0x10;
+    hdmaDestination = static_cast<uint16_t>(0x8000 | ((hdmaDestination + 0x10 - 0x8000) & 0x1FFF));
+    --hdmaBlocksRemaining;
+    emulator.dmaCyclesRemaining += emulator.doubleSpeed ? 16 : 8;
+    if (!hdmaBlocksRemaining) hdmaHBlank = false;
+}
+
+void MMU::hblankDMA()
+{
+    if (emulator.cgbMode && hdmaHBlank && hdmaBlocksRemaining) transferHDMABlock();
 }
 
 bool MMU::isBootROMActive() const

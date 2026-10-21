@@ -913,6 +913,14 @@ void CPU::opcode_srl(Address &&address)
 // STOP
 void CPU::opcode_stop()
 {
+    getByteFromPC(); // STOP is followed by a padding byte.
+    if (emulator.cgbMode && emulator.speedSwitchPrepared)
+    {
+        emulator.doubleSpeed = !emulator.doubleSpeed;
+        emulator.speedSwitchPrepared = false;
+        emulator.timer.resetDivider();
+        return;
+    }
     isHalted = true;
 }
 

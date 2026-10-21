@@ -80,6 +80,10 @@ const std::vector<uint8_t>& Cartridge::getCartridgeRAM() const
     return ram;
 }
 
+bool Cartridge::supportsCGB() const { return cartridgeInfo->supportsCGB; }
+bool Cartridge::isCGBOnly() const { return cartridgeInfo->cgbOnly; }
+bool Cartridge::supportsSGB() const { return cartridgeInfo->supportsSGB; }
+
 uint8_t NoMBC::read(const Address &address) const
 {
     if (address.inRange(0x0000, 0x7FFF))

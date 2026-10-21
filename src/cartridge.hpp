@@ -44,6 +44,9 @@ class Cartridge
         virtual uint8_t read(const Address &address) const = 0;
         virtual void write(const Address &address, uint8_t value) = 0;
         virtual const std::vector<uint8_t>& getCartridgeRAM() const;
+        bool supportsCGB() const;
+        bool isCGBOnly() const;
+        bool supportsSGB() const;
 };
 
 class MBC2 : public Cartridge

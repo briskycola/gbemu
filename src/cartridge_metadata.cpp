@@ -225,6 +225,10 @@ std::unique_ptr<CartridgeInfo> getInfo(const std::vector<uint8_t> &rom)
 
     info->title = getTitleFromCartridge(rom);
     info->type = getCartridgeType(rom[CARTRIDGE_TYPE_START_ADDRESS]);
+    info->supportsCGB = (rom[CGB_FLAG_START_ADDRESS] & 0x80) != 0;
+    info->cgbOnly = rom[CGB_FLAG_START_ADDRESS] == 0xC0;
+    info->supportsSGB = rom[SGB_FLAG_START_ADDRESS] == 0x03 &&
+        rom[OLD_LICENSEE_CODE_START_ADDRESS] == 0x33;
     info->version = ROM_VERSION_NUMBER_START_ADDRESS;
     info->romSize = getRomSize(rom[ROM_SIZE_START_ADDRESS]);
     info->ramSize = getRamSize(rom[RAM_SIZE_START_ADDRESS]);

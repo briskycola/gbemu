@@ -2,6 +2,8 @@
 
 Emulator::Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<uint8_t> &saveData) :
     cartridge(getCartridge(cartridgeData, saveData)),
+    cgbMode(cartridge->supportsCGB()),
+    sgbMode(!cgbMode && cartridge->supportsSGB()),
     cpu(*this),
     mmu(*this),
     timer(*this),
@@ -26,9 +28,9 @@ void Emulator::tick()
     Cycles t{ m.cycles * 4 }; // T-cycles
 
     elapsedCycles += t.cycles;
-    ppu.tick(t);
+    ppu.tick(Cycles(doubleSpeed ? t.cycles / 2 : t.cycles));
     timer.tick(t.cycles);
-    apu.tick(t.cycles);
+    apu.tick(doubleSpeed ? t.cycles / 2 : t.cycles);
 }
 
 void Emulator::run(std::function<bool()> shoudCloseCallback, std::function<void(const FrameBuffer&)> vblankCallback)

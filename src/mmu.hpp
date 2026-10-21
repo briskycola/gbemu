@@ -53,14 +53,21 @@ class MMU
         std::vector<uint8_t> workRAM;
         std::vector<uint8_t> oamRAM;
         std::vector<uint8_t> highRAM;
+        uint8_t workRAMBank = 1;
+        uint16_t hdmaSource = 0;
+        uint16_t hdmaDestination = 0x8000;
+        uint8_t hdmaBlocksRemaining = 0;
+        bool hdmaHBlank = false;
         ByteRegister disableBootROMSwitch;
 
         uint8_t readIO(const Address &address) const;
         void writeIO(const Address &address, const uint8_t value);
         void dmaTransfer(uint8_t value);
         bool isBootROMActive() const;
+        void transferHDMABlock();
     public:
         MMU(Emulator &emulator);
         uint8_t read(const Address &address, bool bypassPPURestrictions = false) const;
         void write(const Address &address, const uint8_t value, bool bypassPPURestrictions = false);
+        void hblankDMA();
 };

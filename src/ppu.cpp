@@ -4,6 +4,7 @@
 #include "common.hpp"
 #include "tile.hpp"
 #include <stdexcept>
+#include <algorithm>
 
 PPU::PPU(Emulator &emulator) :
     emulator(emulator),
@@ -11,17 +12,54 @@ PPU::PPU(Emulator &emulator) :
     backgroundMap(BACKGROUND_MAP_SIZE, BACKGROUND_MAP_SIZE)
 {
     videoRAM = std::vector<uint8_t>(VRAM_SIZE_BYTES);
+    bgColorPalettes.fill(0xFF); // CGB startup background palettes are white.
     controlByte = 0;
 }
 
 uint8_t PPU::read(const Address &address)
 {
-    return videoRAM.at(address.getValue());
+    return videoRAM.at(static_cast<size_t>(vramBank) * VRAM_SIZE_BYTES / 2 + address.getValue());
+}
+
+uint8_t PPU::readVRAMBank(uint16_t offset, uint8_t bank) const
+{
+    return videoRAM.at((bank & 1) * 0x2000 + (offset & 0x1FFF));
+}
+
+uint8_t PPU::readCGBPaletteRegister(uint16_t address) const
+{
+    if (address == 0xFF68) return 0x40 | (bgPaletteIndex & 0xBF);
+    if (address == 0xFF6A) return 0x40 | (objPaletteIndex & 0xBF);
+    const bool object = address == 0xFF6B;
+    const uint8_t index = (object ? objPaletteIndex : bgPaletteIndex) & 0x3F;
+    return object ? objColorPalettes[index] : bgColorPalettes[index];
+}
+
+void PPU::writeCGBPaletteRegister(uint16_t address, uint8_t value)
+{
+    if (address == 0xFF68) { bgPaletteIndex = value & 0xBF; return; }
+    if (address == 0xFF6A) { objPaletteIndex = value & 0xBF; return; }
+    const bool object = address == 0xFF6B;
+    uint8_t &index = object ? objPaletteIndex : bgPaletteIndex;
+    if (object) objColorPalettes[index & 0x3F] = value;
+    else bgColorPalettes[index & 0x3F] = value;
+    if (index & 0x80) index = static_cast<uint8_t>(0x80 | ((index + 1) & 0x3F));
+}
+
+uint32_t PPU::getCGBColor(bool objectPalette, uint8_t palette, uint8_t color) const
+{
+    const auto &ram = objectPalette ? objColorPalettes : bgColorPalettes;
+    const uint8_t index = static_cast<uint8_t>((palette & 7) * 8 + (color & 3) * 2);
+    const uint16_t value = ram[index] | (static_cast<uint16_t>(ram[index + 1] & 0x7F) << 8);
+    const uint8_t red = value & 0x1F;
+    const uint8_t green = (value >> 5) & 0x1F;
+    const uint8_t blue = (value >> 10) & 0x1F;
+    return ((red << 3 | red >> 2) << 16) | ((green << 3 | green >> 2) << 8) | (blue << 3 | blue >> 2);
 }
 
 void PPU::write(const Address &address, uint8_t value)
 {
-    videoRAM.at(address.getValue()) = value;
+    videoRAM.at(static_cast<size_t>(vramBank) * VRAM_SIZE_BYTES / 2 + address.getValue()) = value;
 }
 
 void PPU::tick(Cycles cycles)
@@ -64,6 +102,7 @@ void PPU::tick(Cycles cycles)
             {
                 cycleCounter = cycleCounter % CLOCKS_PER_SCANLINE_VRAM;
                 currentMode = VideoMode::HBLANK;
+                emulator.mmu.hblankDMA();
 
                 bool hblankInterrupt = checkBit(lcdStatus.getValue(), 3);
 
@@ -128,6 +167,7 @@ void PPU::tick(Cycles cycles)
                     writeSprites();
                     draw();
                     buffer.reset();
+                    bgAttributePriority.fill(0);
                     line.reset();
                     currentMode = VideoMode::ACCESS_OAM;
                     lcdStatus.setBitTo(1, true);
@@ -193,7 +233,7 @@ void PPU::writeScanline(uint8_t currentLine)
 {
     if (!displayEnabled()) return;
 
-    if (bgEnabled())
+    if (bgEnabled() || emulator.cgbMode)
     {
         drawBGLine(currentLine);
     }
@@ -207,11 +247,17 @@ void PPU::writeScanline(uint8_t currentLine)
 void PPU::writeSprites()
 {
     if (!spritesEnabled()) return;
-
-    for (uint32_t sprite = 0; sprite < 40; sprite++)
+    std::array<uint8_t, 40> order{};
+    for (uint8_t i = 0; i < order.size(); ++i) order[i] = i;
+    const bool oamPriority = emulator.cgbMode && objectPriorityMode == 0;
+    std::sort(order.begin(), order.end(), [this, oamPriority](uint8_t a, uint8_t b)
     {
-        drawSprite(sprite);
-    }
+        if (oamPriority) return a > b; // Draw lower-priority entries first.
+        const uint8_t xA = emulator.mmu.read(Address(0xFE01 + a * 4), true);
+        const uint8_t xB = emulator.mmu.read(Address(0xFE01 + b * 4), true);
+        return xA == xB ? a > b : xA > xB;
+    });
+    for (uint8_t sprite : order) drawSprite(sprite);
 }
 
 void PPU::drawBGLine(uint32_t currentLine)
@@ -256,6 +302,8 @@ void PPU::drawBGLine(uint32_t currentLine)
 
         // Grab the ID of the tile we'll get data from
         uint8_t tileID = emulator.mmu.read(tileIDAddress, true);
+        uint8_t tileAttributes = emulator.cgbMode
+            ? readVRAMBank(tileIDAddress.getValue() - 0x8000, 1) : 0;
 
         // Calculate the offset from the start of the tile data
         // memory where the data from in the tile map
@@ -265,15 +313,24 @@ void PPU::drawBGLine(uint32_t currentLine)
 
         // Calculate the extra offset to the data for the line
         // of pixles we are rendering from (2 bytes per line of pixels * y lines)
-        uint32_t tileDataLineOffset = tilePixelY * 2;
-        Address tileLineDataStartAddress = tileSetAddress + tileDataMemoryOffset + tileDataLineOffset;
-
-        uint8_t pixelsOne = emulator.mmu.read(tileLineDataStartAddress, true);
-        uint8_t pixelsTwo = emulator.mmu.read(tileLineDataStartAddress + 1, true);
-
-        GBColor pixelColor = getPixelFromLine(pixelsOne, pixelsTwo, tilePixelX);
-        Color screenColor = getColorFromPalette(pixelColor, palette);
-        buffer.setPixel(screenX, screenY, screenColor);
+        uint32_t row = (tileAttributes & 0x40) ? 7 - tilePixelY : tilePixelY;
+        uint32_t column = (tileAttributes & 0x20) ? 7 - tilePixelX : tilePixelX;
+        uint32_t tileDataOffset = tileSetAddress.getValue() - 0x8000 + tileDataMemoryOffset + row * 2;
+        uint8_t pixelsOne = readVRAMBank(tileDataOffset, (tileAttributes >> 3) & 1);
+        uint8_t pixelsTwo = readVRAMBank(tileDataOffset + 1, (tileAttributes >> 3) & 1);
+        GBColor pixelColor = getPixelFromLine(pixelsOne, pixelsTwo, column);
+        const uint8_t shade = static_cast<uint8_t>(pixelColor);
+        bgAttributePriority[screenY * GAMEBOY_WIDTH + screenX] = tileAttributes >> 7;
+        if (emulator.cgbMode)
+            buffer.setPixelRGB(screenX, screenY, getCGBColor(false, tileAttributes & 7, shade), shade);
+        else if (emulator.sgbMode)
+        {
+            const uint8_t mappedShade = static_cast<uint8_t>(getColorFromPalette(pixelColor, palette));
+            const uint8_t paletteIndex = emulator.sgb.getAttribute(screenX, screenY);
+            buffer.setPixelRGB(screenX, screenY, emulator.sgb.getColor(paletteIndex, mappedShade, screenX, screenY), mappedShade);
+        }
+        else
+            buffer.setPixel(screenX, screenY, getColorFromPalette(pixelColor, palette));
     }
 }
 
@@ -316,6 +373,8 @@ void PPU::drawWindowLine(uint32_t currentLine)
 
         // Grab the ID of the tile we'll get data from
         uint8_t tileID = emulator.mmu.read(tileIDAddress, true);
+        uint8_t tileAttributes = emulator.cgbMode
+            ? readVRAMBank(tileIDAddress.getValue() - 0x8000, 1) : 0;
 
         // Calculate the offset from the start of the tile data
         // memory where the data from in the tile map
@@ -325,15 +384,24 @@ void PPU::drawWindowLine(uint32_t currentLine)
 
         // Calculate the extra offset to the data for the line
         // of pixles we are rendering from (2 bytes per line of pixels * y lines)
-        uint32_t tileDataLineOffset = tilePixelY * 2;
-        Address tileLineDataStartAddress = tileSetAddress + tileDataMemoryOffset + tileDataLineOffset;
-
-        uint8_t pixelsOne = emulator.mmu.read(tileLineDataStartAddress, true);
-        uint8_t pixelsTwo = emulator.mmu.read(tileLineDataStartAddress + 1, true);
-
-        GBColor pixelColor = getPixelFromLine(pixelsOne, pixelsTwo, tilePixelX);
-        Color screenColor = getColorFromPalette(pixelColor, palette);
-        buffer.setPixel(screenX, screenY, screenColor);
+        uint32_t row = (tileAttributes & 0x40) ? 7 - tilePixelY : tilePixelY;
+        uint32_t column = (tileAttributes & 0x20) ? 7 - tilePixelX : tilePixelX;
+        uint32_t tileDataOffset = tileSetAddress.getValue() - 0x8000 + tileDataMemoryOffset + row * 2;
+        uint8_t pixelsOne = readVRAMBank(tileDataOffset, (tileAttributes >> 3) & 1);
+        uint8_t pixelsTwo = readVRAMBank(tileDataOffset + 1, (tileAttributes >> 3) & 1);
+        GBColor pixelColor = getPixelFromLine(pixelsOne, pixelsTwo, column);
+        const uint8_t shade = static_cast<uint8_t>(pixelColor);
+        bgAttributePriority[screenY * GAMEBOY_WIDTH + screenX] = tileAttributes >> 7;
+        if (emulator.cgbMode)
+            buffer.setPixelRGB(screenX, screenY, getCGBColor(false, tileAttributes & 7, shade), shade);
+        else if (emulator.sgbMode)
+        {
+            const uint8_t mappedShade = static_cast<uint8_t>(getColorFromPalette(pixelColor, palette));
+            const uint8_t paletteIndex = emulator.sgb.getAttribute(screenX, screenY);
+            buffer.setPixelRGB(screenX, screenY, emulator.sgb.getColor(paletteIndex, mappedShade, screenX, screenY), mappedShade);
+        }
+        else
+            buffer.setPixel(screenX, screenY, getColorFromPalette(pixelColor, palette));
     }
 }
 
@@ -373,7 +441,10 @@ void PPU::drawSprite(const uint32_t sprite)
     uint32_t tileOffset = pattern * TILE_BYTES;
     Address patternAddress = tileSetLocation + tileOffset;
 
+    const uint8_t previousBank = vramBank;
+    if (emulator.cgbMode) vramBank = (spriteAttributes >> 3) & 1;
     Tile tile(patternAddress, emulator.mmu, spriteSizeMultiplier);
+    vramBank = previousBank;
     int32_t startY = spriteY - 16;
     int32_t startX = spriteX - 8;
 
@@ -396,11 +467,26 @@ void PPU::drawSprite(const uint32_t sprite)
 
             Color existingPixel = buffer.getPixel(screenX, screenY);
 
-            if (objectBehindBG && existingPixel != Color::White) continue;
-
-            Color screenColor = getColorFromPalette(gbColor, palette);
-
-            buffer.setPixel(screenX, screenY, screenColor);
+            const uint8_t shade = static_cast<uint8_t>(gbColor);
+            const bool bgNonzero = existingPixel != Color::White;
+            if (emulator.cgbMode)
+            {
+                const bool bgPriority = bgAttributePriority[screenY * GAMEBOY_WIDTH + screenX] != 0;
+                if ((checkBit(spriteAttributes, 7) || bgPriority) && bgNonzero && checkBit(controlByte, 0)) continue;
+                buffer.setPixelRGB(screenX, screenY,
+                    getCGBColor(true, spriteAttributes & 7, shade), shade);
+            }
+            else
+            {
+                if (objectBehindBG && bgNonzero) continue;
+                if (emulator.sgbMode)
+                {
+                    const uint8_t mappedShade = static_cast<uint8_t>(getColorFromPalette(gbColor, palette));
+                    const uint8_t paletteIndex = emulator.sgb.getAttribute(screenX, screenY);
+                    buffer.setPixelRGB(screenX, screenY, emulator.sgb.getColor(paletteIndex, mappedShade, screenX, screenY), mappedShade);
+                }
+                else buffer.setPixel(screenX, screenY, getColorFromPalette(gbColor, palette));
+            }
         }
     }
 }
