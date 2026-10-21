@@ -15,6 +15,20 @@ and Super Game Boy components.
 
 Emulation coverage is still evolving, so compatibility varies by game.
 
+## Screenshots
+
+| Pokémon Crystal | Pokémon Crystal |
+| --- | --- |
+| ![Pokémon Crystal gameplay](images/pokemon_crystal_1.png) | ![Pokémon Crystal gameplay](images/pokemon_crystal_2.png) |
+
+| Super Mario Bros. Deluxe | Super Mario Bros. Deluxe |
+| --- | --- |
+| ![Super Mario Bros. Deluxe gameplay](images/smbd_1.png) | ![Super Mario Bros. Deluxe gameplay](images/smbd_2.png) |
+
+| Super Mario Land 2 | Super Mario Land 2 |
+| --- | --- |
+| ![Super Mario Land 2 gameplay](images/sml2_1.png) | ![Super Mario Land 2 gameplay](images/sml2_2.png) |
+
 ## Requirements
 
 - C++14-compatible compiler: GCC 5.4 or newer, Clang 3.4 or newer
