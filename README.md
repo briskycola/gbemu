@@ -1,6 +1,6 @@
 # Game Boy Emulator
 
-This is a Game Boy and Game Boy Color emulator written in C++14 with an SDL desktop frontend.
+This is a Game Boy and Game Boy Color emulator written in C++17 with an SDL2 and Dear ImGui desktop frontend.
 The project includes CPU, memory, cartridge, timer, graphics, input, audio,
 and Super Game Boy components.
 
@@ -9,6 +9,7 @@ and Super Game Boy components.
 - Game Boy and Game Boy Color cartridge support
 - Cartridge controllers: ROM-only, MBC1, MBC2, MBC3, and MBC5
 - SDL-rendered display and keyboard controls
+- Dear ImGui menu bar with a built-in file browser for opening and closing ROMs
 - Stereo audio output through SDL
 - Battery-backed cartridge RAM saved beside the ROM
 - Optional Game Boy Color boot ROM
@@ -31,13 +32,22 @@ Emulation coverage is still evolving, so compatibility varies by game.
 
 ## Requirements
 
-- C++14-compatible compiler: GCC 5.4 or newer, Clang 3.4 or newer
+- C++17-compatible compiler: GCC 9 or newer, Clang 9 or newer
 - CMake 3.23 or newer
 - SDL2 development package with CMake package configuration
+- [Dear ImGui](https://github.com/ocornut/imgui), included as a git submodule in `external/imgui`
 
 ## Build
 
-From the repository root:
+Clone with submodules, or initialize them in an existing checkout:
+
+```sh
+git clone --recursive <repository-url>
+# or, inside an existing clone:
+git submodule update --init --recursive
+```
+
+Then, from the repository root:
 
 ```sh
 cmake -S . -B build
@@ -50,16 +60,19 @@ or `build/Release/gbemu.exe`, depending on the generator).
 ## Run
 
 ```sh
-./build/gbemu path/to/game.gb
+./build/gbemu
 ```
 
-To provide a Game Boy Color boot ROM, pass it as the second argument:
+Use **File > Open ROM...** to browse for a `.gb`, `.gbc`, or `.sgb` file. Double-click
+a folder to enter it, or type a path into the bar at the top of the browser and press Enter.
+Double-click a ROM or select it and click **Open** to start it. The game pauses while
+the browser is open. **File > Close ROM** saves battery-backed RAM and stops the game.
+
+A ROM and an optional Game Boy Color boot ROM can still be passed on the command line:
 
 ```sh
 ./build/gbemu path/to/game.gbc path/to/cgb_boot.bin
 ```
-
-The boot ROM is optional. ROM files are read from disk as supplied.
 
 ### Keyboard controls
 
@@ -76,7 +89,8 @@ When the cartridge has battery-backed RAM, the emulator stores it in a
 
 ## Project layout
 
-- `src/` — emulator core and SDL application
+- `src/` — emulator core and SDL/ImGui application
+- `external/imgui/` — Dear ImGui submodule
 - `CMakeLists.txt` — build configuration
 
 ## Contributing
