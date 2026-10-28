@@ -1,4 +1,4 @@
-#include "common.hpp"
+#include "Common.hpp"
 
 Cycles::Cycles(uint32_t cycles) :
     cycles(cycles)

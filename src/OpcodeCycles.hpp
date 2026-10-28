@@ -10,7 +10,7 @@
 
 static constexpr uint16_t GAMEBOY_TOTAL_OPCODES = 256;
 
-const std::array<uint8_t, GAMEBOY_TOTAL_OPCODES> opcodeCycles =
+const std::array<uint8_t, GAMEBOY_TOTAL_OPCODES> OPCODE_CYCLES =
 {
     1, 3, 2, 2, 1, 1, 2, 1, 5, 2, 2, 2, 1, 1, 2, 1,
     1, 3, 2, 2, 1, 1, 2, 1, 3, 2, 2, 2, 1, 1, 2, 1,
@@ -30,7 +30,7 @@ const std::array<uint8_t, GAMEBOY_TOTAL_OPCODES> opcodeCycles =
     3, 3, 2, 1, 0, 4, 2, 4, 3, 2, 4, 1, 0, 0, 2, 4
 };
 
-const std::array<uint8_t, GAMEBOY_TOTAL_OPCODES> opcodeCyclesBranched =
+const std::array<uint8_t, GAMEBOY_TOTAL_OPCODES> OPCODE_CYCLES_BRANCHED =
 {
     1, 3, 2, 2, 1, 1, 2, 1, 5, 2, 2, 2, 1, 1, 2, 1,
     1, 3, 2, 2, 1, 1, 2, 1, 3, 2, 2, 2, 1, 1, 2, 1,
@@ -50,7 +50,7 @@ const std::array<uint8_t, GAMEBOY_TOTAL_OPCODES> opcodeCyclesBranched =
     3, 3, 2, 1, 0, 4, 2, 4, 3, 2, 4, 1, 0, 0, 2, 4
 };
 
-const std::array<uint8_t, GAMEBOY_TOTAL_OPCODES> opcodeCyclesCB =
+const std::array<uint8_t, GAMEBOY_TOTAL_OPCODES> OPCODE_CYCLES_CB =
 {
     2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
     2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,

@@ -1,10 +1,10 @@
-#include "framebuffer.hpp"
+#include "FrameBuffer.hpp"
 
 FrameBuffer::FrameBuffer(uint32_t width, uint32_t height) :
     width(width),
     height(height),
     buffer(width * height, Color::White),
-    rgbBuffer(width * height, 0xFFFFFF)
+    rgbBuffer(width * height, shadeToRGB(Color::White))
 {}
 
 void FrameBuffer::setPixel(uint32_t x, uint32_t y, Color color)
@@ -12,15 +12,14 @@ void FrameBuffer::setPixel(uint32_t x, uint32_t y, Color color)
     if (x >= width || y >= height) return;
     //buffer.at(pixelIndex(x, y)) = color;
     buffer[pixelIndex(x, y)] = color;
-    static const uint32_t grayscale[] = {0xFFFFFF, 0xAAAAAA, 0x555555, 0x000000};
-    rgbBuffer[pixelIndex(x, y)] = grayscale[static_cast<uint8_t>(color)];
+    rgbBuffer[pixelIndex(x, y)] = shadeToRGB(color);
 }
 
 void FrameBuffer::setPixelRGB(uint32_t x, uint32_t y, uint32_t rgb, uint8_t shade)
 {
     if (x >= width || y >= height) return;
-    buffer[pixelIndex(x, y)] = static_cast<Color>(shade & 3);
-    rgbBuffer[pixelIndex(x, y)] = rgb & 0xFFFFFF;
+    buffer[pixelIndex(x, y)] = static_cast<Color>(shade & 3); // Keep the 2-bit shade for sprite priority
+    rgbBuffer[pixelIndex(x, y)] = rgb & 0xFFFFFF; // Drop any alpha bits
 }
 
 Color FrameBuffer::getPixel(uint32_t x, uint32_t y) const
@@ -44,6 +43,6 @@ void FrameBuffer::reset()
     {
         //buffer.at(i) = Color::White;
         buffer[i] = Color::White;
-        rgbBuffer[i] = 0xFFFFFF;
+        rgbBuffer[i] = shadeToRGB(Color::White);
     }
 }

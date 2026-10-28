@@ -1,7 +1,9 @@
-#include "cartridge.hpp"
-#include "address.hpp"
-#include "cartridge_metadata.hpp"
-#include "file.hpp"
+#include "Cartridge.hpp"
+#include "Address.hpp"
+#include "CartridgeMetadata.hpp"
+#include "File.hpp"
+#include "MMU.hpp"
+#include "IORegisters.hpp"
 #include <iostream>
 
 Cartridge::Cartridge(std::vector<uint8_t> rom, const std::vector<uint8_t> &ram,
@@ -37,14 +39,14 @@ MBC1::MBC1(std::vector<uint8_t> rom, const std::vector<uint8_t> &ram,
              std::unique_ptr<CartridgeInfo> cartridgeInfo) :
     Cartridge(std::move(rom), ram, std::move(cartridgeInfo))
 {
-    romBank.set(0x1);
+    romBank.set(0x1); // The switchable ROM window starts at bank 1
 }
 
 MBC3::MBC3(std::vector<uint8_t> rom, const std::vector<uint8_t> &ram,
              std::unique_ptr<CartridgeInfo> cartridgeInfo) :
     Cartridge(std::move(rom), ram, std::move(cartridgeInfo))
 {
-    romBank.set(0x1);
+    romBank.set(0x1); // The switchable ROM window starts at bank 1
 }
 
 std::shared_ptr<Cartridge> getCartridge(const std::vector<uint8_t> &rom,
@@ -86,62 +88,62 @@ bool Cartridge::supportsSGB() const { return cartridgeInfo->supportsSGB; }
 
 uint8_t NoMBC::read(const Address &address) const
 {
-    if (address.inRange(0x0000, 0x7FFF))
+    if (address.inRange(CARTRIDGE_ROM_ADDRESS_START, CARTRIDGE_ROM_ADDRESS_END))
     {
         return rom.at(address.getValue());
     }
 
-    else if (address.inRange(0xA000, 0xBFFF))
+    else if (address.inRange(CARTRIDGE_RAM_ADDRESS_START, CARTRIDGE_RAM_ADDRESS_END))
     {
-        return ram.empty() ? 0xFF : ram.at((address.getValue() - 0xA000) % ram.size());
+        return ram.empty() ? UNMAPPED_READ_VALUE : ram.at((address.getValue() - CARTRIDGE_RAM_ADDRESS_START) % ram.size());
     }
     else
     {
         std::runtime_error("Invalid address for NoMBC cartridge");
     }
 
-    return 0xFF;
+    return UNMAPPED_READ_VALUE;
 }
 
 void NoMBC::write(const Address &address, uint8_t value)
 {
-    if (address.inRange(0xA000, 0xBFFF) && !ram.empty())
-        ram.at((address.getValue() - 0xA000) % ram.size()) = value;
+    if (address.inRange(CARTRIDGE_RAM_ADDRESS_START, CARTRIDGE_RAM_ADDRESS_END) && !ram.empty())
+        ram.at((address.getValue() - CARTRIDGE_RAM_ADDRESS_START) % ram.size()) = value;
 }
 
 MBC2::MBC2(std::vector<uint8_t> rom, const std::vector<uint8_t> &save,
            std::unique_ptr<CartridgeInfo> cartridgeInfo) :
-    Cartridge(std::move(rom), {}, std::move(cartridgeInfo)), nibbleRAM(0x200, 0x0F)
+    Cartridge(std::move(rom), {}, std::move(cartridgeInfo)), nibbleRAM(MBC2_RAM_SIZE, MBC2_NIBBLE_MASK)
 {
     if (!save.empty())
     {
         if (save.size() != nibbleRAM.size()) throw std::runtime_error("Invalid MBC2 save size");
-        for (size_t i = 0; i < nibbleRAM.size(); ++i) nibbleRAM[i] = save[i] & 0x0F;
+        for (size_t i = 0; i < nibbleRAM.size(); ++i) nibbleRAM[i] = save[i] & MBC2_NIBBLE_MASK;
     }
 }
 
 uint8_t MBC2::read(const Address &address) const
 {
-    if (address.inRange(0x0000, 0x3FFF)) return rom.at(address.getValue());
-    if (address.inRange(0x4000, 0x7FFF))
+    if (address.inRange(CARTRIDGE_ROM_ADDRESS_START, ROM_BANK0_END)) return rom.at(address.getValue());
+    if (address.inRange(SWITCHABLE_ROM_BANK_START, SWITCHABLE_ROM_BANK_END))
     {
-        const size_t banks = rom.size() / 0x4000;
-        return rom.at((banks ? romBank % banks : 0) * 0x4000 + address.getValue() - 0x4000);
+        const size_t banks = rom.size() / ROM_BANK_SIZE;
+        return rom.at((banks ? romBank % banks : 0) * ROM_BANK_SIZE + address.getValue() - SWITCHABLE_ROM_BANK_START);
     }
-    if (address.inRange(0xA000, 0xBFFF) && ramEnabled)
-        return 0xF0 | nibbleRAM[(address.getValue() - 0xA000) & 0x1FF];
-    return 0xFF;
+    if (address.inRange(CARTRIDGE_RAM_ADDRESS_START, CARTRIDGE_RAM_ADDRESS_END) && ramEnabled)
+        return MBC2_UNUSED_BITS | nibbleRAM[(address.getValue() - CARTRIDGE_RAM_ADDRESS_START) % MBC2_RAM_SIZE];
+    return UNMAPPED_READ_VALUE;
 }
 
 void MBC2::write(const Address &address, uint8_t value)
 {
-    if (address.inRange(0x0000, 0x3FFF))
+    if (address.inRange(CARTRIDGE_ROM_ADDRESS_START, ROM_BANK0_END))
     {
-        if ((address.getValue() & 0x0100) == 0) ramEnabled = (value & 0x0F) == 0x0A;
-        else { romBank = value & 0x0F; if (romBank == 0) romBank = 1; }
+        if ((address.getValue() & MBC2_REGISTER_SELECT_BIT) == 0) ramEnabled = (value & RAM_ENABLE_MASK) == RAM_ENABLE_VALUE;
+        else { romBank = value & MBC2_NIBBLE_MASK; if (romBank == 0) romBank = 1; }
     }
-    else if (address.inRange(0xA000, 0xBFFF) && ramEnabled)
-        nibbleRAM[(address.getValue() - 0xA000) & 0x1FF] = value & 0x0F;
+    else if (address.inRange(CARTRIDGE_RAM_ADDRESS_START, CARTRIDGE_RAM_ADDRESS_END) && ramEnabled)
+        nibbleRAM[(address.getValue() - CARTRIDGE_RAM_ADDRESS_START) % MBC2_RAM_SIZE] = value & MBC2_NIBBLE_MASK;
 }
 
 const std::vector<uint8_t>& MBC2::getCartridgeRAM() const { return nibbleRAM; }
@@ -149,11 +151,12 @@ const std::vector<uint8_t>& MBC2::getCartridgeRAM() const { return nibbleRAM; }
 uint8_t MBC1::read(const Address &address) const
 {
     // Read into the first ROM bank
-    if (address.inRange(0x0000, 0x3FFF))
+    if (address.inRange(CARTRIDGE_ROM_ADDRESS_START, ROM_BANK0_END))
     {
-        const uint32_t bank = bankingMode ? (romBank.getValue() & 0x60) : 0;
-        const uint32_t bankCount = static_cast<uint32_t>(rom.size() / 0x4000);
-        const uint32_t offset = bankCount ? (bank % bankCount) * 0x4000 : 0;
+        // In banking mode 1, the upper bank bits also apply to bank 0
+        const uint32_t bank = bankingMode ? (romBank.getValue() & MBC1_ROM_BANK_HIGH_MASK) : 0;
+        const uint32_t bankCount = static_cast<uint32_t>(rom.size() / ROM_BANK_SIZE);
+        const uint32_t offset = bankCount ? (bank % bankCount) * ROM_BANK_SIZE : 0;
         return rom.at(offset + address.getValue());
     }
 
@@ -162,25 +165,25 @@ uint8_t MBC1::read(const Address &address) const
     // We need to do an offset for this one since
     // in the Game Boy, we can't directly access the
     // other 16 KB of the ROM.
-    if (address.inRange(0x4000, 0x7FFF))
+    if (address.inRange(SWITCHABLE_ROM_BANK_START, SWITCHABLE_ROM_BANK_END))
     {
         uint16_t addressIntoBank;
         uint32_t bankOffset, addressInROM;
-        addressIntoBank = address.getValue() - 0x4000;
-        const uint32_t bankCount = static_cast<uint32_t>(rom.size() / 0x4000);
+        addressIntoBank = address.getValue() - SWITCHABLE_ROM_BANK_START;
+        const uint32_t bankCount = static_cast<uint32_t>(rom.size() / ROM_BANK_SIZE);
         const uint32_t bank = bankCount ? (romBank.getValue() % bankCount) : 0;
-        bankOffset = 0x4000 * bank;
+        bankOffset = ROM_BANK_SIZE * bank;
         addressInROM = addressIntoBank + bankOffset;
         return rom.at(addressInROM);
     }
 
-    if (address.inRange(0xA000, 0xBFFF))
+    if (address.inRange(CARTRIDGE_RAM_ADDRESS_START, CARTRIDGE_RAM_ADDRESS_END))
     {
-        if (!isRAMEnabled || ram.empty()) return 0xFF;   // read case
-        const uint32_t bankCount = (static_cast<uint32_t>(ram.size()) + 0x1FFF) / 0x2000;
+        if (!isRAMEnabled || ram.empty()) return UNMAPPED_READ_VALUE;
+        const uint32_t bankCount = (static_cast<uint32_t>(ram.size()) + RAM_BANK_SIZE - 1) / RAM_BANK_SIZE; // Round up
         const uint32_t bank = bankCount ? ramBank.getValue() % bankCount : 0;
-        uint32_t offsetIntoRAM = 0x2000 * bank;
-        const uint32_t index = (offsetIntoRAM + address.getValue() - 0xA000) % ram.size();
+        uint32_t offsetIntoRAM = RAM_BANK_SIZE * bank;
+        const uint32_t index = (offsetIntoRAM + address.getValue() - CARTRIDGE_RAM_ADDRESS_START) % ram.size();
         return ram[index];
     }
     throw std::runtime_error("Attempting to read from unmapped MBC1 address");
@@ -188,32 +191,34 @@ uint8_t MBC1::read(const Address &address) const
 
 void MBC1::write(const Address &address, uint8_t value)
 {
-    if (address.inRange(0x0000, 0x1FFF))
+    if (address.inRange(RAM_ENABLE_START, RAM_ENABLE_END))
     {
-        isRAMEnabled = (value & 0x0F) == 0x0A;
+        isRAMEnabled = (value & RAM_ENABLE_MASK) == RAM_ENABLE_VALUE;
     }
 
-    if (address.inRange(0x2000, 0x3FFF))
+    // Bank 0 can't be selected for the switchable window
+    if (address.inRange(ROM_BANK_SELECT_START, ROM_BANK_SELECT_END))
     {
-        uint16_t lowBits = value & 0x1F;
+        uint16_t lowBits = value & MBC1_ROM_BANK_LOW_MASK;
         if (lowBits == 0) lowBits = 1;
-        romBank.set((romBank.getValue() & 0x60) | lowBits);
+        romBank.set((romBank.getValue() & MBC1_ROM_BANK_HIGH_MASK) | lowBits);
     }
 
-    if (address.inRange(0x4000, 0x5FFF))
+    if (address.inRange(RAM_BANK_SELECT_START, RAM_BANK_SELECT_END))
     {
-        const uint16_t upperBits = (value & 0x03) << 5;
-        romBank.set(upperBits | (romBank.getValue() & 0x1F));
-        ramBank.set(bankingMode ? (value & 0x03) : 0);
+        const uint16_t upperBits = (value & MBC1_TWO_BIT_MASK) << MBC1_ROM_BANK_HIGH_SHIFT;
+        romBank.set(upperBits | (romBank.getValue() & MBC1_ROM_BANK_LOW_MASK));
+        ramBank.set(bankingMode ? (value & MBC1_TWO_BIT_MASK) : 0);
     }
 
-    if (address.inRange(0x6000, 0x7FFF))
+    // Mode 1 routes the 2-bit register to the RAM bank as well
+    if (address.inRange(BANKING_MODE_SELECT_START, BANKING_MODE_SELECT_END))
     {
         bankingMode = (value & 0x01) != 0;
-        ramBank.set(bankingMode ? ((romBank.getValue() >> 5) & 0x03) : 0);
+        ramBank.set(bankingMode ? ((romBank.getValue() >> MBC1_ROM_BANK_HIGH_SHIFT) & MBC1_TWO_BIT_MASK) : 0);
     }
 
-    if (address.inRange(0xA000, 0xBFFF))
+    if (address.inRange(CARTRIDGE_RAM_ADDRESS_START, CARTRIDGE_RAM_ADDRESS_END))
     {
         if (!isRAMEnabled)
         {
@@ -222,10 +227,10 @@ void MBC1::write(const Address &address, uint8_t value)
 
         else
         {
-            const uint32_t bankCount = (static_cast<uint32_t>(ram.size()) + 0x1FFF) / 0x2000;
+            const uint32_t bankCount = (static_cast<uint32_t>(ram.size()) + RAM_BANK_SIZE - 1) / RAM_BANK_SIZE; // Round up
             const uint32_t bank = bankCount ? ramBank.getValue() % bankCount : 0;
-            uint32_t offsetIntoRAM = 0x2000 * bank;
-            const uint32_t index = (offsetIntoRAM + address.getValue() - 0xA000) % ram.size();
+            uint32_t offsetIntoRAM = RAM_BANK_SIZE * bank;
+            const uint32_t index = (offsetIntoRAM + address.getValue() - CARTRIDGE_RAM_ADDRESS_START) % ram.size();
             ram[index] = value;
         }
     }
@@ -234,7 +239,7 @@ void MBC1::write(const Address &address, uint8_t value)
 uint8_t MBC3::read(const Address &address) const
 {
     // Read into the first ROM bank
-    if (address.inRange(0x0000, 0x3FFF))
+    if (address.inRange(CARTRIDGE_ROM_ADDRESS_START, ROM_BANK0_END))
     {
         return rom.at(address.getValue());
     }
@@ -244,63 +249,65 @@ uint8_t MBC3::read(const Address &address) const
     // We need to do an offset for this one since
     // in the Game Boy, we can't directly access the
     // other 16 KB of the ROM.
-    if (address.inRange(0x4000, 0x7FFF))
+    if (address.inRange(SWITCHABLE_ROM_BANK_START, SWITCHABLE_ROM_BANK_END))
     {
         uint16_t addressIntoBank;
         uint32_t bankOffset, addressInROM;
-        addressIntoBank = address.getValue() - 0x4000;
-        const uint32_t bankCount = static_cast<uint32_t>(rom.size() / 0x4000);
+        addressIntoBank = address.getValue() - SWITCHABLE_ROM_BANK_START;
+        const uint32_t bankCount = static_cast<uint32_t>(rom.size() / ROM_BANK_SIZE);
         const uint32_t bank = bankCount ? romBank.getValue() % bankCount : 0;
-        bankOffset = 0x4000 * bank;
+        bankOffset = ROM_BANK_SIZE * bank;
         addressInROM = addressIntoBank + bankOffset;
         return rom.at(addressInROM);
     }
 
-    if (address.inRange(0xA000, 0xBFFF))
+    if (address.inRange(CARTRIDGE_RAM_ADDRESS_START, CARTRIDGE_RAM_ADDRESS_END))
     {
-        if (!isRAMEnabled || !isRAMOverRTC || ram.empty()) return 0xFF;
-        const uint32_t bankCount = (static_cast<uint32_t>(ram.size()) + 0x1FFF) / 0x2000;
+        if (!isRAMEnabled || !isRAMOverRTC || ram.empty()) return UNMAPPED_READ_VALUE;
+        const uint32_t bankCount = (static_cast<uint32_t>(ram.size()) + RAM_BANK_SIZE - 1) / RAM_BANK_SIZE; // Round up
         const uint32_t bank = bankCount ? ramBank.getValue() % bankCount : 0;
-        const uint32_t index = bank * 0x2000 + address.getValue() - 0xA000;
-        return index < ram.size() ? ram[index] : 0xFF;
+        const uint32_t index = bank * RAM_BANK_SIZE + address.getValue() - CARTRIDGE_RAM_ADDRESS_START;
+        return index < ram.size() ? ram[index] : UNMAPPED_READ_VALUE;
     }
     throw std::runtime_error("Attempting to read from unmapped MBC1 address");
 }
 
 void MBC3::write(const Address &address, uint8_t value)
 {
-    if (address.inRange(0x0000, 0x1FFF))
+    if (address.inRange(RAM_ENABLE_START, RAM_ENABLE_END))
     {
-        isRAMEnabled = (value & 0x0F) == 0x0A;
+        isRAMEnabled = (value & RAM_ENABLE_MASK) == RAM_ENABLE_VALUE;
     }
 
-    if (address.inRange(0x2000, 0x3FFF))
+    // Bank 0 can't be selected for the switchable window
+    if (address.inRange(ROM_BANK_SELECT_START, ROM_BANK_SELECT_END))
     {
-        uint16_t romBankBits = value & 0x7F;
+        uint16_t romBankBits = value & MBC3_ROM_BANK_MASK;
         if (romBankBits == 0) romBankBits = 1;
         romBank.set(romBankBits);
     }
 
-    if (address.inRange(0x4000, 0x5FFF))
+    if (address.inRange(RAM_BANK_SELECT_START, RAM_BANK_SELECT_END))
     {
-        if (value <= 0x03)
+        if (value <= MBC3_MAX_RAM_BANK)
         {
             isRAMOverRTC = true;
             ramBank.set(value);
         }
 
-        if (value >= 0x08 && value <= 0xC)
+        if (value >= MBC3_RTC_START && value <= MBC3_RTC_END)
         {
             isRAMOverRTC = false;
         }
     }
 
-    if (address.inRange(0x6000, 0x7FFF))
+    // Latching the real-time clock is not implemented
+    if (address.inRange(BANKING_MODE_SELECT_START, BANKING_MODE_SELECT_END))
     {
         //throw std::runtime_error("Not Implemented");
     }
 
-    if (address.inRange(0xA000, 0xBFFF))
+    if (address.inRange(CARTRIDGE_RAM_ADDRESS_START, CARTRIDGE_RAM_ADDRESS_END))
     {
         if (!isRAMEnabled)
         {
@@ -309,8 +316,8 @@ void MBC3::write(const Address &address, uint8_t value)
 
         if (isRAMOverRTC)
         {
-            uint32_t offsetIntoRAM = 0x2000 * ramBank.getValue();
-            const uint32_t index = offsetIntoRAM + address.getValue() - 0xA000;
+            uint32_t offsetIntoRAM = RAM_BANK_SIZE * ramBank.getValue();
+            const uint32_t index = offsetIntoRAM + address.getValue() - CARTRIDGE_RAM_ADDRESS_START;
             if (index < ram.size()) ram[index] = value;
         }
     }
@@ -322,29 +329,29 @@ MBC5::MBC5(std::vector<uint8_t> rom, const std::vector<uint8_t> &ram,
 
 uint8_t MBC5::read(const Address &address) const
 {
-    if (address.inRange(0x0000, 0x3FFF)) return rom.at(address.getValue());
-    if (address.inRange(0x4000, 0x7FFF))
+    if (address.inRange(CARTRIDGE_ROM_ADDRESS_START, ROM_BANK0_END)) return rom.at(address.getValue());
+    if (address.inRange(SWITCHABLE_ROM_BANK_START, SWITCHABLE_ROM_BANK_END))
     {
-        const size_t banks = rom.size() / 0x4000;
-        return rom.at((banks ? romBank % banks : 0) * 0x4000 + address.getValue() - 0x4000);
+        const size_t banks = rom.size() / ROM_BANK_SIZE;
+        return rom.at((banks ? romBank % banks : 0) * ROM_BANK_SIZE + address.getValue() - SWITCHABLE_ROM_BANK_START);
     }
-    if (address.inRange(0xA000, 0xBFFF) && ramEnabled && !ram.empty())
+    if (address.inRange(CARTRIDGE_RAM_ADDRESS_START, CARTRIDGE_RAM_ADDRESS_END) && ramEnabled && !ram.empty())
     {
-        const size_t index = static_cast<size_t>(ramBank) * 0x2000 + address.getValue() - 0xA000;
-        return index < ram.size() ? ram[index] : 0xFF;
+        const size_t index = static_cast<size_t>(ramBank) * RAM_BANK_SIZE + address.getValue() - CARTRIDGE_RAM_ADDRESS_START;
+        return index < ram.size() ? ram[index] : UNMAPPED_READ_VALUE;
     }
-    return 0xFF;
+    return UNMAPPED_READ_VALUE;
 }
 
 void MBC5::write(const Address &address, uint8_t value)
 {
-    if (address.inRange(0x0000, 0x1FFF)) ramEnabled = (value & 0x0F) == 0x0A;
-    else if (address.inRange(0x2000, 0x2FFF)) romBank = (romBank & 0x100) | value;
-    else if (address.inRange(0x3000, 0x3FFF)) romBank = (romBank & 0xFF) | ((value & 1) << 8);
-    else if (address.inRange(0x4000, 0x5FFF)) ramBank = value & 0x0F;
-    else if (address.inRange(0xA000, 0xBFFF) && ramEnabled && !ram.empty())
+    if (address.inRange(RAM_ENABLE_START, RAM_ENABLE_END)) ramEnabled = (value & RAM_ENABLE_MASK) == RAM_ENABLE_VALUE;
+    else if (address.inRange(ROM_BANK_SELECT_START, MBC5_ROM_BANK_LOW_END)) romBank = (romBank & MBC5_ROM_BANK_HIGH_BIT) | value;
+    else if (address.inRange(MBC5_ROM_BANK_HIGH_START, ROM_BANK_SELECT_END)) romBank = (romBank & 0xFF) | ((value & 1) << 8); // Bit 0 is bank bit 8
+    else if (address.inRange(RAM_BANK_SELECT_START, RAM_BANK_SELECT_END)) ramBank = value & MBC5_RAM_BANK_MASK;
+    else if (address.inRange(CARTRIDGE_RAM_ADDRESS_START, CARTRIDGE_RAM_ADDRESS_END) && ramEnabled && !ram.empty())
     {
-        const size_t index = static_cast<size_t>(ramBank) * 0x2000 + address.getValue() - 0xA000;
+        const size_t index = static_cast<size_t>(ramBank) * RAM_BANK_SIZE + address.getValue() - CARTRIDGE_RAM_ADDRESS_START;
         if (index < ram.size()) ram[index] = value;
     }
 }

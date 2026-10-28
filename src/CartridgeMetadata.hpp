@@ -9,21 +9,31 @@ static constexpr uint8_t TITLE_LENGTH = 11;
 
 // Start memory addresses for values
 // in the Game Boy cartridge header
-static constexpr uint16_t ENTRY_POINT_START_ADDRESS        = 0x100;
-static constexpr uint16_t NINTENDO_LOGO_START_ADDRESS      = 0x104;
-static constexpr uint16_t TITLE_START_ADDRESS              = 0x134;
-static constexpr uint16_t MANUFACTURER_CODE_START_ADDRESS  = 0x13F;
-static constexpr uint16_t CGB_FLAG_START_ADDRESS           = 0x143;
+static constexpr uint16_t ENTRY_POINT_START_ADDRESS       = 0x100;
+static constexpr uint16_t NINTENDO_LOGO_START_ADDRESS     = 0x104;
+static constexpr uint16_t TITLE_START_ADDRESS            = 0x134;
+static constexpr uint16_t MANUFACTURER_CODE_START_ADDRESS = 0x13F;
+static constexpr uint16_t CGB_FLAG_START_ADDRESS          = 0x143;
 static constexpr uint16_t NEW_LICENSEE_CODE_START_ADDRESS  = 0x144;
-static constexpr uint16_t SGB_FLAG_START_ADDRESS           = 0x146;
-static constexpr uint16_t CARTRIDGE_TYPE_START_ADDRESS     = 0x147;
-static constexpr uint16_t ROM_SIZE_START_ADDRESS           = 0x148;
-static constexpr uint16_t RAM_SIZE_START_ADDRESS           = 0x149;
-static constexpr uint16_t DESTINATION_CODE_START_ADDRESS   = 0x14A;
+static constexpr uint16_t SGB_FLAG_START_ADDRESS          = 0x146;
+static constexpr uint16_t CARTRIDGE_TYPE_START_ADDRESS    = 0x147;
+static constexpr uint16_t ROM_SIZE_START_ADDRESS          = 0x148;
+static constexpr uint16_t RAM_SIZE_START_ADDRESS          = 0x149;
+static constexpr uint16_t DESTINATION_CODE_START_ADDRESS  = 0x14A;
 static constexpr uint16_t OLD_LICENSEE_CODE_START_ADDRESS  = 0x14B;
 static constexpr uint16_t ROM_VERSION_NUMBER_START_ADDRESS = 0x14C;
-static constexpr uint16_t HEADER_CHECKSUM_START_ADDRESS    = 0x14D;
-static constexpr uint16_t GLOBAL_CHECKSUM_START_ADDRESS    = 0x14E;
+static constexpr uint16_t HEADER_CHECKSUM_START_ADDRESS   = 0x14D;
+static constexpr uint16_t GLOBAL_CHECKSUM_START_ADDRESS   = 0x14E;
+
+// CGB flag values: bit 7 marks Game Boy Color support,
+// and 0xC0 marks a game that only runs on a Game Boy Color
+static constexpr uint8_t CGB_SUPPORT_FLAG = 0x80;
+static constexpr uint8_t CGB_ONLY_FLAG    = 0xC0;
+
+// Super Game Boy support needs the SGB flag set to 0x03 and
+// the old licensee code set to 0x33 ("use the new licensee code")
+static constexpr uint8_t SGB_SUPPORT_FLAG         = 0x03;
+static constexpr uint8_t USE_NEW_LICENSEE_CODE_FLAG = 0x33;
 
 enum class CartridgeType
 {

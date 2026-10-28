@@ -4,6 +4,10 @@
 #include <cstdint>
 #include <cstddef>
 #include <vector>
+#include "IORegisters.hpp"
+
+// Audio is generated at this rate (samples per second, per channel)
+static constexpr uint32_t AUDIO_SAMPLE_RATE = 48000;
 
 class APU
 {
@@ -36,7 +40,7 @@ class APU
     {
         bool enabled = false;
         uint32_t timer = 0;
-        uint16_t lfsr = 0x7FFF;
+        uint16_t lfsr = 0x7FFF; // All 15 bits set
         uint16_t length = 0;
         bool lengthEnabled = false;
         uint8_t initialVolume = 0;
@@ -46,8 +50,11 @@ class APU
         bool envelopeIncrease = false;
     };
 
-    std::array<uint8_t, 0x30> registers{};
-    std::array<uint8_t, 16> waveRAM{};
+    // Raw values of every register from NR10 to the end of wave RAM
+    std::array<uint8_t, AUDIO_ADDRESS_END - AUDIO_ADDRESS_START + 1> registers{};
+
+    // 32 4-bit samples, two per byte
+    std::array<uint8_t, WAVE_RAM_END - WAVE_RAM_START + 1> waveRAM{};
     SquareChannel square1;
     SquareChannel square2;
     WaveChannel wave;
@@ -60,7 +67,7 @@ class APU
     bool sweepEnabled = false;
     bool sweepNegateUsed = false;
     uint32_t samplePhase = 0;
-    uint32_t sampleRate = 48000;
+    uint32_t sampleRate = AUDIO_SAMPLE_RATE;
     int64_t sampleLeftAccumulator = 0;
     int64_t sampleRightAccumulator = 0;
     uint32_t sampleCycleCount = 0;

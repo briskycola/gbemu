@@ -2,10 +2,14 @@
 
 #include <cstdint>
 
-static constexpr uint8_t GAMEBOY_WIDTH        = 160;
-static constexpr uint8_t GAMEBOY_HEIGHT       = 144;
+static constexpr uint8_t GAMEBOY_WIDTH       = 160;
+static constexpr uint8_t GAMEBOY_HEIGHT      = 144;
 static constexpr uint16_t BACKGROUND_MAP_SIZE = 256;
-static constexpr int32_t GAMEBOY_CLOCK_RATE   = 4194304;
+static constexpr int32_t GAMEBOY_CLOCK_RATE   = 4194304; // T-cycles (clocks) per second
+
+// The CPU counts in machine cycles (M-cycles), each
+// of which is 4 clock cycles (T-cycles)
+static constexpr uint32_t T_CYCLES_PER_M_CYCLE = 4;
 
 // Make a base type that is designed
 // to only allow creation and not
@@ -39,29 +43,4 @@ class Cycles
     public:
         const uint32_t cycles;
         Cycles(uint32_t cycles);
-};
-
-enum class GBColor
-{
-    Color0, // White
-    Color1, // Light gray
-    Color2, // Dark gray
-    Color3, // Black
-};
-
-enum class Color
-{
-    White,
-    LightGray,
-    DarkGray,
-    Black,
-};
-
-class colorPalette
-{
-    public:
-        Color color0 = Color::White;
-        Color color1 = Color::LightGray;
-        Color color2 = Color::DarkGray;
-        Color color3 = Color::Black;
 };

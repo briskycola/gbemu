@@ -1,7 +1,7 @@
-#include "timer.hpp"
-#include "common.hpp"
-#include "emulator.hpp"
-#include "cpu.hpp"
+#include "Timer.hpp"
+#include "Common.hpp"
+#include "Emulator.hpp"
+#include "CPU.hpp"
 #include <stdexcept>
 
 Timer::Timer(Emulator &emulator) :
@@ -10,6 +10,7 @@ Timer::Timer(Emulator &emulator) :
 
 uint8_t Timer::getDivider() const
 {
+    // DIV is the upper 8 bits of the internal 16-bit counter
     return static_cast<uint8_t>(dividerCounter >> 8);
 }
 
@@ -27,7 +28,7 @@ uint8_t Timer::getTimerModulo() const
 // are usable.
 uint8_t Timer::getTimerControl() const
 {
-    return timerControl.getValue() & 0x07;
+    return timerControl.getValue() & TIMER_CONTROL_MASK;
 }
 
 void Timer::resetDivider()
@@ -51,24 +52,27 @@ void Timer::setTimerModulo(uint8_t value)
 void Timer::setTimerControl(uint8_t value)
 {
     const bool wasHigh = timerInput();
-    timerControl.set(value & 0x07);
+    timerControl.set(value & TIMER_CONTROL_MASK);
     if (wasHigh && !timerInput()) incrementTimer();
 }
 
 bool Timer::timerInput() const
 {
-    if (!timerControl.checkBit(2)) return false;
-    static constexpr uint8_t dividerBits[4] = {9, 3, 5, 7};
-    return (dividerCounter & (1u << dividerBits[timerControl.getValue() & 0x03])) != 0;
+    if (!timerControl.checkBit(TIMER_ENABLE_BIT)) return false;
+
+    // TIMA increments when this bit of the internal counter falls.
+    // Indexed by TAC bits 0-1: 4096, 262144, 65536, and 16384 Hz.
+    static constexpr uint8_t DIVIDER_BITS[4] = {9, 3, 5, 7};
+    return (dividerCounter & (1u << DIVIDER_BITS[timerControl.getValue() & TIMER_CLOCK_SELECT_MASK])) != 0;
 }
 
 void Timer::incrementTimer()
 {
     if (reloadDelay > 0) return;
-    if (timerCounter.getValue() == 0xFF)
+    if (timerCounter.getValue() == 0xFF) // TIMA overflows
     {
         timerCounter.set(0);
-        reloadDelay = 4;
+        reloadDelay = TIMER_RELOAD_DELAY;
     }
     else
     {
@@ -91,7 +95,7 @@ void Timer::tick(uint32_t cycles)
             if (reloadDelay == 0)
             {
                 timerCounter.set(timerModulo.getValue());
-                emulator.cpu.interruptFlag.setBitTo(2, true);
+                emulator.cpu.interruptFlag.setBitTo(INTERRUPT_TIMER_BIT, true);
             }
         }
 

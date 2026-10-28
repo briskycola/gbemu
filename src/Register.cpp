@@ -1,5 +1,5 @@
-#include "register.hpp"
-#include "common.hpp"
+#include "Register.hpp"
+#include "Common.hpp"
 
 void ByteRegister::set(const uint8_t newValue)
 {
@@ -141,22 +141,22 @@ void FlagRegister::setCarryFlag(const bool set)
     setBitTo(CARRY_FLAG_BIT, set);
 }
 
-bool FlagRegister::ZeroFlag() const
+bool FlagRegister::zeroFlag() const
 {
     return checkBit(ZERO_FLAG_BIT);
 }
 
-bool FlagRegister::SubtractionFlag() const
+bool FlagRegister::subtractionFlag() const
 {
     return checkBit(SUBTRACTION_FLAG_BIT);
 }
 
-bool FlagRegister::HalfCarryFlag() const
+bool FlagRegister::halfCarryFlag() const
 {
     return checkBit(HALF_CARRY_FLAG_BIT);
 }
 
-bool FlagRegister::CarryFlag() const
+bool FlagRegister::carryFlag() const
 {
     return checkBit(CARRY_FLAG_BIT);
 }
@@ -164,20 +164,20 @@ bool FlagRegister::CarryFlag() const
 
 uint8_t FlagRegister::getZeroFlagValue() const
 {
-    return static_cast<uint8_t>(ZeroFlag() ? 1 : 0);
+    return static_cast<uint8_t>(zeroFlag() ? 1 : 0);
 }
 
 uint8_t FlagRegister::getSubtractionFlagValue() const
 {
-    return static_cast<uint8_t>(SubtractionFlag() ? 1 : 0);
+    return static_cast<uint8_t>(subtractionFlag() ? 1 : 0);
 }
 
 uint8_t FlagRegister::getHalfCarryFlagValue() const
 {
-    return static_cast<uint8_t>(HalfCarryFlag() ? 1 : 0);
+    return static_cast<uint8_t>(halfCarryFlag() ? 1 : 0);
 }
 
 uint8_t FlagRegister::getCarryFlagValue() const
 {
-    return static_cast<uint8_t>(CarryFlag() ? 1 : 0);
+    return static_cast<uint8_t>(carryFlag() ? 1 : 0);
 }

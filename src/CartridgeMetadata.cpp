@@ -1,9 +1,14 @@
-#include "cartridge_metadata.hpp"
+#include "CartridgeMetadata.hpp"
 #include <iostream>
 #include <vector>
 #include <string>
 #include <memory>
 
+// The header code tables below follow
+// https://gbdev.io/pandocs/The_Cartridge_Header.html
+
+// Header byte 0x147. Each case lists the codes for one
+// controller, with and without RAM, battery, and so on.
 CartridgeType getCartridgeType(uint8_t type)
 {
     switch (type)
@@ -67,6 +72,7 @@ std::string getTitleFromCartridge(const std::vector<uint8_t> &rom)
     return std::string(name, TITLE_LENGTH);
 }
 
+// Header byte 0x148
 ROMSize getRomSize(uint8_t size)
 {
     switch (size)
@@ -129,6 +135,7 @@ std::string describeROM(ROMSize size)
     }
 }
 
+// Header byte 0x149
 RAMSize getRamSize(uint8_t size)
 {
     switch (size)
@@ -150,6 +157,7 @@ RAMSize getRamSize(uint8_t size)
     }
 }
 
+// Size of each RAM option in bytes
 uint32_t getActualRamSize(RAMSize size)
 {
     switch (size)
@@ -192,6 +200,7 @@ std::string describeRAM(RAMSize size)
     }
 }
 
+// Header byte 0x14A
 Destination getDestination(uint8_t destination)
 {
     switch (destination)
@@ -225,10 +234,10 @@ std::unique_ptr<CartridgeInfo> getInfo(const std::vector<uint8_t> &rom)
 
     info->title = getTitleFromCartridge(rom);
     info->type = getCartridgeType(rom[CARTRIDGE_TYPE_START_ADDRESS]);
-    info->supportsCGB = (rom[CGB_FLAG_START_ADDRESS] & 0x80) != 0;
-    info->cgbOnly = rom[CGB_FLAG_START_ADDRESS] == 0xC0;
-    info->supportsSGB = rom[SGB_FLAG_START_ADDRESS] == 0x03 &&
-        rom[OLD_LICENSEE_CODE_START_ADDRESS] == 0x33;
+    info->supportsCGB = (rom[CGB_FLAG_START_ADDRESS] & CGB_SUPPORT_FLAG) != 0;
+    info->cgbOnly = rom[CGB_FLAG_START_ADDRESS] == CGB_ONLY_FLAG;
+    info->supportsSGB = rom[SGB_FLAG_START_ADDRESS] == SGB_SUPPORT_FLAG &&
+        rom[OLD_LICENSEE_CODE_START_ADDRESS] == USE_NEW_LICENSEE_CODE_FLAG;
     info->version = ROM_VERSION_NUMBER_START_ADDRESS;
     info->romSize = getRomSize(rom[ROM_SIZE_START_ADDRESS]);
     info->ramSize = getRamSize(rom[RAM_SIZE_START_ADDRESS]);

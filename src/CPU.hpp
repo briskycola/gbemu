@@ -1,7 +1,7 @@
 #pragma once
 
-#include "address.hpp"
-#include "register.hpp"
+#include "Address.hpp"
+#include "Register.hpp"
 #include <cstdint>
 
 // https://gbdev.io/pandocs/CPU_Registers_and_Flags.html
@@ -28,12 +28,31 @@ static constexpr uint16_t RST6 = 0x28;
 static constexpr uint16_t RST7 = 0x30;
 static constexpr uint16_t RST8 = 0x38;
 
-// Interrupts
-static constexpr uint16_t INTERRUPT_VBLANK      = 0x40;
-static constexpr uint16_t INTERRUPT_LCDC_STATUS = 0x48;
-static constexpr uint16_t INTERRUPT_TIMER       = 0x50;
-static constexpr uint16_t INTERRUPT_SERIAL      = 0x58;
-static constexpr uint16_t INTERRUPT_JOYPAD      = 0x60;
+// Addresses the CPU jumps to when servicing each interrupt
+static constexpr uint16_t INTERRUPT_VBLANK_VECTOR    = 0x40;
+static constexpr uint16_t INTERRUPT_LCD_STATUS_VECTOR = 0x48;
+static constexpr uint16_t INTERRUPT_TIMER_VECTOR     = 0x50;
+static constexpr uint16_t INTERRUPT_SERIAL_VECTOR    = 0x58;
+static constexpr uint16_t INTERRUPT_JOYPAD_VECTOR    = 0x60;
+
+// Bit of each interrupt in the IF and IE registers.
+// Lower bits have higher priority.
+static constexpr uint8_t INTERRUPT_VBLANK_BIT    = 0;
+static constexpr uint8_t INTERRUPT_LCD_STATUS_BIT = 1;
+static constexpr uint8_t INTERRUPT_TIMER_BIT     = 2;
+static constexpr uint8_t INTERRUPT_SERIAL_BIT    = 3;
+static constexpr uint8_t INTERRUPT_JOYPAD_BIT    = 4;
+
+// Only the low 5 bits of IF and IE are used; the
+// upper 3 bits always read back as 1
+static constexpr uint8_t INTERRUPT_MASK = 0x1F;
+
+// Servicing an interrupt takes 5 machine cycles
+static constexpr uint32_t INTERRUPT_DISPATCH_CYCLES = 5;
+
+// EI enables interrupts only after the instruction
+// following it, so the enable is delayed by 2 steps
+static constexpr uint8_t EI_ENABLE_DELAY = 2;
 
 static constexpr uint16_t OPCODE_CB_PREFIX = 0xCB;
 
@@ -91,265 +110,265 @@ class CPU
         // Instruction prototypes
 
         // ADC
-        void _opcode_adc(uint8_t value);
-        void opcode_adc();
-        void opcode_adc(const ByteRegister &reg);
-        void opcode_adc(const Address &&address);
+        void opcodeAdcImpl(uint8_t value);
+        void opcodeAdc();
+        void opcodeAdc(const ByteRegister &reg);
+        void opcodeAdc(const Address &&address);
 
         // ADD
-        void _opcode_add(uint8_t reg, uint8_t value);
+        void opcodeAddImpl(uint8_t reg, uint8_t value);
 
-        void opcode_add_a();
-        void opcode_add_a(const ByteRegister &reg);
-        void opcode_add_a(const Address &address);
+        void opcodeAddA();
+        void opcodeAddA(const ByteRegister &reg);
+        void opcodeAddA(const Address &address);
 
-        void _opcode_add_hl(uint16_t value);
-        void opcode_add_hl(const RegisterPair &regPair);
-        void opcode_add_hl(const WordRegister &wordReg);
+        void opcodeAddHLImpl(uint16_t value);
+        void opcodeAddHL(const RegisterPair &regPair);
+        void opcodeAddHL(const WordRegister &wordReg);
 
-        void opcode_add_sp();
-        void opcode_add_signed();
+        void opcodeAddSP();
+        void opcodeAddSigned();
 
         // AND
-        void _opcode_and(uint8_t value);
-        void opcode_and();
-        void opcode_and(ByteRegister &reg);
-        void opcode_and(Address &&address);
+        void opcodeAndImpl(uint8_t value);
+        void opcodeAnd();
+        void opcodeAnd(ByteRegister &reg);
+        void opcodeAnd(Address &&address);
 
         // BIT
-        void _opcode_bit(uint8_t bit, uint8_t value);
-        void opcode_bit(uint8_t bit, ByteRegister &reg);
-        void opcode_bit(uint8_t bit, Address &&address);
+        void opcodeBitImpl(uint8_t bit, uint8_t value);
+        void opcodeBit(uint8_t bit, ByteRegister &reg);
+        void opcodeBit(uint8_t bit, Address &&address);
 
         // CALL
-        void opcode_call();
-        void opcode_call(Condition condition);
+        void opcodeCall();
+        void opcodeCall(Condition condition);
 
         // CCF
-        void opcode_ccf();
+        void opcodeCcf();
         
         // CP
-        void _opcode_cp(uint8_t value);
-        void opcode_cp();
-        void opcode_cp(const ByteRegister &reg);
-        void opcode_cp(const Address &address);
+        void opcodeCpImpl(uint8_t value);
+        void opcodeCp();
+        void opcodeCp(const ByteRegister &reg);
+        void opcodeCp(const Address &address);
 
         // CPL
-        void opcode_cpl();
+        void opcodeCpl();
 
         // DAA
-        void opcode_daa();
+        void opcodeDaa();
 
         // DEC
-        void opcode_dec(ByteRegister &reg);
-        void opcode_dec(RegisterPair &reg);
-        void opcode_dec(WordRegister &reg);
-        void opcode_dec(Address &&address);
+        void opcodeDec(ByteRegister &reg);
+        void opcodeDec(RegisterPair &reg);
+        void opcodeDec(WordRegister &reg);
+        void opcodeDec(Address &&address);
 
         // DI
-        void opcode_di();
+        void opcodeDi();
 
         // EI
-        void opcode_ei();
+        void opcodeEi();
 
         // INC
-        void opcode_inc(ByteRegister &reg);
-        void opcode_inc(RegisterPair &reg);
-        void opcode_inc(WordRegister &reg);
-        void opcode_inc(Address &&address);
+        void opcodeInc(ByteRegister &reg);
+        void opcodeInc(RegisterPair &reg);
+        void opcodeInc(WordRegister &reg);
+        void opcodeInc(Address &&address);
 
         // JP
-        void opcode_jp();
-        void opcode_jp(Condition condition);
-        void opcode_jp(const Address &address);
+        void opcodeJp();
+        void opcodeJp(Condition condition);
+        void opcodeJp(const Address &address);
 
         // JR
-        void opcode_jr();
-        void opcode_jr(Condition condition);
+        void opcodeJr();
+        void opcodeJr(Condition condition);
 
         // HALT
-        void opcode_halt();
+        void opcodeHalt();
 
         // LD
-        void opcode_ld(ByteRegister &reg);
-        void opcode_ld(ByteRegister &reg, const ByteRegister &byteReg);
-        void opcode_ld(ByteRegister &reg, const Address &address);
-        void opcode_ld(RegisterPair &reg);
-        void opcode_ld(WordRegister &reg);
-        void opcode_ld(WordRegister &reg, const RegisterPair &regPair);
-        void opcode_ld(const Address &address);
-        void opcode_ld(const Address &address, const ByteRegister &byteReg);
-        void opcode_ld(const Address &address, const WordRegister &wordReg);
+        void opcodeLd(ByteRegister &reg);
+        void opcodeLd(ByteRegister &reg, const ByteRegister &byteReg);
+        void opcodeLd(ByteRegister &reg, const Address &address);
+        void opcodeLd(RegisterPair &reg);
+        void opcodeLd(WordRegister &reg);
+        void opcodeLd(WordRegister &reg, const RegisterPair &regPair);
+        void opcodeLd(const Address &address);
+        void opcodeLd(const Address &address, const ByteRegister &byteReg);
+        void opcodeLd(const Address &address, const WordRegister &wordReg);
 
         // (nn), A
-        void opcode_ld_to_addr(const ByteRegister &reg);
-        void opcode_ld_from_addr(ByteRegister &reg);
+        void opcodeLdToAddr(const ByteRegister &reg);
+        void opcodeLdFromAddr(ByteRegister &reg);
 
         // LDD
-        void opcode_ldd(ByteRegister &reg, const Address &address);
-        void opcode_ldd(const Address &address, const ByteRegister &reg);
+        void opcodeLdd(ByteRegister &reg, const Address &address);
+        void opcodeLdd(const Address &address, const ByteRegister &reg);
 
         // LDH
         // A, (n)
-        void opcode_ldh_into_a();
+        void opcodeLdhIntoA();
         // (n), A
-        void opcode_ldh_into_data();
+        void opcodeLdhIntoData();
         // (reg), A
-        void opcode_ldh_into_c();
+        void opcodeLdhIntoC();
         // A, (reg)
-        void opcode_ldh_c_into_a();
+        void opcodeLdhCIntoA();
 
         // LDHL
-        void opcode_ldhl();
+        void opcodeLdhl();
 
         // LDI
-        void opcode_ldi(ByteRegister &reg, const Address &address);
-        void opcode_ldi(const Address &address, const ByteRegister &reg);
+        void opcodeLdi(ByteRegister &reg, const Address &address);
+        void opcodeLdi(const Address &address, const ByteRegister &reg);
 
         // NOP
-        void opcode_nop();
+        void opcodeNop();
 
         // OR
-        void _opcode_or(uint8_t value);
-        void opcode_or();
-        void opcode_or(const ByteRegister &reg);
-        void opcode_or(const Address &addr);
+        void opcodeOrImpl(uint8_t value);
+        void opcodeOr();
+        void opcodeOr(const ByteRegister &reg);
+        void opcodeOr(const Address &addr);
 
         // POP
-        void opcode_pop(RegisterPair &reg);
+        void opcodePop(RegisterPair &reg);
 
         // PUSH
-        void opcode_push(const RegisterPair &reg);
+        void opcodePush(const RegisterPair &reg);
 
         // RES
-        void opcode_res(uint8_t bit, ByteRegister &reg);
-        void opcode_res(uint8_t bit, Address &&address);
+        void opcodeRes(uint8_t bit, ByteRegister &reg);
+        void opcodeRes(uint8_t bit, Address &&address);
 
         // RET
-        void opcode_ret();
-        void opcode_ret(Condition condition);
+        void opcodeRet();
+        void opcodeRet(Condition condition);
 
         // RETI
-        void opcode_reti();
+        void opcodeReti();
 
         // RL
-        uint8_t _opcode_rl(uint8_t value);
-        void opcode_rl(ByteRegister &reg);
-        void opcode_rl(Address &&address);
+        uint8_t opcodeRlImpl(uint8_t value);
+        void opcodeRl(ByteRegister &reg);
+        void opcodeRl(Address &&address);
 
         // RLA
-        void opcode_rla();
+        void opcodeRla();
 
         // RLC
-        uint8_t _opcode_rlc(uint8_t value);
-        void opcode_rlc(ByteRegister &reg);
-        void opcode_rlc(Address &&address);
+        uint8_t opcodeRlcImpl(uint8_t value);
+        void opcodeRlc(ByteRegister &reg);
+        void opcodeRlc(Address &&address);
 
         // RLCA
-        void opcode_rlca();
+        void opcodeRlca();
 
         // RR
-        uint8_t _opcode_rr(uint8_t value);
-        void opcode_rr(ByteRegister &reg);
-        void opcode_rr(Address &&address);
+        uint8_t opcodeRrImpl(uint8_t value);
+        void opcodeRr(ByteRegister &reg);
+        void opcodeRr(Address &&address);
 
         // RRA
-        void opcode_rra();
+        void opcodeRra();
 
         // RRC
-        uint8_t _opcode_rrc(uint8_t value);
-        void opcode_rrc(ByteRegister &reg);
-        void opcode_rrc(Address &&address);
+        uint8_t opcodeRrcImpl(uint8_t value);
+        void opcodeRrc(ByteRegister &reg);
+        void opcodeRrc(Address &&address);
 
         // RRCA
-        void opcode_rrca();
+        void opcodeRrca();
 
         // RST
-        void opcode_rst(uint8_t offset);
+        void opcodeRst(uint8_t offset);
 
         // SBC
-        void _opcode_sbc(const uint8_t value);
-        void opcode_sbc();
-        void opcode_sbc(ByteRegister &reg);
-        void opcode_sbc(Address &&address);
+        void opcodeSbcImpl(const uint8_t value);
+        void opcodeSbc();
+        void opcodeSbc(ByteRegister &reg);
+        void opcodeSbc(Address &&address);
 
         // SCF
-        void opcode_scf();
+        void opcodeScf();
 
         // SET
-        void opcode_set(uint8_t bit, ByteRegister &reg);
-        void opcode_set(uint8_t bit, Address &&address);
+        void opcodeSet(uint8_t bit, ByteRegister &reg);
+        void opcodeSet(uint8_t bit, Address &&address);
 
         // SLA
-        uint8_t _opcode_sla(uint8_t value);
-        void opcode_sla(ByteRegister &reg);
-        void opcode_sla(Address &&address);
+        uint8_t opcodeSlaImpl(uint8_t value);
+        void opcodeSla(ByteRegister &reg);
+        void opcodeSla(Address &&address);
 
         // SRA
-        uint8_t _opcode_sra(uint8_t value);
-        void opcode_sra(ByteRegister &reg);
-        void opcode_sra(Address &&address);
+        uint8_t opcodeSraImpl(uint8_t value);
+        void opcodeSra(ByteRegister &reg);
+        void opcodeSra(Address &&address);
 
         // SRL
-        uint8_t _opcode_srl(uint8_t value);
-        void opcode_srl(ByteRegister &reg);
-        void opcode_srl(Address &&address);
+        uint8_t opcodeSrlImpl(uint8_t value);
+        void opcodeSrl(ByteRegister &reg);
+        void opcodeSrl(Address &&address);
 
         // STOP
-        void opcode_stop();
+        void opcodeStop();
 
         // SUB
-        void _opcode_sub(uint8_t value);
-        void opcode_sub();
-        void opcode_sub(ByteRegister &reg);
-        void opcode_sub(Address &&address);
+        void opcodeSubImpl(uint8_t value);
+        void opcodeSub();
+        void opcodeSub(ByteRegister &reg);
+        void opcodeSub(Address &&address);
 
         // SWAP
-        uint8_t _opcode_swap(uint8_t value);
-        void opcode_swap(ByteRegister &reg);
-        void opcode_swap(Address &&address);
+        uint8_t opcodeSwapImpl(uint8_t value);
+        void opcodeSwap(ByteRegister &reg);
+        void opcodeSwap(Address &&address);
 
         // XOR
-        void _opcode_xor(uint8_t value);
-        void opcode_xor();
-        void opcode_xor(const ByteRegister &reg);
-        void opcode_xor(const Address &address);
+        void opcodeXorImpl(uint8_t value);
+        void opcodeXor();
+        void opcodeXor(const ByteRegister &reg);
+        void opcodeXor(const Address &address);
 
         // Opcodes
-        void opcode_00(); void opcode_01(); void opcode_02(); void opcode_03(); void opcode_04(); void opcode_05(); void opcode_06(); void opcode_07(); void opcode_08(); void opcode_09(); void opcode_0A(); void opcode_0B(); void opcode_0C(); void opcode_0D(); void opcode_0E(); void opcode_0F();
-        void opcode_10(); void opcode_11(); void opcode_12(); void opcode_13(); void opcode_14(); void opcode_15(); void opcode_16(); void opcode_17(); void opcode_18(); void opcode_19(); void opcode_1A(); void opcode_1B(); void opcode_1C(); void opcode_1D(); void opcode_1E(); void opcode_1F();
-        void opcode_20(); void opcode_21(); void opcode_22(); void opcode_23(); void opcode_24(); void opcode_25(); void opcode_26(); void opcode_27(); void opcode_28(); void opcode_29(); void opcode_2A(); void opcode_2B(); void opcode_2C(); void opcode_2D(); void opcode_2E(); void opcode_2F();
-        void opcode_30(); void opcode_31(); void opcode_32(); void opcode_33(); void opcode_34(); void opcode_35(); void opcode_36(); void opcode_37(); void opcode_38(); void opcode_39(); void opcode_3A(); void opcode_3B(); void opcode_3C(); void opcode_3D(); void opcode_3E(); void opcode_3F();
-        void opcode_40(); void opcode_41(); void opcode_42(); void opcode_43(); void opcode_44(); void opcode_45(); void opcode_46(); void opcode_47(); void opcode_48(); void opcode_49(); void opcode_4A(); void opcode_4B(); void opcode_4C(); void opcode_4D(); void opcode_4E(); void opcode_4F();
-        void opcode_50(); void opcode_51(); void opcode_52(); void opcode_53(); void opcode_54(); void opcode_55(); void opcode_56(); void opcode_57(); void opcode_58(); void opcode_59(); void opcode_5A(); void opcode_5B(); void opcode_5C(); void opcode_5D(); void opcode_5E(); void opcode_5F();
-        void opcode_60(); void opcode_61(); void opcode_62(); void opcode_63(); void opcode_64(); void opcode_65(); void opcode_66(); void opcode_67(); void opcode_68(); void opcode_69(); void opcode_6A(); void opcode_6B(); void opcode_6C(); void opcode_6D(); void opcode_6E(); void opcode_6F();
-        void opcode_70(); void opcode_71(); void opcode_72(); void opcode_73(); void opcode_74(); void opcode_75(); void opcode_76(); void opcode_77(); void opcode_78(); void opcode_79(); void opcode_7A(); void opcode_7B(); void opcode_7C(); void opcode_7D(); void opcode_7E(); void opcode_7F();
-        void opcode_80(); void opcode_81(); void opcode_82(); void opcode_83(); void opcode_84(); void opcode_85(); void opcode_86(); void opcode_87(); void opcode_88(); void opcode_89(); void opcode_8A(); void opcode_8B(); void opcode_8C(); void opcode_8D(); void opcode_8E(); void opcode_8F();
-        void opcode_90(); void opcode_91(); void opcode_92(); void opcode_93(); void opcode_94(); void opcode_95(); void opcode_96(); void opcode_97(); void opcode_98(); void opcode_99(); void opcode_9A(); void opcode_9B(); void opcode_9C(); void opcode_9D(); void opcode_9E(); void opcode_9F();
-        void opcode_A0(); void opcode_A1(); void opcode_A2(); void opcode_A3(); void opcode_A4(); void opcode_A5(); void opcode_A6(); void opcode_A7(); void opcode_A8(); void opcode_A9(); void opcode_AA(); void opcode_AB(); void opcode_AC(); void opcode_AD(); void opcode_AE(); void opcode_AF();
-        void opcode_B0(); void opcode_B1(); void opcode_B2(); void opcode_B3(); void opcode_B4(); void opcode_B5(); void opcode_B6(); void opcode_B7(); void opcode_B8(); void opcode_B9(); void opcode_BA(); void opcode_BB(); void opcode_BC(); void opcode_BD(); void opcode_BE(); void opcode_BF();
-        void opcode_C0(); void opcode_C1(); void opcode_C2(); void opcode_C3(); void opcode_C4(); void opcode_C5(); void opcode_C6(); void opcode_C7(); void opcode_C8(); void opcode_C9(); void opcode_CA(); void opcode_CB(); void opcode_CC(); void opcode_CD(); void opcode_CE(); void opcode_CF();
-        void opcode_D0(); void opcode_D1(); void opcode_D2(); void opcode_D3(); void opcode_D4(); void opcode_D5(); void opcode_D6(); void opcode_D7(); void opcode_D8(); void opcode_D9(); void opcode_DA(); void opcode_DB(); void opcode_DC(); void opcode_DD(); void opcode_DE(); void opcode_DF();
-        void opcode_E0(); void opcode_E1(); void opcode_E2(); void opcode_E3(); void opcode_E4(); void opcode_E5(); void opcode_E6(); void opcode_E7(); void opcode_E8(); void opcode_E9(); void opcode_EA(); void opcode_EB(); void opcode_EC(); void opcode_ED(); void opcode_EE(); void opcode_EF();
-        void opcode_F0(); void opcode_F1(); void opcode_F2(); void opcode_F3(); void opcode_F4(); void opcode_F5(); void opcode_F6(); void opcode_F7(); void opcode_F8(); void opcode_F9(); void opcode_FA(); void opcode_FB(); void opcode_FC(); void opcode_FD(); void opcode_FE(); void opcode_FF();
+        void opcode00(); void opcode01(); void opcode02(); void opcode03(); void opcode04(); void opcode05(); void opcode06(); void opcode07(); void opcode08(); void opcode09(); void opcode0A(); void opcode0B(); void opcode0C(); void opcode0D(); void opcode0E(); void opcode0F();
+        void opcode10(); void opcode11(); void opcode12(); void opcode13(); void opcode14(); void opcode15(); void opcode16(); void opcode17(); void opcode18(); void opcode19(); void opcode1A(); void opcode1B(); void opcode1C(); void opcode1D(); void opcode1E(); void opcode1F();
+        void opcode20(); void opcode21(); void opcode22(); void opcode23(); void opcode24(); void opcode25(); void opcode26(); void opcode27(); void opcode28(); void opcode29(); void opcode2A(); void opcode2B(); void opcode2C(); void opcode2D(); void opcode2E(); void opcode2F();
+        void opcode30(); void opcode31(); void opcode32(); void opcode33(); void opcode34(); void opcode35(); void opcode36(); void opcode37(); void opcode38(); void opcode39(); void opcode3A(); void opcode3B(); void opcode3C(); void opcode3D(); void opcode3E(); void opcode3F();
+        void opcode40(); void opcode41(); void opcode42(); void opcode43(); void opcode44(); void opcode45(); void opcode46(); void opcode47(); void opcode48(); void opcode49(); void opcode4A(); void opcode4B(); void opcode4C(); void opcode4D(); void opcode4E(); void opcode4F();
+        void opcode50(); void opcode51(); void opcode52(); void opcode53(); void opcode54(); void opcode55(); void opcode56(); void opcode57(); void opcode58(); void opcode59(); void opcode5A(); void opcode5B(); void opcode5C(); void opcode5D(); void opcode5E(); void opcode5F();
+        void opcode60(); void opcode61(); void opcode62(); void opcode63(); void opcode64(); void opcode65(); void opcode66(); void opcode67(); void opcode68(); void opcode69(); void opcode6A(); void opcode6B(); void opcode6C(); void opcode6D(); void opcode6E(); void opcode6F();
+        void opcode70(); void opcode71(); void opcode72(); void opcode73(); void opcode74(); void opcode75(); void opcode76(); void opcode77(); void opcode78(); void opcode79(); void opcode7A(); void opcode7B(); void opcode7C(); void opcode7D(); void opcode7E(); void opcode7F();
+        void opcode80(); void opcode81(); void opcode82(); void opcode83(); void opcode84(); void opcode85(); void opcode86(); void opcode87(); void opcode88(); void opcode89(); void opcode8A(); void opcode8B(); void opcode8C(); void opcode8D(); void opcode8E(); void opcode8F();
+        void opcode90(); void opcode91(); void opcode92(); void opcode93(); void opcode94(); void opcode95(); void opcode96(); void opcode97(); void opcode98(); void opcode99(); void opcode9A(); void opcode9B(); void opcode9C(); void opcode9D(); void opcode9E(); void opcode9F();
+        void opcodeA0(); void opcodeA1(); void opcodeA2(); void opcodeA3(); void opcodeA4(); void opcodeA5(); void opcodeA6(); void opcodeA7(); void opcodeA8(); void opcodeA9(); void opcodeAA(); void opcodeAB(); void opcodeAC(); void opcodeAD(); void opcodeAE(); void opcodeAF();
+        void opcodeB0(); void opcodeB1(); void opcodeB2(); void opcodeB3(); void opcodeB4(); void opcodeB5(); void opcodeB6(); void opcodeB7(); void opcodeB8(); void opcodeB9(); void opcodeBA(); void opcodeBB(); void opcodeBC(); void opcodeBD(); void opcodeBE(); void opcodeBF();
+        void opcodeC0(); void opcodeC1(); void opcodeC2(); void opcodeC3(); void opcodeC4(); void opcodeC5(); void opcodeC6(); void opcodeC7(); void opcodeC8(); void opcodeC9(); void opcodeCA(); void opcodeCB(); void opcodeCC(); void opcodeCD(); void opcodeCE(); void opcodeCF();
+        void opcodeD0(); void opcodeD1(); void opcodeD2(); void opcodeD3(); void opcodeD4(); void opcodeD5(); void opcodeD6(); void opcodeD7(); void opcodeD8(); void opcodeD9(); void opcodeDA(); void opcodeDB(); void opcodeDC(); void opcodeDD(); void opcodeDE(); void opcodeDF();
+        void opcodeE0(); void opcodeE1(); void opcodeE2(); void opcodeE3(); void opcodeE4(); void opcodeE5(); void opcodeE6(); void opcodeE7(); void opcodeE8(); void opcodeE9(); void opcodeEA(); void opcodeEB(); void opcodeEC(); void opcodeED(); void opcodeEE(); void opcodeEF();
+        void opcodeF0(); void opcodeF1(); void opcodeF2(); void opcodeF3(); void opcodeF4(); void opcodeF5(); void opcodeF6(); void opcodeF7(); void opcodeF8(); void opcodeF9(); void opcodeFA(); void opcodeFB(); void opcodeFC(); void opcodeFD(); void opcodeFE(); void opcodeFF();
 
         // CB Opcodes
-        void opcode_CB_00(); void opcode_CB_01(); void opcode_CB_02(); void opcode_CB_03(); void opcode_CB_04(); void opcode_CB_05(); void opcode_CB_06(); void opcode_CB_07(); void opcode_CB_08(); void opcode_CB_09(); void opcode_CB_0A(); void opcode_CB_0B(); void opcode_CB_0C(); void opcode_CB_0D(); void opcode_CB_0E(); void opcode_CB_0F();
-        void opcode_CB_10(); void opcode_CB_11(); void opcode_CB_12(); void opcode_CB_13(); void opcode_CB_14(); void opcode_CB_15(); void opcode_CB_16(); void opcode_CB_17(); void opcode_CB_18(); void opcode_CB_19(); void opcode_CB_1A(); void opcode_CB_1B(); void opcode_CB_1C(); void opcode_CB_1D(); void opcode_CB_1E(); void opcode_CB_1F();
-        void opcode_CB_20(); void opcode_CB_21(); void opcode_CB_22(); void opcode_CB_23(); void opcode_CB_24(); void opcode_CB_25(); void opcode_CB_26(); void opcode_CB_27(); void opcode_CB_28(); void opcode_CB_29(); void opcode_CB_2A(); void opcode_CB_2B(); void opcode_CB_2C(); void opcode_CB_2D(); void opcode_CB_2E(); void opcode_CB_2F();
-        void opcode_CB_30(); void opcode_CB_31(); void opcode_CB_32(); void opcode_CB_33(); void opcode_CB_34(); void opcode_CB_35(); void opcode_CB_36(); void opcode_CB_37(); void opcode_CB_38(); void opcode_CB_39(); void opcode_CB_3A(); void opcode_CB_3B(); void opcode_CB_3C(); void opcode_CB_3D(); void opcode_CB_3E(); void opcode_CB_3F();
-        void opcode_CB_40(); void opcode_CB_41(); void opcode_CB_42(); void opcode_CB_43(); void opcode_CB_44(); void opcode_CB_45(); void opcode_CB_46(); void opcode_CB_47(); void opcode_CB_48(); void opcode_CB_49(); void opcode_CB_4A(); void opcode_CB_4B(); void opcode_CB_4C(); void opcode_CB_4D(); void opcode_CB_4E(); void opcode_CB_4F();
-        void opcode_CB_50(); void opcode_CB_51(); void opcode_CB_52(); void opcode_CB_53(); void opcode_CB_54(); void opcode_CB_55(); void opcode_CB_56(); void opcode_CB_57(); void opcode_CB_58(); void opcode_CB_59(); void opcode_CB_5A(); void opcode_CB_5B(); void opcode_CB_5C(); void opcode_CB_5D(); void opcode_CB_5E(); void opcode_CB_5F();
-        void opcode_CB_60(); void opcode_CB_61(); void opcode_CB_62(); void opcode_CB_63(); void opcode_CB_64(); void opcode_CB_65(); void opcode_CB_66(); void opcode_CB_67(); void opcode_CB_68(); void opcode_CB_69(); void opcode_CB_6A(); void opcode_CB_6B(); void opcode_CB_6C(); void opcode_CB_6D(); void opcode_CB_6E(); void opcode_CB_6F();
-        void opcode_CB_70(); void opcode_CB_71(); void opcode_CB_72(); void opcode_CB_73(); void opcode_CB_74(); void opcode_CB_75(); void opcode_CB_76(); void opcode_CB_77(); void opcode_CB_78(); void opcode_CB_79(); void opcode_CB_7A(); void opcode_CB_7B(); void opcode_CB_7C(); void opcode_CB_7D(); void opcode_CB_7E(); void opcode_CB_7F();
-        void opcode_CB_80(); void opcode_CB_81(); void opcode_CB_82(); void opcode_CB_83(); void opcode_CB_84(); void opcode_CB_85(); void opcode_CB_86(); void opcode_CB_87(); void opcode_CB_88(); void opcode_CB_89(); void opcode_CB_8A(); void opcode_CB_8B(); void opcode_CB_8C(); void opcode_CB_8D(); void opcode_CB_8E(); void opcode_CB_8F();
-        void opcode_CB_90(); void opcode_CB_91(); void opcode_CB_92(); void opcode_CB_93(); void opcode_CB_94(); void opcode_CB_95(); void opcode_CB_96(); void opcode_CB_97(); void opcode_CB_98(); void opcode_CB_99(); void opcode_CB_9A(); void opcode_CB_9B(); void opcode_CB_9C(); void opcode_CB_9D(); void opcode_CB_9E(); void opcode_CB_9F();
-        void opcode_CB_A0(); void opcode_CB_A1(); void opcode_CB_A2(); void opcode_CB_A3(); void opcode_CB_A4(); void opcode_CB_A5(); void opcode_CB_A6(); void opcode_CB_A7(); void opcode_CB_A8(); void opcode_CB_A9(); void opcode_CB_AA(); void opcode_CB_AB(); void opcode_CB_AC(); void opcode_CB_AD(); void opcode_CB_AE(); void opcode_CB_AF();
-        void opcode_CB_B0(); void opcode_CB_B1(); void opcode_CB_B2(); void opcode_CB_B3(); void opcode_CB_B4(); void opcode_CB_B5(); void opcode_CB_B6(); void opcode_CB_B7(); void opcode_CB_B8(); void opcode_CB_B9(); void opcode_CB_BA(); void opcode_CB_BB(); void opcode_CB_BC(); void opcode_CB_BD(); void opcode_CB_BE(); void opcode_CB_BF();
-        void opcode_CB_C0(); void opcode_CB_C1(); void opcode_CB_C2(); void opcode_CB_C3(); void opcode_CB_C4(); void opcode_CB_C5(); void opcode_CB_C6(); void opcode_CB_C7(); void opcode_CB_C8(); void opcode_CB_C9(); void opcode_CB_CA(); void opcode_CB_CB(); void opcode_CB_CC(); void opcode_CB_CD(); void opcode_CB_CE(); void opcode_CB_CF();
-        void opcode_CB_D0(); void opcode_CB_D1(); void opcode_CB_D2(); void opcode_CB_D3(); void opcode_CB_D4(); void opcode_CB_D5(); void opcode_CB_D6(); void opcode_CB_D7(); void opcode_CB_D8(); void opcode_CB_D9(); void opcode_CB_DA(); void opcode_CB_DB(); void opcode_CB_DC(); void opcode_CB_DD(); void opcode_CB_DE(); void opcode_CB_DF();
-        void opcode_CB_E0(); void opcode_CB_E1(); void opcode_CB_E2(); void opcode_CB_E3(); void opcode_CB_E4(); void opcode_CB_E5(); void opcode_CB_E6(); void opcode_CB_E7(); void opcode_CB_E8(); void opcode_CB_E9(); void opcode_CB_EA(); void opcode_CB_EB(); void opcode_CB_EC(); void opcode_CB_ED(); void opcode_CB_EE(); void opcode_CB_EF();
-        void opcode_CB_F0(); void opcode_CB_F1(); void opcode_CB_F2(); void opcode_CB_F3(); void opcode_CB_F4(); void opcode_CB_F5(); void opcode_CB_F6(); void opcode_CB_F7(); void opcode_CB_F8(); void opcode_CB_F9(); void opcode_CB_FA(); void opcode_CB_FB(); void opcode_CB_FC(); void opcode_CB_FD(); void opcode_CB_FE(); void opcode_CB_FF();
+        void opcodeCB00(); void opcodeCB01(); void opcodeCB02(); void opcodeCB03(); void opcodeCB04(); void opcodeCB05(); void opcodeCB06(); void opcodeCB07(); void opcodeCB08(); void opcodeCB09(); void opcodeCB0A(); void opcodeCB0B(); void opcodeCB0C(); void opcodeCB0D(); void opcodeCB0E(); void opcodeCB0F();
+        void opcodeCB10(); void opcodeCB11(); void opcodeCB12(); void opcodeCB13(); void opcodeCB14(); void opcodeCB15(); void opcodeCB16(); void opcodeCB17(); void opcodeCB18(); void opcodeCB19(); void opcodeCB1A(); void opcodeCB1B(); void opcodeCB1C(); void opcodeCB1D(); void opcodeCB1E(); void opcodeCB1F();
+        void opcodeCB20(); void opcodeCB21(); void opcodeCB22(); void opcodeCB23(); void opcodeCB24(); void opcodeCB25(); void opcodeCB26(); void opcodeCB27(); void opcodeCB28(); void opcodeCB29(); void opcodeCB2A(); void opcodeCB2B(); void opcodeCB2C(); void opcodeCB2D(); void opcodeCB2E(); void opcodeCB2F();
+        void opcodeCB30(); void opcodeCB31(); void opcodeCB32(); void opcodeCB33(); void opcodeCB34(); void opcodeCB35(); void opcodeCB36(); void opcodeCB37(); void opcodeCB38(); void opcodeCB39(); void opcodeCB3A(); void opcodeCB3B(); void opcodeCB3C(); void opcodeCB3D(); void opcodeCB3E(); void opcodeCB3F();
+        void opcodeCB40(); void opcodeCB41(); void opcodeCB42(); void opcodeCB43(); void opcodeCB44(); void opcodeCB45(); void opcodeCB46(); void opcodeCB47(); void opcodeCB48(); void opcodeCB49(); void opcodeCB4A(); void opcodeCB4B(); void opcodeCB4C(); void opcodeCB4D(); void opcodeCB4E(); void opcodeCB4F();
+        void opcodeCB50(); void opcodeCB51(); void opcodeCB52(); void opcodeCB53(); void opcodeCB54(); void opcodeCB55(); void opcodeCB56(); void opcodeCB57(); void opcodeCB58(); void opcodeCB59(); void opcodeCB5A(); void opcodeCB5B(); void opcodeCB5C(); void opcodeCB5D(); void opcodeCB5E(); void opcodeCB5F();
+        void opcodeCB60(); void opcodeCB61(); void opcodeCB62(); void opcodeCB63(); void opcodeCB64(); void opcodeCB65(); void opcodeCB66(); void opcodeCB67(); void opcodeCB68(); void opcodeCB69(); void opcodeCB6A(); void opcodeCB6B(); void opcodeCB6C(); void opcodeCB6D(); void opcodeCB6E(); void opcodeCB6F();
+        void opcodeCB70(); void opcodeCB71(); void opcodeCB72(); void opcodeCB73(); void opcodeCB74(); void opcodeCB75(); void opcodeCB76(); void opcodeCB77(); void opcodeCB78(); void opcodeCB79(); void opcodeCB7A(); void opcodeCB7B(); void opcodeCB7C(); void opcodeCB7D(); void opcodeCB7E(); void opcodeCB7F();
+        void opcodeCB80(); void opcodeCB81(); void opcodeCB82(); void opcodeCB83(); void opcodeCB84(); void opcodeCB85(); void opcodeCB86(); void opcodeCB87(); void opcodeCB88(); void opcodeCB89(); void opcodeCB8A(); void opcodeCB8B(); void opcodeCB8C(); void opcodeCB8D(); void opcodeCB8E(); void opcodeCB8F();
+        void opcodeCB90(); void opcodeCB91(); void opcodeCB92(); void opcodeCB93(); void opcodeCB94(); void opcodeCB95(); void opcodeCB96(); void opcodeCB97(); void opcodeCB98(); void opcodeCB99(); void opcodeCB9A(); void opcodeCB9B(); void opcodeCB9C(); void opcodeCB9D(); void opcodeCB9E(); void opcodeCB9F();
+        void opcodeCBA0(); void opcodeCBA1(); void opcodeCBA2(); void opcodeCBA3(); void opcodeCBA4(); void opcodeCBA5(); void opcodeCBA6(); void opcodeCBA7(); void opcodeCBA8(); void opcodeCBA9(); void opcodeCBAA(); void opcodeCBAB(); void opcodeCBAC(); void opcodeCBAD(); void opcodeCBAE(); void opcodeCBAF();
+        void opcodeCBB0(); void opcodeCBB1(); void opcodeCBB2(); void opcodeCBB3(); void opcodeCBB4(); void opcodeCBB5(); void opcodeCBB6(); void opcodeCBB7(); void opcodeCBB8(); void opcodeCBB9(); void opcodeCBBA(); void opcodeCBBB(); void opcodeCBBC(); void opcodeCBBD(); void opcodeCBBE(); void opcodeCBBF();
+        void opcodeCBC0(); void opcodeCBC1(); void opcodeCBC2(); void opcodeCBC3(); void opcodeCBC4(); void opcodeCBC5(); void opcodeCBC6(); void opcodeCBC7(); void opcodeCBC8(); void opcodeCBC9(); void opcodeCBCA(); void opcodeCBCB(); void opcodeCBCC(); void opcodeCBCD(); void opcodeCBCE(); void opcodeCBCF();
+        void opcodeCBD0(); void opcodeCBD1(); void opcodeCBD2(); void opcodeCBD3(); void opcodeCBD4(); void opcodeCBD5(); void opcodeCBD6(); void opcodeCBD7(); void opcodeCBD8(); void opcodeCBD9(); void opcodeCBDA(); void opcodeCBDB(); void opcodeCBDC(); void opcodeCBDD(); void opcodeCBDE(); void opcodeCBDF();
+        void opcodeCBE0(); void opcodeCBE1(); void opcodeCBE2(); void opcodeCBE3(); void opcodeCBE4(); void opcodeCBE5(); void opcodeCBE6(); void opcodeCBE7(); void opcodeCBE8(); void opcodeCBE9(); void opcodeCBEA(); void opcodeCBEB(); void opcodeCBEC(); void opcodeCBED(); void opcodeCBEE(); void opcodeCBEF();
+        void opcodeCBF0(); void opcodeCBF1(); void opcodeCBF2(); void opcodeCBF3(); void opcodeCBF4(); void opcodeCBF5(); void opcodeCBF6(); void opcodeCBF7(); void opcodeCBF8(); void opcodeCBF9(); void opcodeCBFA(); void opcodeCBFB(); void opcodeCBFC(); void opcodeCBFD(); void opcodeCBFE(); void opcodeCBFF();
     public:
         CPU(Emulator &emulator);
         void initializeCGBPostBoot();

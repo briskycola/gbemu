@@ -1,21 +1,20 @@
 #pragma once
 
-#include "cpu.hpp"
-#include "cartridge.hpp"
-#include "mmu.hpp"
-#include "timer.hpp"
-#include "serial.hpp"
-#include "input.hpp"
-#include "ppu.hpp"
-#include "apu.hpp"
-#include "sgb.hpp"
+#include "CPU.hpp"
+#include "Cartridge.hpp"
+#include "MMU.hpp"
+#include "Timer.hpp"
+#include "Serial.hpp"
+#include "Input.hpp"
+#include "PPU.hpp"
+#include "APU.hpp"
+#include "SGB.hpp"
 #include <memory>
 
 class Emulator
 {
     private:
         std::shared_ptr<Cartridge> cartridge;
-        std::function<bool()> shouldCloseCallback;
         uint32_t elapsedCycles = 0;
         uint16_t dmaCyclesRemaining = 0;
         bool cgbMode = false;
@@ -51,7 +50,7 @@ class Emulator
                  const std::vector<uint8_t> &cgbBootROM = {});
         const std::vector<uint8_t>& getCartridgeRAM();
         std::vector<int16_t> takeAudioSamples();
-        void run(std::function<bool()> shouldCloseCallback, std::function<void(const FrameBuffer&)> vblankCallback);
+        void runFrame(const std::function<void(const FrameBuffer&)> &vblankCallback);
 
         void buttonPressed(GBButton button);
         void buttonReleased(GBButton button);

@@ -8,7 +8,7 @@
 // Game Boy opcode reference
 // https://www.pastraiser.com/cpu/gameboy/gameboy_opcodes.html
 
-static const std::array<std::string, 256> opcodeNames =
+static const std::array<std::string, 256> OPCODE_NAMES =
 {
     "NOP",
     "LD BC,nn",
@@ -283,7 +283,7 @@ static const std::array<std::string, 256> opcodeNames =
     "RST 0x38"
 };
 
-static const std::array<std::string, 256> opcodeCBNames =
+static const std::array<std::string, 256> OPCODE_CB_NAMES =
 {
     "RLC B",
     "RLC C",

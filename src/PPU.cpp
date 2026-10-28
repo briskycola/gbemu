@@ -1,8 +1,9 @@
-#include "ppu.hpp"
-#include "color.hpp"
-#include "emulator.hpp"
-#include "common.hpp"
-#include "tile.hpp"
+#include "PPU.hpp"
+#include "Color.hpp"
+#include "Emulator.hpp"
+#include "Common.hpp"
+#include "Tile.hpp"
+#include "IORegisters.hpp"
 #include <stdexcept>
 #include <algorithm>
 
@@ -12,54 +13,51 @@ PPU::PPU(Emulator &emulator) :
     backgroundMap(BACKGROUND_MAP_SIZE, BACKGROUND_MAP_SIZE)
 {
     videoRAM = std::vector<uint8_t>(VRAM_SIZE_BYTES);
-    bgColorPalettes.fill(0xFF); // CGB startup background palettes are white.
     controlByte = 0;
 }
 
 uint8_t PPU::read(const Address &address)
 {
-    return videoRAM.at(static_cast<size_t>(vramBank) * VRAM_SIZE_BYTES / 2 + address.getValue());
+    return videoRAM.at(static_cast<size_t>(vramBank) * VRAM_BANK_SIZE + address.getValue());
 }
 
 uint8_t PPU::readVRAMBank(uint16_t offset, uint8_t bank) const
 {
-    return videoRAM.at((bank & 1) * 0x2000 + (offset & 0x1FFF));
+    return videoRAM.at((bank & 1) * VRAM_BANK_SIZE + (offset & (VRAM_BANK_SIZE - 1)));
 }
 
 uint8_t PPU::readCGBPaletteRegister(uint16_t address) const
 {
-    if (address == 0xFF68) return 0x40 | (bgPaletteIndex & 0xBF);
-    if (address == 0xFF6A) return 0x40 | (objPaletteIndex & 0xBF);
-    const bool object = address == 0xFF6B;
-    const uint8_t index = (object ? objPaletteIndex : bgPaletteIndex) & 0x3F;
-    return object ? objColorPalettes[index] : bgColorPalettes[index];
+    switch (address)
+    {
+        case BG_PALETTE_INDEX_REGISTER:  return bgColorPalettes.readIndex();
+        case BG_PALETTE_DATA_REGISTER:   return bgColorPalettes.readData();
+        case OBJ_PALETTE_INDEX_REGISTER: return objColorPalettes.readIndex();
+        default:     return objColorPalettes.readData();
+    }
 }
 
 void PPU::writeCGBPaletteRegister(uint16_t address, uint8_t value)
 {
-    if (address == 0xFF68) { bgPaletteIndex = value & 0xBF; return; }
-    if (address == 0xFF6A) { objPaletteIndex = value & 0xBF; return; }
-    const bool object = address == 0xFF6B;
-    uint8_t &index = object ? objPaletteIndex : bgPaletteIndex;
-    if (object) objColorPalettes[index & 0x3F] = value;
-    else bgColorPalettes[index & 0x3F] = value;
-    if (index & 0x80) index = static_cast<uint8_t>(0x80 | ((index + 1) & 0x3F));
-}
-
-uint32_t PPU::getCGBColor(bool objectPalette, uint8_t palette, uint8_t color) const
-{
-    const auto &ram = objectPalette ? objColorPalettes : bgColorPalettes;
-    const uint8_t index = static_cast<uint8_t>((palette & 7) * 8 + (color & 3) * 2);
-    const uint16_t value = ram[index] | (static_cast<uint16_t>(ram[index + 1] & 0x7F) << 8);
-    const uint8_t red = value & 0x1F;
-    const uint8_t green = (value >> 5) & 0x1F;
-    const uint8_t blue = (value >> 10) & 0x1F;
-    return ((red << 3 | red >> 2) << 16) | ((green << 3 | green >> 2) << 8) | (blue << 3 | blue >> 2);
+    switch (address)
+    {
+        case BG_PALETTE_INDEX_REGISTER:  bgColorPalettes.writeIndex(value); break;
+        case BG_PALETTE_DATA_REGISTER:   bgColorPalettes.writeData(value); break;
+        case OBJ_PALETTE_INDEX_REGISTER: objColorPalettes.writeIndex(value); break;
+        default:     objColorPalettes.writeData(value); break;
+    }
 }
 
 void PPU::write(const Address &address, uint8_t value)
 {
-    videoRAM.at(static_cast<size_t>(vramBank) * VRAM_SIZE_BYTES / 2 + address.getValue()) = value;
+    videoRAM.at(static_cast<size_t>(vramBank) * VRAM_BANK_SIZE + address.getValue()) = value;
+}
+
+void PPU::setMode(VideoMode mode)
+{
+    currentMode = mode;
+    const uint8_t otherBits = lcdStatus.getValue() & static_cast<uint8_t>(~STAT_MODE_MASK);
+    lcdStatus.set(otherBits | static_cast<uint8_t>(mode));
 }
 
 void PPU::tick(Cycles cycles)
@@ -74,59 +72,53 @@ void PPU::tick(Cycles cycles)
             return;
         }
         screenEnableDelay = 0;
-        currentMode = VideoMode::ACCESS_OAM;
         cycleCounter = 0;
-        lcdStatus.setBitTo(1, true);
-        lcdStatus.setBitTo(0, false);
+        setMode(VideoMode::AccessOAM);
     }
 
     cycleCounter += cycles.cycles;
 
     switch (currentMode)
     {
-        case VideoMode::ACCESS_OAM:
+        case VideoMode::AccessOAM:
         {
             if (cycleCounter >= CLOCKS_PER_SCANLINE_OAM)
             {
                 cycleCounter = cycleCounter % CLOCKS_PER_SCANLINE_OAM;
-                lcdStatus.setBitTo(1, true);
-                lcdStatus.setBitTo(0, true);
-                currentMode = VideoMode::ACCESS_VRAM;
+                setMode(VideoMode::AccessVRAM);
             }
             break;
         }
 
-        case VideoMode::ACCESS_VRAM:
+        case VideoMode::AccessVRAM:
         {
             if (cycleCounter >= CLOCKS_PER_SCANLINE_VRAM)
             {
                 cycleCounter = cycleCounter % CLOCKS_PER_SCANLINE_VRAM;
-                currentMode = VideoMode::HBLANK;
+                setMode(VideoMode::HBlank);
                 emulator.mmu.hblankDMA();
 
-                bool hblankInterrupt = checkBit(lcdStatus.getValue(), 3);
+                bool hblankInterrupt = checkBit(lcdStatus.getValue(), STAT_HBLANK_INTERRUPT_BIT);
 
                 if (hblankInterrupt)
                 {
-                    emulator.cpu.interruptFlag.setBitTo(1, true);
+                    emulator.cpu.interruptFlag.setBitTo(INTERRUPT_LCD_STATUS_BIT, true);
                 }
 
-                bool lyCoincidenceInterrupt = checkBit(lcdStatus.getValue(), 6);
+                bool lyCoincidenceInterrupt = checkBit(lcdStatus.getValue(), STAT_LYC_INTERRUPT_BIT);
                 bool lyCoincidence = lyCompare.getValue() == line.getValue();
 
                 if (lyCoincidenceInterrupt && lyCoincidence)
                 {
-                    emulator.cpu.interruptFlag.setBitTo(1, true);
+                    emulator.cpu.interruptFlag.setBitTo(INTERRUPT_LCD_STATUS_BIT, true);
                 }
 
-                lcdStatus.setBitTo(2, lyCoincidence);
-                lcdStatus.setBitTo(1, false);
-                lcdStatus.setBitTo(0, false);
+                lcdStatus.setBitTo(STAT_COINCIDENCE_BIT, lyCoincidence);
             }
             break;
         }
 
-        case VideoMode::HBLANK:
+        case VideoMode::HBlank:
         {
             if (cycleCounter >= CLOCKS_PER_HBLANK)
             {
@@ -136,25 +128,21 @@ void PPU::tick(Cycles cycles)
                 cycleCounter = cycleCounter % CLOCKS_PER_HBLANK;
 
                 // Line 145 (index 144) is the first line of VBLANK
-                if (line == 144)
+                if (line == SCANLINES_PER_FRAME)
                 {
-                    currentMode = VideoMode::VBLANK;
-                    lcdStatus.setBitTo(1, false);
-                    lcdStatus.setBitTo(0, true);
-                    emulator.cpu.interruptFlag.setBitTo(0, true);
+                    setMode(VideoMode::VBlank);
+                    emulator.cpu.interruptFlag.setBitTo(INTERRUPT_VBLANK_BIT, true);
                 }
 
                 else
                 {
-                    lcdStatus.setBitTo(1, true);
-                    lcdStatus.setBitTo(0, false);
-                    currentMode = VideoMode::ACCESS_OAM;
+                    setMode(VideoMode::AccessOAM);
                 }
             }
             break;
         }
 
-        case VideoMode::VBLANK:
+        case VideoMode::VBlank:
         {
             if (cycleCounter >= CLOCKS_PER_SCANLINE)
             {
@@ -162,16 +150,14 @@ void PPU::tick(Cycles cycles)
                 cycleCounter = cycleCounter % CLOCKS_PER_SCANLINE;
 
                 // Line 155 (index 154) is the last line
-                if (line == 154)
+                if (line == SCANLINES_PER_FRAME_WITH_VBLANK)
                 {
                     writeSprites();
                     draw();
                     buffer.reset();
                     bgAttributePriority.fill(0);
                     line.reset();
-                    currentMode = VideoMode::ACCESS_OAM;
-                    lcdStatus.setBitTo(1, true);
-                    lcdStatus.setBitTo(0, false);
+                    setMode(VideoMode::AccessOAM);
                 }
             }
         }
@@ -182,52 +168,50 @@ void PPU::tick(Cycles cycles)
 void PPU::setControlByte(uint8_t value)
 {
     const bool wasEnabled = displayEnabled();
-    const bool nowEnabled = checkBit(value, 7);
+    const bool nowEnabled = checkBit(value, LCDC_DISPLAY_ENABLE_BIT);
     controlByte = value;
 
     if (wasEnabled && !nowEnabled)
     {
         screenEnableDelay = 0;
         cycleCounter = 0;
-        currentMode = VideoMode::HBLANK;
+        setMode(VideoMode::HBlank);
         line.set(0);
-        lcdStatus.setBitTo(0, false);
-        lcdStatus.setBitTo(1, false);
-        lcdStatus.setBitTo(2, lyCompare.getValue() == 0);
+        lcdStatus.setBitTo(STAT_COINCIDENCE_BIT, lyCompare.getValue() == 0);
         buffer.reset();
     }
     else if (!wasEnabled && nowEnabled)
     {
-        screenEnableDelay = 244;
+        screenEnableDelay = LCD_ENABLE_DELAY;
         cycleCounter = 0;
-        currentMode = VideoMode::HBLANK;
+        setMode(VideoMode::HBlank);
         line.set(0);
-        lcdStatus.setBitTo(0, false);
-        lcdStatus.setBitTo(1, false);
-        lcdStatus.setBitTo(2, lyCompare.getValue() == 0);
+        lcdStatus.setBitTo(STAT_COINCIDENCE_BIT, lyCompare.getValue() == 0);
     }
 }
 
-bool PPU::displayEnabled() const { return checkBit(controlByte, 7); }
+bool PPU::displayEnabled() const { return checkBit(controlByte, LCDC_DISPLAY_ENABLE_BIT); }
 bool PPU::cpuCanAccessVRAM() const
 {
-    return !displayEnabled() || (lcdStatus.getValue() & 0x03) != 3;
+    const uint8_t mode = lcdStatus.getValue() & STAT_MODE_MASK;
+    return !displayEnabled() || mode != static_cast<uint8_t>(VideoMode::AccessVRAM);
 }
 
 bool PPU::cpuCanAccessOAM() const
 {
     if (!displayEnabled()) return true;
-    const uint8_t mode = lcdStatus.getValue() & 0x03;
-    return mode != 2 && mode != 3;
+    const uint8_t mode = lcdStatus.getValue() & STAT_MODE_MASK;
+    return mode != static_cast<uint8_t>(VideoMode::AccessOAM) &&
+           mode != static_cast<uint8_t>(VideoMode::AccessVRAM);
 }
 
-bool PPU::windowTileMap() const { return checkBit(controlByte, 6); }
-bool PPU::windowEnabled() const { return checkBit(controlByte, 5); }
-bool PPU::bgWindowTileData() const { return checkBit(controlByte, 4); }
-bool PPU::bgTileMapDisplay() const { return checkBit(controlByte, 3); }
-bool PPU::spriteSize() const { return checkBit(controlByte, 2); }
-bool PPU::spritesEnabled() const { return checkBit(controlByte, 1); }
-bool PPU::bgEnabled() const { return checkBit(controlByte, 0); }
+bool PPU::windowTileMap() const { return checkBit(controlByte, LCDC_WINDOW_TILE_MAP_BIT); }
+bool PPU::windowEnabled() const { return checkBit(controlByte, LCDC_WINDOW_ENABLE_BIT); }
+bool PPU::bgWindowTileData() const { return checkBit(controlByte, LCDC_BG_WINDOW_TILE_DATA_BIT); }
+bool PPU::bgTileMapDisplay() const { return checkBit(controlByte, LCDC_BG_TILE_MAP_BIT); }
+bool PPU::spriteSize() const { return checkBit(controlByte, LCDC_SPRITE_SIZE_BIT); }
+bool PPU::spritesEnabled() const { return checkBit(controlByte, LCDC_SPRITES_ENABLE_BIT); }
+bool PPU::bgEnabled() const { return checkBit(controlByte, LCDC_BG_ENABLE_BIT); }
 
 void PPU::writeScanline(uint8_t currentLine)
 {
@@ -247,14 +231,14 @@ void PPU::writeScanline(uint8_t currentLine)
 void PPU::writeSprites()
 {
     if (!spritesEnabled()) return;
-    std::array<uint8_t, 40> order{};
+    std::array<uint8_t, MAX_SPRITES> order{};
     for (uint8_t i = 0; i < order.size(); ++i) order[i] = i;
     const bool oamPriority = emulator.cgbMode && objectPriorityMode == 0;
     std::sort(order.begin(), order.end(), [this, oamPriority](uint8_t a, uint8_t b)
     {
         if (oamPriority) return a > b; // Draw lower-priority entries first.
-        const uint8_t xA = emulator.mmu.read(Address(0xFE01 + a * 4), true);
-        const uint8_t xB = emulator.mmu.read(Address(0xFE01 + b * 4), true);
+        const uint8_t xA = emulator.mmu.read(Address(OAM_ADDRESS_START + a * SPRITE_BYTES + OAM_SPRITE_X_BYTE), true);
+        const uint8_t xB = emulator.mmu.read(Address(OAM_ADDRESS_START + b * SPRITE_BYTES + OAM_SPRITE_X_BYTE), true);
         return xA == xB ? a > b : xA > xB;
     });
     for (uint8_t sprite : order) drawSprite(sprite);
@@ -267,7 +251,7 @@ void PPU::drawBGLine(uint32_t currentLine)
     bool useTileSetZero = bgWindowTileData();
     bool useTileMapZero = !bgTileMapDisplay();
 
-    colorPalette palette = loadPalette(bgPalette);
+    ColorPalette palette = loadPalette(bgPalette);
 
     Address tileSetAddress = useTileSetZero ? TILE_SET_ZERO_ADDRESS : TILE_SET_ONE_ADDRESS;
     Address tileMapAddress = useTileMapZero ? TILE_MAP_ZERO_ADDRESS : TILE_MAP_ONE_ADDRESS;
@@ -303,26 +287,27 @@ void PPU::drawBGLine(uint32_t currentLine)
         // Grab the ID of the tile we'll get data from
         uint8_t tileID = emulator.mmu.read(tileIDAddress, true);
         uint8_t tileAttributes = emulator.cgbMode
-            ? readVRAMBank(tileIDAddress.getValue() - 0x8000, 1) : 0;
+            ? readVRAMBank(tileIDAddress.getValue() - VRAM_ADDRESS_START, 1) : 0; // Attributes live in VRAM bank 1
 
         // Calculate the offset from the start of the tile data
         // memory where the data from in the tile map
         uint32_t tileDataMemoryOffset = useTileSetZero
             ? tileID * TILE_BYTES
-            : (static_cast<int8_t>(tileID) + 128) * TILE_BYTES;
+            : (static_cast<int8_t>(tileID) + 128) * TILE_BYTES; // Signed IDs: tile 0 is in the middle of the set
 
         // Calculate the extra offset to the data for the line
         // of pixles we are rendering from (2 bytes per line of pixels * y lines)
-        uint32_t row = (tileAttributes & 0x40) ? 7 - tilePixelY : tilePixelY;
-        uint32_t column = (tileAttributes & 0x20) ? 7 - tilePixelX : tilePixelX;
-        uint32_t tileDataOffset = tileSetAddress.getValue() - 0x8000 + tileDataMemoryOffset + row * 2;
-        uint8_t pixelsOne = readVRAMBank(tileDataOffset, (tileAttributes >> 3) & 1);
-        uint8_t pixelsTwo = readVRAMBank(tileDataOffset + 1, (tileAttributes >> 3) & 1);
+        uint32_t row = checkBit(tileAttributes, ATTRIBUTE_Y_FLIP_BIT) ? (TILE_HEIGHT_PX - 1) - tilePixelY : tilePixelY;
+        uint32_t column = checkBit(tileAttributes, ATTRIBUTE_X_FLIP_BIT) ? (TILE_WIDTH_PX - 1) - tilePixelX : tilePixelX;
+        uint32_t tileDataOffset = tileSetAddress.getValue() - VRAM_ADDRESS_START + tileDataMemoryOffset + row * TILE_BYTES_PER_ROW;
+        const uint8_t tileBank = getBitValue(tileAttributes, ATTRIBUTE_VRAM_BANK_BIT);
+        uint8_t pixelsOne = readVRAMBank(tileDataOffset, tileBank);
+        uint8_t pixelsTwo = readVRAMBank(tileDataOffset + 1, tileBank);
         GBColor pixelColor = getPixelFromLine(pixelsOne, pixelsTwo, column);
         const uint8_t shade = static_cast<uint8_t>(pixelColor);
-        bgAttributePriority[screenY * GAMEBOY_WIDTH + screenX] = tileAttributes >> 7;
+        bgAttributePriority[screenY * GAMEBOY_WIDTH + screenX] = getBitValue(tileAttributes, ATTRIBUTE_PRIORITY_BIT);
         if (emulator.cgbMode)
-            buffer.setPixelRGB(screenX, screenY, getCGBColor(false, tileAttributes & 7, shade), shade);
+            buffer.setPixelRGB(screenX, screenY, bgColorPalettes.getColor(tileAttributes & ATTRIBUTE_CGB_PALETTE_MASK, shade), shade);
         else if (emulator.sgbMode)
         {
             const uint8_t mappedShade = static_cast<uint8_t>(getColorFromPalette(pixelColor, palette));
@@ -341,7 +326,7 @@ void PPU::drawWindowLine(uint32_t currentLine)
     bool useTileSetZero = bgWindowTileData();
     bool useTileMapZero = !windowTileMap();
 
-    colorPalette palette = loadPalette(bgPalette);
+    ColorPalette palette = loadPalette(bgPalette);
 
     Address tileSetAddress = useTileSetZero ? TILE_SET_ZERO_ADDRESS : TILE_SET_ONE_ADDRESS;
     Address tileMapAddress = useTileMapZero ? TILE_MAP_ZERO_ADDRESS : TILE_MAP_ONE_ADDRESS;
@@ -355,7 +340,7 @@ void PPU::drawWindowLine(uint32_t currentLine)
     for (uint32_t screenX = 0; screenX < GAMEBOY_WIDTH; screenX++)
     {
         // Get the position of the pixel in the framebuffer
-        uint32_t scrolledX = screenX + windowX.getValue() - 7;
+        uint32_t scrolledX = screenX + windowX.getValue() - WINDOW_X_OFFSET;
 
         // Find which tile of the background map the pixel is in,
         // and the index of that tile in the array of tiles
@@ -374,26 +359,27 @@ void PPU::drawWindowLine(uint32_t currentLine)
         // Grab the ID of the tile we'll get data from
         uint8_t tileID = emulator.mmu.read(tileIDAddress, true);
         uint8_t tileAttributes = emulator.cgbMode
-            ? readVRAMBank(tileIDAddress.getValue() - 0x8000, 1) : 0;
+            ? readVRAMBank(tileIDAddress.getValue() - VRAM_ADDRESS_START, 1) : 0; // Attributes live in VRAM bank 1
 
         // Calculate the offset from the start of the tile data
         // memory where the data from in the tile map
         uint32_t tileDataMemoryOffset = useTileSetZero
             ? tileID * TILE_BYTES
-            : (static_cast<int8_t>(tileID) + 128) * TILE_BYTES;
+            : (static_cast<int8_t>(tileID) + 128) * TILE_BYTES; // Signed IDs: tile 0 is in the middle of the set
 
         // Calculate the extra offset to the data for the line
         // of pixles we are rendering from (2 bytes per line of pixels * y lines)
-        uint32_t row = (tileAttributes & 0x40) ? 7 - tilePixelY : tilePixelY;
-        uint32_t column = (tileAttributes & 0x20) ? 7 - tilePixelX : tilePixelX;
-        uint32_t tileDataOffset = tileSetAddress.getValue() - 0x8000 + tileDataMemoryOffset + row * 2;
-        uint8_t pixelsOne = readVRAMBank(tileDataOffset, (tileAttributes >> 3) & 1);
-        uint8_t pixelsTwo = readVRAMBank(tileDataOffset + 1, (tileAttributes >> 3) & 1);
+        uint32_t row = checkBit(tileAttributes, ATTRIBUTE_Y_FLIP_BIT) ? (TILE_HEIGHT_PX - 1) - tilePixelY : tilePixelY;
+        uint32_t column = checkBit(tileAttributes, ATTRIBUTE_X_FLIP_BIT) ? (TILE_WIDTH_PX - 1) - tilePixelX : tilePixelX;
+        uint32_t tileDataOffset = tileSetAddress.getValue() - VRAM_ADDRESS_START + tileDataMemoryOffset + row * TILE_BYTES_PER_ROW;
+        const uint8_t tileBank = getBitValue(tileAttributes, ATTRIBUTE_VRAM_BANK_BIT);
+        uint8_t pixelsOne = readVRAMBank(tileDataOffset, tileBank);
+        uint8_t pixelsTwo = readVRAMBank(tileDataOffset + 1, tileBank);
         GBColor pixelColor = getPixelFromLine(pixelsOne, pixelsTwo, column);
         const uint8_t shade = static_cast<uint8_t>(pixelColor);
-        bgAttributePriority[screenY * GAMEBOY_WIDTH + screenX] = tileAttributes >> 7;
+        bgAttributePriority[screenY * GAMEBOY_WIDTH + screenX] = getBitValue(tileAttributes, ATTRIBUTE_PRIORITY_BIT);
         if (emulator.cgbMode)
-            buffer.setPixelRGB(screenX, screenY, getCGBColor(false, tileAttributes & 7, shade), shade);
+            buffer.setPixelRGB(screenX, screenY, bgColorPalettes.getColor(tileAttributes & ATTRIBUTE_CGB_PALETTE_MASK, shade), shade);
         else if (emulator.sgbMode)
         {
             const uint8_t mappedShade = static_cast<uint8_t>(getColorFromPalette(pixelColor, palette));
@@ -411,30 +397,30 @@ void PPU::drawSprite(const uint32_t sprite)
     // or 8 bytes in 8x16 mode
     Address offsetInOAM = sprite * SPRITE_BYTES;
 
-    Address oamStart = 0xFE00 + offsetInOAM.getValue();
-    uint8_t spriteY = emulator.mmu.read(oamStart, true);
-    uint8_t spriteX = emulator.mmu.read(oamStart + 1, true);
+    Address oamStart = OAM_ADDRESS_START + offsetInOAM.getValue();
+    uint8_t spriteY = emulator.mmu.read(oamStart + OAM_SPRITE_Y_BYTE, true);
+    uint8_t spriteX = emulator.mmu.read(oamStart + OAM_SPRITE_X_BYTE, true);
 
     // If the sprite would be drawn outside the screen,
     // don't draw it at all
-    if (spriteY == 0 || spriteY >= 160) return;
-    if (spriteX == 0 || spriteX >= 168) return;
+    if (spriteY == 0 || spriteY >= GAMEBOY_HEIGHT + SPRITE_Y_OFFSET) return;
+    if (spriteX == 0 || spriteX >= GAMEBOY_WIDTH + SPRITE_X_OFFSET) return;
 
     uint32_t spriteSizeMultiplier = spriteSize() ? 2 : 1;
 
     // Sprites are always taken from the first tile set
     Address tileSetLocation = TILE_SET_ZERO_ADDRESS;
 
-    uint8_t pattern = emulator.mmu.read(oamStart + 2, true);
-    uint8_t spriteAttributes = emulator.mmu.read(oamStart + 3, true);
+    uint8_t pattern = emulator.mmu.read(oamStart + OAM_SPRITE_TILE_BYTE, true);
+    uint8_t spriteAttributes = emulator.mmu.read(oamStart + OAM_SPRITE_ATTRIBUTE_BYTE, true);
 
     // Bits 0-3 are used only for CGB
-    bool usePaletteOne = checkBit(spriteAttributes, 4);
-    bool flipX = checkBit(spriteAttributes, 5);
-    bool flipY = checkBit(spriteAttributes, 6);
-    bool objectBehindBG = checkBit(spriteAttributes, 7);
+    bool usePaletteOne = checkBit(spriteAttributes, ATTRIBUTE_DMG_PALETTE_BIT);
+    bool flipX = checkBit(spriteAttributes, ATTRIBUTE_X_FLIP_BIT);
+    bool flipY = checkBit(spriteAttributes, ATTRIBUTE_Y_FLIP_BIT);
+    bool objectBehindBG = checkBit(spriteAttributes, ATTRIBUTE_PRIORITY_BIT);
 
-    colorPalette palette = usePaletteOne
+    ColorPalette palette = usePaletteOne
         ? loadPalette(spritePalette1)
         : loadPalette(spritePalette0);
 
@@ -442,11 +428,11 @@ void PPU::drawSprite(const uint32_t sprite)
     Address patternAddress = tileSetLocation + tileOffset;
 
     const uint8_t previousBank = vramBank;
-    if (emulator.cgbMode) vramBank = (spriteAttributes >> 3) & 1;
+    if (emulator.cgbMode) vramBank = getBitValue(spriteAttributes, ATTRIBUTE_VRAM_BANK_BIT);
     Tile tile(patternAddress, emulator.mmu, spriteSizeMultiplier);
     vramBank = previousBank;
-    int32_t startY = spriteY - 16;
-    int32_t startX = spriteX - 8;
+    int32_t startY = spriteY - SPRITE_Y_OFFSET;
+    int32_t startX = spriteX - SPRITE_X_OFFSET;
 
     for (uint32_t y = 0; y < TILE_HEIGHT_PX * spriteSizeMultiplier; y++)
     {
@@ -472,9 +458,9 @@ void PPU::drawSprite(const uint32_t sprite)
             if (emulator.cgbMode)
             {
                 const bool bgPriority = bgAttributePriority[screenY * GAMEBOY_WIDTH + screenX] != 0;
-                if ((checkBit(spriteAttributes, 7) || bgPriority) && bgNonzero && checkBit(controlByte, 0)) continue;
+                if ((objectBehindBG || bgPriority) && bgNonzero && bgEnabled()) continue;
                 buffer.setPixelRGB(screenX, screenY,
-                    getCGBColor(true, spriteAttributes & 7, shade), shade);
+                    objColorPalettes.getColor(spriteAttributes & ATTRIBUTE_CGB_PALETTE_MASK, shade), shade);
             }
             else
             {
@@ -493,8 +479,10 @@ void PPU::drawSprite(const uint32_t sprite)
 
 GBColor PPU::getPixelFromLine(uint8_t byteOne, uint8_t byteTwo, uint8_t pixelIndex)
 {
-    uint8_t color =
-        static_cast<uint8_t>((getBitValue(byteTwo, 7 - pixelIndex) << 1) | getBitValue(byteOne, 7 - pixelIndex));
+    // Bit 7 holds the leftmost pixel. The second byte
+    // supplies the high bit of each pixel's color number.
+    const uint8_t bit = static_cast<uint8_t>((TILE_WIDTH_PX - 1) - pixelIndex);
+    uint8_t color = composeBits(getBitValue(byteTwo, bit), getBitValue(byteOne, bit));
     return getColor(color);
 }
 
@@ -515,8 +503,11 @@ bool PPU::isOnScreen(int32_t x, int32_t y)
     return isOnScreenX(x) && isOnScreenY(y);
 }
 
-colorPalette PPU::loadPalette(ByteRegister &paletteRegister)
+ColorPalette PPU::loadPalette(ByteRegister &paletteRegister)
 {
+    // Each palette register packs four 2-bit shades:
+    // bits 1-0 for color 0, bits 3-2 for color 1,
+    // bits 5-4 for color 2, and bits 7-6 for color 3
     uint8_t color0 = composeBits(getBitValue(paletteRegister.getValue(), 1), getBitValue(paletteRegister.getValue(), 0));
     uint8_t color1 = composeBits(getBitValue(paletteRegister.getValue(), 3), getBitValue(paletteRegister.getValue(), 2));
     uint8_t color2 = composeBits(getBitValue(paletteRegister.getValue(), 5), getBitValue(paletteRegister.getValue(), 4));
@@ -530,7 +521,7 @@ colorPalette PPU::loadPalette(ByteRegister &paletteRegister)
     return { realColor0, realColor1, realColor2, realColor3 };
 }
 
-Color PPU::getColorFromPalette(GBColor color, const colorPalette &palette) const
+Color PPU::getColorFromPalette(GBColor color, const ColorPalette &palette) const
 {
     switch (color)
     {

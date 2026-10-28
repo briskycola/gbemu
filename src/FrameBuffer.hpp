@@ -1,6 +1,7 @@
 #pragma once
 
-#include "common.hpp"
+#include "Common.hpp"
+#include "Color.hpp"
 #include <vector>
 
 class FrameBuffer

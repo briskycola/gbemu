@@ -1,5 +1,5 @@
-#include "serial.hpp"
-#include "common.hpp"
+#include "Serial.hpp"
+#include "Common.hpp"
 #include <iostream>
 
 Serial::Serial() {}
@@ -16,7 +16,7 @@ void Serial::write(const uint8_t byte)
 
 void Serial::writeControl(const uint8_t byte) const
 {
-    if (checkBit(byte, 7))
+    if (checkBit(byte, SERIAL_TRANSFER_START_BIT))
     {
         std::cout << data;
         std::cout.flush();

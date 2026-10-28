@@ -1,4 +1,4 @@
-#include "file.hpp"
+#include "File.hpp"
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -19,7 +19,8 @@ std::vector<uint8_t> readFile(const std::string &filename)
     romFile.open(filename.c_str(), std::ios::binary | std::ios::ate);
     if (!romFile)
     {
-        std::cerr << "Could not open ROM file\n";
+        std::cerr << "Could not open file: " << filename << "\n";
+        return romData;
     }
 
     // Get the current read position, which

@@ -1,4 +1,5 @@
-#include "emulator.hpp"
+#include "Emulator.hpp"
+#include "IORegisters.hpp"
 
 Emulator::Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<uint8_t> &saveData,
                    const std::vector<uint8_t> &cgbBootROM) :
@@ -20,12 +21,16 @@ Emulator::Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<
             // Without a BIOS image, start from the documented CGB
             // post-boot state rather than running the DMG boot ROM.
             cpu.initializeCGBPostBoot();
-            mmu.write(Address(0xFF50), 1);
-            mmu.write(Address(0xFF0F), 1);
-            mmu.write(Address(0xFF40), 0x91);
-            mmu.write(Address(0xFF47), 0xFC);
-            mmu.write(Address(0xFF48), 0xFF);
-            mmu.write(Address(0xFF49), 0xFF);
+            mmu.write(Address(BOOT_ROM_DISABLE_REGISTER), 1);
+            mmu.write(Address(INTERRUPT_FLAG_REGISTER), 1 << INTERRUPT_VBLANK_BIT);
+
+            // LCD and background on, background tiles from 0x8000
+            mmu.write(Address(LCD_CONTROL_REGISTER), 0x91);
+
+            // Background shades 3, 3, 3, 0 and both sprite palettes all black
+            mmu.write(Address(BG_PALETTE_REGISTER), 0xFC);
+            mmu.write(Address(OBJ_PALETTE0_REGISTER), 0xFF);
+            mmu.write(Address(OBJ_PALETTE1_REGISTER), 0xFF);
         }
     }
 }
@@ -43,20 +48,32 @@ std::vector<int16_t> Emulator::takeAudioSamples()
 void Emulator::tick()
 {
     Cycles m = cpu.tick();    // M-cycles
-    Cycles t{ m.cycles * 4 }; // T-cycles
+    Cycles t{ m.cycles * T_CYCLES_PER_M_CYCLE }; // T-cycles
 
+    // In double speed mode the CPU and timer run twice as fast,
+    // but the PPU and APU keep their normal speed
     elapsedCycles += t.cycles;
     ppu.tick(Cycles(doubleSpeed ? t.cycles / 2 : t.cycles));
     timer.tick(t.cycles);
     apu.tick(doubleSpeed ? t.cycles / 2 : t.cycles);
 }
 
-void Emulator::run(std::function<bool()> shoudCloseCallback, std::function<void(const FrameBuffer&)> vblankCallback)
+void Emulator::runFrame(const std::function<void(const FrameBuffer&)> &vblankCallback)
 {
-    this->shouldCloseCallback = shoudCloseCallback;
-    ppu.registerVBlankCallback(vblankCallback);
+    bool frameDrawn = false;
+    ppu.registerVBlankCallback([&](const FrameBuffer &buffer)
+    {
+        vblankCallback(buffer);
+        frameDrawn = true;
+    });
 
-    while (!shoudCloseCallback())
+    // When the LCD is off the PPU never reaches VBlank,
+    // so cap the loop at one frame's worth of cycles
+    // (twice as many CPU cycles in double speed mode).
+    const uint32_t startCycles = elapsedCycles;
+    const uint32_t frameBudget = CLOCKS_PER_FRAME * (doubleSpeed ? 2 : 1);
+
+    while (!frameDrawn && elapsedCycles - startCycles < frameBudget)
     {
         tick();
     }

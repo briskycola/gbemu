@@ -1,11 +1,13 @@
-#include "mmu.hpp"
-#include "address.hpp"
-#include "emulator.hpp"
-#include "cpu.hpp"
-#include "timer.hpp"
-#include "serial.hpp"
-#include "input.hpp"
-#include "bootrom.hpp"
+#include "MMU.hpp"
+#include "Address.hpp"
+#include "Emulator.hpp"
+#include "CPU.hpp"
+#include "Timer.hpp"
+#include "Serial.hpp"
+#include "Input.hpp"
+#include "BootROM.hpp"
+#include "IORegisters.hpp"
+#include "Common.hpp"
 #include <iostream>
 
 MMU::MMU(Emulator &emulator) :
@@ -21,19 +23,20 @@ uint8_t MMU::read(const Address &address, bool bypassPPURestrictions) const
     // Cartridge ROM
     if (address.inRange(CARTRIDGE_ROM_ADDRESS_START, CARTRIDGE_ROM_ADDRESS_END))
     {
-        if (emulator.cgbMode && !cgbBootROM.empty() &&
-            (address.getValue() < 0x0100 || (address.getValue() >= 0x0200 && address.getValue() < 0x0900)) &&
-            isBootROMActive())
-            return cgbBootROM[address.getValue()];
-        if (address.inRange(0x0, 0xFF) && isBootROMActive()) return bootROM[address.getValue()];
+        const uint16_t value = address.getValue();
+        const bool inCGBBootROM = value < DMG_BOOT_ROM_SIZE ||
+            (value >= CGB_BOOT_ROM_SECOND_PART_START && value < CGB_BOOT_ROM_SIZE);
+        if (emulator.cgbMode && !cgbBootROM.empty() && inCGBBootROM && isBootROMActive())
+            return cgbBootROM[value];
+        if (value < DMG_BOOT_ROM_SIZE && isBootROMActive()) return BOOT_ROM[value];
         return emulator.cartridge->read(address);
     }
 
     // VRAM
     if (address.inRange(VRAM_ADDRESS_START, VRAM_ADDRESS_END))
     {
-        if (!bypassPPURestrictions && !emulator.ppu.cpuCanAccessVRAM()) return 0xFF;
-        return emulator.ppu.read(address.getValue() - 0x8000);
+        if (!bypassPPURestrictions && !emulator.ppu.cpuCanAccessVRAM()) return UNMAPPED_READ_VALUE;
+        return emulator.ppu.read(address.getValue() - VRAM_ADDRESS_START);
     }
 
     // Cartridge RAM (external)
@@ -45,30 +48,32 @@ uint8_t MMU::read(const Address &address, bool bypassPPURestrictions) const
     // WRAM
     if (address.inRange(WRAM_ADDRESS_START, WRAM_ADDRESS_END))
     {
-        const uint16_t offset = address.getValue() - 0xC000;
-        if (emulator.cgbMode && offset >= 0x1000)
-            return workRAM.at(0x1000 + static_cast<size_t>(workRAMBank - 1) * 0x1000 + (offset - 0x1000));
+        const uint16_t offset = address.getValue() - WRAM_OFFSET;
+
+        // The second 4 KB of work RAM is switchable on the CGB
+        if (emulator.cgbMode && offset >= WRAM_BANK_SIZE)
+            return workRAM.at(static_cast<size_t>(workRAMBank) * WRAM_BANK_SIZE + (offset - WRAM_BANK_SIZE));
         return workRAM.at(offset);
     }
 
     // Echo RAM
     if (address.inRange(ECHO_RAM_ADDRESS_START, ECHO_RAM_ADDRESS_END))
     {
-        return read(address.getValue() - 0x2000, bypassPPURestrictions);
+        return read(address.getValue() - ECHO_RAM_OFFSET, bypassPPURestrictions);
     }
 
     // OAM
     if (address.inRange(OAM_ADDRESS_START, OAM_ADDRESS_END))
     {
-        if (!bypassPPURestrictions && !emulator.ppu.cpuCanAccessOAM()) return 0xFF;
-        return oamRAM.at(address.getValue() - 0xFE00);
+        if (!bypassPPURestrictions && !emulator.ppu.cpuCanAccessOAM()) return UNMAPPED_READ_VALUE;
+        return oamRAM.at(address.getValue() - OAM_OFFSET);
     }
 
     // Reading from unsuable memory
-    if (address.inRange(0xFEA0, 0xFEFF))
+    if (address.inRange(UNUSABLE_ADDRESS_START, UNUSABLE_ADDRESS_END))
     {
         std::cerr << "Reading from unusable memory: " << std::hex << address.getValue() << "\n";
-        return 0xFF;
+        return UNMAPPED_READ_VALUE;
     }
 
     // I/O Registers
@@ -80,196 +85,120 @@ uint8_t MMU::read(const Address &address, bool bypassPPURestrictions) const
     // HRAM
     if (address.inRange(HRAM_ADDRESS_START, HRAM_ADDRESS_END))
     {
-        return highRAM.at(address.getValue() - 0xFF80);
+        return highRAM.at(address.getValue() - HRAM_OFFSET);
     }
 
     // Interrupt Enable Register
     if (address == INTERRUPT_ENABLE_REGISTER)
     {
-        return 0xE0 | (emulator.cpu.interruptEnabled.getValue() & 0x1F);
+        // The unused upper bits read as 1
+        return static_cast<uint8_t>(~INTERRUPT_MASK | (emulator.cpu.interruptEnabled.getValue() & INTERRUPT_MASK));
     }
-    return 0xFF;
+    return UNMAPPED_READ_VALUE;
 }
 
 uint8_t MMU::readIO(const Address &address) const
 {
+    // Audio registers and wave RAM, including the
+    // unused addresses between them
+    if (address.inRange(AUDIO_ADDRESS_START, AUDIO_ADDRESS_END))
+    {
+        return emulator.apu.read(address.getValue());
+    }
+
     switch (address.getValue())
     {
-        case 0xFF00:
+        case JOYPAD_REGISTER:
         {
             uint8_t input = emulator.input.getInput();
-            if (emulator.sgbMode && (input & 0x30) == 0x30)
-                input = static_cast<uint8_t>((input & 0xF0) | emulator.sgb.getPlayerId());
+
+            // With neither half of the joypad selected, the
+            // Super Game Boy reports the current player instead
+            if (emulator.sgbMode && (input & JOYPAD_SELECT_MASK) == JOYPAD_SELECT_MASK)
+                input = static_cast<uint8_t>((input & ~JOYPAD_KEYS_MASK) | emulator.sgb.getPlayerId());
             return input;
         }
-        case 0xFF01: return emulator.serial.read();
-        case 0xFF02: return 0xFF;
-        case 0xFF03: return 0xFF;
-        case 0xFF04: return emulator.timer.getDivider();
-        case 0xFF05: return emulator.timer.getTimer();
-        case 0xFF06: return emulator.timer.getTimerModulo();
-        case 0xFF07: return 0xF8 | emulator.timer.getTimerControl();
-        case 0xFF08:
-        case 0xFF09:
-        case 0xFF0A:
-        case 0xFF0B:
-        case 0xFF0C:
-        case 0xFF0D:
-        case 0xFF0E: return 0xFF;
-        case 0xFF0F: return 0xE0 | (emulator.cpu.interruptFlag.getValue() & 0x1F);
+        case SERIAL_DATA_REGISTER: return emulator.serial.read();
+        case SERIAL_CONTROL_REGISTER: return UNMAPPED_READ_VALUE;
 
-        // Audio channel 1
-        case 0xFF10:
-        case 0xFF11:
-        case 0xFF12:
-        case 0xFF13:
-        case 0xFF14: return emulator.apu.read(address.getValue());
+        // Timer. Only the low 3 bits of TAC are used;
+        // the rest read as 1.
+        case DIVIDER_REGISTER: return emulator.timer.getDivider();
+        case TIMER_COUNTER_REGISTER: return emulator.timer.getTimer();
+        case TIMER_MODULO_REGISTER: return emulator.timer.getTimerModulo();
+        case TIMER_CONTROL_REGISTER: return 0xF8 | emulator.timer.getTimerControl();
 
-        case 0xFF15: return 0xFF;
+        // The unused upper bits of IF read as 1
+        case INTERRUPT_FLAG_REGISTER:
+            return static_cast<uint8_t>(~INTERRUPT_MASK | (emulator.cpu.interruptFlag.getValue() & INTERRUPT_MASK));
 
-        // Audio channel 2
-        case 0xFF16:
-        case 0xFF17:
-        case 0xFF18:
-        case 0xFF19: return emulator.apu.read(address.getValue());
+        // LCD
+        case LCD_CONTROL_REGISTER: return emulator.ppu.controlByte;
+        case LCD_STATUS_REGISTER: return STAT_UNUSED_BITS | emulator.ppu.lcdStatus.getValue();
+        case SCROLL_Y_REGISTER: return emulator.ppu.scrollY.getValue();
+        case SCROLL_X_REGISTER: return emulator.ppu.scrollX.getValue();
+        case LCD_Y_REGISTER: return emulator.ppu.line.getValue();
+        case LCD_Y_COMPARE_REGISTER: return emulator.ppu.lyCompare.getValue();
+        case OAM_DMA_REGISTER: return UNMAPPED_READ_VALUE;
+        case BG_PALETTE_REGISTER: return emulator.ppu.bgPalette.getValue();
+        case OBJ_PALETTE0_REGISTER: return emulator.ppu.spritePalette0.getValue();
+        case OBJ_PALETTE1_REGISTER: return emulator.ppu.spritePalette1.getValue();
+        case WINDOW_Y_REGISTER: return emulator.ppu.windowY.getValue();
+        case WINDOW_X_REGISTER: return emulator.ppu.windowX.getValue();
 
-        // Audio channel 3
-        case 0xFF1A:
-        case 0xFF1B:
-        case 0xFF1C:
-        case 0xFF1D:
-        case 0xFF1E: return emulator.apu.read(address.getValue());
-        case 0xFF1F: return 0xFF;
-
-        // Audio channel 4
-        case 0xFF20:
-        case 0xFF21:
-        case 0xFF22:
-        case 0xFF23: return emulator.apu.read(address.getValue());
-
-        // Audio master volume, routing, and power
-        case 0xFF24: return emulator.apu.read(address.getValue());
-
-        case 0xFF25: return emulator.apu.read(address.getValue());
-
-        case 0xFF26: return emulator.apu.read(address.getValue());
-
-        case 0xFF27:
-        case 0xFF28:
-        case 0xFF29:
-        case 0xFF2A:
-        case 0xFF2B:
-        case 0xFF2C:
-        case 0xFF2D:
-        case 0xFF2E:
-        case 0xFF2F: return 0xFF;
-
-        // Audio wave pattern RAM
-        case 0xFF30:
-        case 0xFF31:
-        case 0xFF32:
-        case 0xFF33:
-        case 0xFF34:
-        case 0xFF35:
-        case 0xFF36:
-        case 0xFF37:
-        case 0xFF38:
-        case 0xFF39:
-        case 0xFF3A:
-        case 0xFF3B:
-        case 0xFF3C:
-        case 0xFF3D:
-        case 0xFF3E:
-        case 0xFF3F: return emulator.apu.read(address.getValue());
-
-        case 0xFF40: return emulator.ppu.controlByte;
-        case 0xFF41: return 0x80 | emulator.ppu.lcdStatus.getValue();
-        case 0xFF42: return emulator.ppu.scrollY.getValue();
-        case 0xFF43: return emulator.ppu.scrollX.getValue();
-        case 0xFF44: return emulator.ppu.line.getValue();
-        case 0xFF45: return emulator.ppu.lyCompare.getValue();
-        case 0xFF46: return 0xFF;
-        case 0xFF47: return emulator.ppu.bgPalette.getValue();
-        case 0xFF48: return emulator.ppu.spritePalette0.getValue();
-        case 0xFF49: return emulator.ppu.spritePalette1.getValue();
-        case 0xFF4A: return emulator.ppu.windowY.getValue();
-        case 0xFF4B: return emulator.ppu.windowX.getValue();
-
-        // KEY0 reports native CGB CPU mode. This emulator enters color mode
+        // KEY0 reports native CGB CPU mode (0x00). This emulator enters color mode
         // for cartridges whose header advertises CGB support.
-        case 0xFF4C: return emulator.cgbMode ? 0x00 : 0xFF;
-        case 0xFF4D: return emulator.cgbMode
+        case CGB_MODE_REGISTER: return emulator.cgbMode ? 0x00 : UNMAPPED_READ_VALUE;
+
+        // KEY1: bit 7 is the current speed and bit 0 is set when a
+        // speed switch is armed. The other bits read as 1.
+        case SPEED_SWITCH_REGISTER: return emulator.cgbMode
             ? static_cast<uint8_t>(0x7E | (emulator.doubleSpeed ? 0x80 : 0) | (emulator.speedSwitchPrepared ? 1 : 0))
-            : 0xFF;
-        case 0xFF4E:
-        case 0xFF4F: return emulator.cgbMode ? static_cast<uint8_t>(0xFE | emulator.ppu.getVRAMBank()) : 0xFF;
+            : UNMAPPED_READ_VALUE;
+
+        // VBK: only bit 0 is used; the rest read as 1
+        case VRAM_BANK_REGISTER: return emulator.cgbMode
+            ? static_cast<uint8_t>(0xFE | emulator.ppu.getVRAMBank()) : UNMAPPED_READ_VALUE;
 
         // Boot ROM
-        case 0xFF50: return disableBootROMSwitch.getValue();
-        case 0xFF51: return emulator.cgbMode ? static_cast<uint8_t>(hdmaSource >> 8) : 0xFF;
-        case 0xFF52: return emulator.cgbMode ? static_cast<uint8_t>(hdmaSource & 0xF0) : 0xFF;
-        case 0xFF53: return emulator.cgbMode ? static_cast<uint8_t>(0xE0 | ((hdmaDestination >> 8) & 0x1F)) : 0xFF;
-        case 0xFF54: return emulator.cgbMode ? static_cast<uint8_t>(hdmaDestination & 0xF0) : 0xFF;
-        case 0xFF55: return emulator.cgbMode
-            ? static_cast<uint8_t>((hdmaHBlank && hdmaBlocksRemaining ? 0 : 0x80) | (hdmaBlocksRemaining ? hdmaBlocksRemaining - 1 : 0x7F))
-            : 0xFF;
-        case 0xFF56: return 0xFF;
+        case BOOT_ROM_DISABLE_REGISTER: return disableBootROMSwitch.getValue();
 
-        case 0xFF57:
-        case 0xFF58:
-        case 0xFF59:
-        case 0xFF5A:
-        case 0xFF5B:
-        case 0xFF5C:
-        case 0xFF5D:
-        case 0xFF5E:
-        case 0xFF5F:
-        case 0xFF60:
-        case 0xFF61:
-        case 0xFF62:
-        case 0xFF63:
-        case 0xFF64:
-        case 0xFF65:
-        case 0xFF66:
-        case 0xFF67: return 0xFF;
-            
-        case 0xFF68:
-        case 0xFF6A:
-            return emulator.cgbMode ? emulator.ppu.readCGBPaletteRegister(address.getValue()) : 0xFF;
-        case 0xFF69:
-        case 0xFF6B:
-            if (!emulator.cgbMode || !emulator.ppu.cpuCanAccessVRAM()) return 0xFF;
+        // HDMA. Bits 0-4 of HDMA3 hold the destination's
+        // offset into VRAM; the upper bits read as 1.
+        case HDMA_SOURCE_HIGH_REGISTER: return emulator.cgbMode ? static_cast<uint8_t>(hdmaSource >> 8) : UNMAPPED_READ_VALUE;
+        case HDMA_SOURCE_LOW_REGISTER: return emulator.cgbMode ? static_cast<uint8_t>(hdmaSource & HDMA_ADDRESS_LOW_MASK) : UNMAPPED_READ_VALUE;
+        case HDMA_DESTINATION_HIGH_REGISTER: return emulator.cgbMode
+            ? static_cast<uint8_t>(0xE0 | ((hdmaDestination >> 8) & HDMA_DESTINATION_HIGH_MASK)) : UNMAPPED_READ_VALUE;
+        case HDMA_DESTINATION_LOW_REGISTER: return emulator.cgbMode
+            ? static_cast<uint8_t>(hdmaDestination & HDMA_ADDRESS_LOW_MASK) : UNMAPPED_READ_VALUE;
+
+        // HDMA5: bit 7 reads 0 while an HBlank transfer is running, and
+        // bits 0-6 hold the blocks left minus one (0x7F once finished)
+        case HDMA_CONTROL_REGISTER: return emulator.cgbMode
+            ? static_cast<uint8_t>((hdmaHBlank && hdmaBlocksRemaining ? 0 : 0x80) |
+                                   (hdmaBlocksRemaining ? hdmaBlocksRemaining - 1 : HDMA_LENGTH_MASK))
+            : UNMAPPED_READ_VALUE;
+
+        // CGB palette index registers can always be read; palette data
+        // is locked while the PPU is drawing from VRAM
+        case BG_PALETTE_INDEX_REGISTER:
+        case OBJ_PALETTE_INDEX_REGISTER:
+            return emulator.cgbMode ? emulator.ppu.readCGBPaletteRegister(address.getValue()) : UNMAPPED_READ_VALUE;
+        case BG_PALETTE_DATA_REGISTER:
+        case OBJ_PALETTE_DATA_REGISTER:
+            if (!emulator.cgbMode || !emulator.ppu.cpuCanAccessVRAM()) return UNMAPPED_READ_VALUE;
             return emulator.ppu.readCGBPaletteRegister(address.getValue());
 
-        case 0xFF6C: return emulator.cgbMode
-            ? static_cast<uint8_t>(0xFE | emulator.ppu.getObjectPriorityMode()) : 0xFF;
-        case 0xFF6D:
-        case 0xFF6E:
-        case 0xFF6F: return 0xFF;
+        // OPRI: only bit 0 is used; the rest read as 1
+        case OBJ_PRIORITY_MODE_REGISTER: return emulator.cgbMode
+            ? static_cast<uint8_t>(0xFE | emulator.ppu.getObjectPriorityMode()) : UNMAPPED_READ_VALUE;
 
-        // Unimplemented: CGB WRAM bank
-        case 0xFF70: return emulator.cgbMode ? static_cast<uint8_t>(0xF8 | workRAMBank) : 0xFF;
+        // SVBK: only bits 0-2 are used; the rest read as 1
+        case WRAM_BANK_REGISTER: return emulator.cgbMode ? static_cast<uint8_t>(0xF8 | workRAMBank) : UNMAPPED_READ_VALUE;
 
-        // Unimplemented: Some undocumented registers in this range
-        case 0xFF71:
-        case 0xFF72:
-        case 0xFF73:
-        case 0xFF74:
-        case 0xFF75:
-        case 0xFF76:
-        case 0xFF77:
-        case 0xFF78:
-        case 0xFF79:
-        case 0xFF7A:
-        case 0xFF7B:
-        case 0xFF7C:
-        case 0xFF7D:
-        case 0xFF7E:
-        case 0xFF7F: return 0xFF;
-
-        default: std::runtime_error("Error reading from unmapped I/O address");
+        // Unused and undocumented registers
+        default: return UNMAPPED_READ_VALUE;
     }
-    return 0xFF;
 }
 
 void MMU::write(const Address &address, const uint8_t value, bool bypassPPURestrictions)
@@ -285,7 +214,7 @@ void MMU::write(const Address &address, const uint8_t value, bool bypassPPURestr
     if (address.inRange(VRAM_ADDRESS_START, VRAM_ADDRESS_END))
     {
         if (!bypassPPURestrictions && !emulator.ppu.cpuCanAccessVRAM()) return;
-        emulator.ppu.write(address.getValue() - 0x8000, value);
+        emulator.ppu.write(address.getValue() - VRAM_ADDRESS_START, value);
         return;
     }
 
@@ -300,8 +229,10 @@ void MMU::write(const Address &address, const uint8_t value, bool bypassPPURestr
     if (address.inRange(WRAM_ADDRESS_START, WRAM_ADDRESS_END))
     {
         const uint16_t offset = address.getValue() - WRAM_OFFSET;
-        if (emulator.cgbMode && offset >= 0x1000)
-            workRAM.at(0x1000 + static_cast<size_t>(workRAMBank - 1) * 0x1000 + (offset - 0x1000)) = value;
+
+        // The second 4 KB of work RAM is switchable on the CGB
+        if (emulator.cgbMode && offset >= WRAM_BANK_SIZE)
+            workRAM.at(static_cast<size_t>(workRAMBank) * WRAM_BANK_SIZE + (offset - WRAM_BANK_SIZE)) = value;
         else
             workRAM.at(offset) = value;
         return;
@@ -346,267 +277,175 @@ void MMU::write(const Address &address, const uint8_t value, bool bypassPPURestr
     // Interrupt Enable Register
     if (address == INTERRUPT_ENABLE_REGISTER)
     {
-        emulator.cpu.interruptEnabled.set(value & 0x1F);
+        emulator.cpu.interruptEnabled.set(value & INTERRUPT_MASK);
     }
     return;
 }
 
 void MMU::writeIO(const Address &address, const uint8_t value)
 {
+    // Audio registers and wave RAM, including the
+    // unused addresses between them
+    if (address.inRange(AUDIO_ADDRESS_START, AUDIO_ADDRESS_END))
+    {
+        emulator.apu.write(address.getValue(), value);
+        return;
+    }
+
     switch (address.getValue())
     {
-        case 0xFF00:
+        case JOYPAD_REGISTER:
             if (emulator.sgbMode) emulator.sgb.writeJOYP(value);
             emulator.input.write(value);
             return;
 
-        // Serial data transfer (SB)
-        case 0xFF01: emulator.serial.write(value); return;
-
-        // Serial data transfer (SB)
-        case 0xFF02: emulator.serial.writeControl(value); return;
-
-        case 0xFF03: return;
+        // Serial data transfer
+        case SERIAL_DATA_REGISTER: emulator.serial.write(value); return;
+        case SERIAL_CONTROL_REGISTER: emulator.serial.writeControl(value); return;
 
         // Timer
-        case 0xFF04: emulator.timer.resetDivider(); return;
-        case 0xFF05: emulator.timer.setTimer(value); return;
-        case 0xFF06: emulator.timer.setTimerModulo(value); return;
-        case 0xFF07: emulator.timer.setTimerControl(value); return;
-
-        
-        case 0xFF08:
-        case 0xFF09:
-        case 0xFF0A:
-        case 0xFF0B:
-        case 0xFF0C:
-        case 0xFF0D:
-        case 0xFF0E: return;
+        case DIVIDER_REGISTER: emulator.timer.resetDivider(); return;
+        case TIMER_COUNTER_REGISTER: emulator.timer.setTimer(value); return;
+        case TIMER_MODULO_REGISTER: emulator.timer.setTimerModulo(value); return;
+        case TIMER_CONTROL_REGISTER: emulator.timer.setTimerControl(value); return;
 
         // Set CPU interrupt flag
-        case 0xFF0F: emulator.cpu.interruptFlag.set(value & 0x1F); return;
-
-        // Audio channel registers
-        case 0xFF10:
-        case 0xFF11:
-        case 0xFF12:
-        case 0xFF13:
-        case 0xFF14: emulator.apu.write(address.getValue(), value); return;
-
-        case 0xFF15: return;
-
-        // Audio channel 2
-        case 0xFF16:
-        case 0xFF17:
-        case 0xFF18:
-        case 0xFF19: emulator.apu.write(address.getValue(), value); return;
-
-        // Audio channel 3
-        case 0xFF1A:
-        case 0xFF1B:
-        case 0xFF1C:
-        case 0xFF1D:
-        case 0xFF1E: emulator.apu.write(address.getValue(), value); return;
-
-        case 0xFF1F: return;
-
-        // Audio channel 4
-        case 0xFF20:
-        case 0xFF21:
-        case 0xFF22:
-        case 0xFF23: emulator.apu.write(address.getValue(), value); return;
-
-        // Audio master volume and output routing
-        case 0xFF24:
-        case 0xFF25:
-        case 0xFF26: emulator.apu.write(address.getValue(), value); return;
-
-        case 0xFF27:
-        case 0xFF28:
-        case 0xFF29:
-        case 0xFF2A:
-        case 0xFF2B:
-        case 0xFF2C:
-        case 0xFF2D:
-        case 0xFF2E:
-        case 0xFF2F: return;
-
-        // Audio wave pattern RAM
-        case 0xFF30:
-        case 0xFF31:
-        case 0xFF32:
-        case 0xFF33:
-        case 0xFF34:
-        case 0xFF35:
-        case 0xFF36:
-        case 0xFF37:
-        case 0xFF38:
-        case 0xFF39:
-        case 0xFF3A:
-        case 0xFF3B:
-        case 0xFF3C:
-        case 0xFF3D:
-        case 0xFF3E:
-        case 0xFF3F: emulator.apu.write(address.getValue(), value); return;
+        case INTERRUPT_FLAG_REGISTER: emulator.cpu.interruptFlag.set(value & INTERRUPT_MASK); return;
 
         // Switch on LCD
-        case 0xFF40: emulator.ppu.setControlByte(value); return;
-        case 0xFF41: emulator.ppu.lcdStatus.set((emulator.ppu.lcdStatus.getValue() & 0x07) | (value & 0x78) | 0x80); return;
+        case LCD_CONTROL_REGISTER: emulator.ppu.setControlByte(value); return;
+
+        // Only the STAT interrupt enable bits are writable
+        case LCD_STATUS_REGISTER:
+            emulator.ppu.lcdStatus.set((emulator.ppu.lcdStatus.getValue() & STAT_READ_ONLY_MASK) |
+                                       (value & STAT_INTERRUPT_ENABLE_MASK) | STAT_UNUSED_BITS);
+            return;
 
         // Vertical Scroll Register
-        case 0xFF42: emulator.ppu.scrollY.set(value); return;
+        case SCROLL_Y_REGISTER: emulator.ppu.scrollY.set(value); return;
 
         // Horizontal Scroll Register
-        case 0xFF43: emulator.ppu.scrollX.set(value); return;
+        case SCROLL_X_REGISTER: emulator.ppu.scrollX.set(value); return;
 
         // LY - Line Y coordinate
-        case 0xFF44:
+        case LCD_Y_REGISTER:
             /* Writing will reset the counter */
             emulator.ppu.line.set(0x0);
             return;
 
-        case 0xFF45: emulator.ppu.lyCompare.set(value); return;
-        case 0xFF46: dmaTransfer(value); return;
-        case 0xFF47: emulator.ppu.bgPalette.set(value); return;
-        case 0xFF48: emulator.ppu.spritePalette0.set(value); return;
-        case 0xFF49: emulator.ppu.spritePalette1.set(value); return;
-        case 0xFF4A: emulator.ppu.windowY.set(value); return;
-        case 0xFF4B: emulator.ppu.windowX.set(value); return;
+        case LCD_Y_COMPARE_REGISTER: emulator.ppu.lyCompare.set(value); return;
+        case OAM_DMA_REGISTER: dmaTransfer(value); return;
+        case BG_PALETTE_REGISTER: emulator.ppu.bgPalette.set(value); return;
+        case OBJ_PALETTE0_REGISTER: emulator.ppu.spritePalette0.set(value); return;
+        case OBJ_PALETTE1_REGISTER: emulator.ppu.spritePalette1.set(value); return;
+        case WINDOW_Y_REGISTER: emulator.ppu.windowY.set(value); return;
+        case WINDOW_X_REGISTER: emulator.ppu.windowX.set(value); return;
 
-        // Unimplemented: CGB mode behavior
-        case 0xFF4C: return;
-        case 0xFF4D:
+        // KEY1: bit 0 arms a speed switch, which happens on the next STOP
+        case SPEED_SWITCH_REGISTER:
             if (emulator.cgbMode) emulator.speedSwitchPrepared = (value & 1) != 0;
             return;
-        case 0xFF4E:
-        case 0xFF4F:
-            if (emulator.cgbMode) emulator.ppu.setVRAMBank(value & 1);
+        case VRAM_BANK_REGISTER:
+            if (emulator.cgbMode) emulator.ppu.setVRAMBank(value);
             return;
 
         // Boot ROM
-        case 0xFF50: disableBootROMSwitch.set(value); return;
+        case BOOT_ROM_DISABLE_REGISTER: disableBootROMSwitch.set(value); return;
 
-        case 0xFF51:
-            if (emulator.cgbMode) hdmaSource = static_cast<uint16_t>((value << 8) | (hdmaSource & 0x00F0));
+        // HDMA source and destination
+        case HDMA_SOURCE_HIGH_REGISTER:
+            if (emulator.cgbMode) hdmaSource = static_cast<uint16_t>((value << 8) | (hdmaSource & HDMA_ADDRESS_LOW_MASK));
             return;
-        case 0xFF52:
-            if (emulator.cgbMode) hdmaSource = static_cast<uint16_t>((hdmaSource & 0xFF00) | (value & 0xF0));
+        case HDMA_SOURCE_LOW_REGISTER:
+            if (emulator.cgbMode) hdmaSource = static_cast<uint16_t>((hdmaSource & 0xFF00) | (value & HDMA_ADDRESS_LOW_MASK));
             return;
-        case 0xFF53:
-            if (emulator.cgbMode) hdmaDestination = static_cast<uint16_t>(0x8000 | ((value & 0x1F) << 8) | (hdmaDestination & 0x00F0));
+        case HDMA_DESTINATION_HIGH_REGISTER:
+            if (emulator.cgbMode)
+                hdmaDestination = static_cast<uint16_t>(VRAM_ADDRESS_START | ((value & HDMA_DESTINATION_HIGH_MASK) << 8) |
+                                                        (hdmaDestination & HDMA_ADDRESS_LOW_MASK));
             return;
-        case 0xFF54:
-            if (emulator.cgbMode) hdmaDestination = static_cast<uint16_t>((hdmaDestination & 0xFF00) | (value & 0xF0));
+        case HDMA_DESTINATION_LOW_REGISTER:
+            if (emulator.cgbMode) hdmaDestination = static_cast<uint16_t>((hdmaDestination & 0xFF00) | (value & HDMA_ADDRESS_LOW_MASK));
             return;
-        case 0xFF55:
+
+        // HDMA control: start a transfer, or cancel a running HBlank one
+        case HDMA_CONTROL_REGISTER:
             if (!emulator.cgbMode) return;
             if (hdmaHBlank && hdmaBlocksRemaining)
             {
-                if (!(value & 0x80)) hdmaHBlank = false;
+                if (!checkBit(value, HDMA_HBLANK_MODE_BIT)) hdmaHBlank = false;
                 return;
             }
-            hdmaBlocksRemaining = (value & 0x7F) + 1;
-            hdmaHBlank = (value & 0x80) != 0 && (emulator.ppu.controlByte & 0x80) != 0;
+            hdmaBlocksRemaining = (value & HDMA_LENGTH_MASK) + 1;
+            hdmaHBlank = checkBit(value, HDMA_HBLANK_MODE_BIT) && emulator.ppu.displayEnabled();
             if (!hdmaHBlank)
                 while (hdmaBlocksRemaining) transferHDMABlock();
             return;
-        case 0xFF56: return;
 
-        case 0xFF57:
-        case 0xFF58:
-        case 0xFF59:
-        case 0xFF5A:
-        case 0xFF5B:
-        case 0xFF5C:
-        case 0xFF5D:
-        case 0xFF5E:
-        case 0xFF5F:
-        case 0xFF60:
-        case 0xFF61:
-        case 0xFF62:
-        case 0xFF63:
-        case 0xFF64:
-        case 0xFF65:
-        case 0xFF66:
-        case 0xFF67: return;
-
-        case 0xFF68:
-        case 0xFF6A:
+        case BG_PALETTE_INDEX_REGISTER:
+        case OBJ_PALETTE_INDEX_REGISTER:
             if (emulator.cgbMode) emulator.ppu.writeCGBPaletteRegister(address.getValue(), value);
             return;
-        case 0xFF69:
-        case 0xFF6B:
+        case BG_PALETTE_DATA_REGISTER:
+        case OBJ_PALETTE_DATA_REGISTER:
             if (emulator.cgbMode && emulator.ppu.cpuCanAccessVRAM())
                 emulator.ppu.writeCGBPaletteRegister(address.getValue(), value);
             return;
 
-        case 0xFF6C:
+        case OBJ_PRIORITY_MODE_REGISTER:
             if (emulator.cgbMode) emulator.ppu.setObjectPriorityMode(value);
             return;
 
-        case 0xFF6D:
-        case 0xFF6E:
-        case 0xFF6F: return;
-
-        /* Unimplemented: CGB WRAM bank */
-        case 0xFF70:
-            if (emulator.cgbMode) { workRAMBank = value & 7; if (workRAMBank == 0) workRAMBank = 1; }
+        // Selecting bank 0 maps bank 1
+        case WRAM_BANK_REGISTER:
+            if (emulator.cgbMode) { workRAMBank = value & WRAM_BANK_MASK; if (workRAMBank == 0) workRAMBank = 1; }
             return;
 
-        /* Unimplemented: Some undocumented registers in this range */
-        case 0xFF71:
-        case 0xFF72:
-        case 0xFF73:
-        case 0xFF74:
-        case 0xFF75:
-        case 0xFF76:
-        case 0xFF77:
-        case 0xFF78:
-        case 0xFF79:
-        case 0xFF7A:
-        case 0xFF7B:
-        case 0xFF7C:
-        case 0xFF7D:
-        case 0xFF7E:
-        case 0xFF7F: return;
-
-        default: std::runtime_error("Can't write to unmapped I/O address");
+        // Unused and undocumented registers ignore writes
+        default: return;
     }
-    return;
 }
 
 void MMU::dmaTransfer(const uint8_t value)
 {
     uint8_t valueAtAddress;
-    Address startAddress = value * 0x100;
+    Address startAddress = value * DMA_SOURCE_PAGE_SHIFT;
 
-    for (uint8_t i = 0x0; i <= 0x9F; i++)
+    for (uint8_t i = 0x0; i <= DMA_TRANSFER_LENGTH; i++)
     {
         Address fromAddress = startAddress.getValue() + i;
-        Address toAddress = 0xFE00 + i;
+        Address toAddress = OAM_ADDRESS_START + i;
         valueAtAddress = read(fromAddress, true);
         write(toAddress, valueAtAddress, true);
     }
-    // A DMG OAM DMA transfer occupies the CPU bus for 160 machine cycles.
-    emulator.dmaCyclesRemaining = 160;
+    emulator.dmaCyclesRemaining = OAM_DMA_CYCLES;
 }
 
 void MMU::transferHDMABlock()
 {
     if (!hdmaBlocksRemaining) return;
-    for (uint8_t i = 0; i < 0x10; ++i)
+    for (uint8_t i = 0; i < HDMA_BLOCK_SIZE; ++i)
     {
         const uint16_t source = hdmaSource + i;
         const uint16_t destination = hdmaDestination + i;
-        const uint8_t data = source <= 0x7FFF || (source >= 0xA000 && source <= 0xFDFF)
-            ? read(Address(source), true) : 0xFF;
-        if (destination >= 0x8000 && destination <= 0x9FFF)
+
+        // HDMA can only read from cartridge ROM/RAM and work RAM
+        const bool validSource = source <= CARTRIDGE_ROM_ADDRESS_END ||
+            (source >= CARTRIDGE_RAM_ADDRESS_START && source <= ECHO_RAM_ADDRESS_END);
+        const uint8_t data = validSource ? read(Address(source), true) : UNMAPPED_READ_VALUE;
+        if (destination >= VRAM_ADDRESS_START && destination <= VRAM_ADDRESS_END)
             write(Address(destination), data, true);
     }
-    hdmaSource += 0x10;
-    hdmaDestination = static_cast<uint16_t>(0x8000 | ((hdmaDestination + 0x10 - 0x8000) & 0x1FFF));
+    hdmaSource += HDMA_BLOCK_SIZE;
+
+    // The destination wraps around within VRAM
+    hdmaDestination = static_cast<uint16_t>(VRAM_ADDRESS_START |
+        ((hdmaDestination + HDMA_BLOCK_SIZE - VRAM_ADDRESS_START) & (VRAM_BANK_SIZE - 1)));
     --hdmaBlocksRemaining;
-    emulator.dmaCyclesRemaining += emulator.doubleSpeed ? 16 : 8;
+
+    // A block takes the same real time in either speed mode,
+    // which is twice as many CPU cycles in double speed
+    emulator.dmaCyclesRemaining += HDMA_BLOCK_CYCLES * (emulator.doubleSpeed ? 2 : 1);
     if (!hdmaBlocksRemaining) hdmaHBlank = false;
 }
 
@@ -617,13 +456,12 @@ void MMU::hblankDMA()
 
 bool MMU::isBootROMActive() const
 {
-    //return read(0xFF50) != 0x1;
     return disableBootROMSwitch.getValue() == 0;
 }
 
 bool MMU::loadCGBBootROM(const std::vector<uint8_t> &rom)
 {
-    if (rom.size() != 0x900)
+    if (rom.size() != CGB_BOOT_ROM_SIZE)
     {
         std::cerr << "CGB boot ROM must be exactly 0x900 bytes\n";
         return false;
