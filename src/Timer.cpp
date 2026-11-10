@@ -28,14 +28,14 @@ uint8_t Timer::getTimerModulo() const
 // are usable.
 uint8_t Timer::getTimerControl() const
 {
-    return timerControl.getValue() & TIMER_CONTROL_MASK;
+    return timerControl.getValue() & timer::TIMER_CONTROL_MASK;
 }
 
 void Timer::resetDivider()
 {
-    const bool wasHigh = timerInput();
+    const bool wasHigh = isTimerInputHigh();
     dividerCounter = 0;
-    if (wasHigh && !timerInput()) incrementTimer();
+    if (wasHigh && !isTimerInputHigh()) incrementTimer();
 }
 
 void Timer::setTimer(uint8_t value)
@@ -51,19 +51,19 @@ void Timer::setTimerModulo(uint8_t value)
 
 void Timer::setTimerControl(uint8_t value)
 {
-    const bool wasHigh = timerInput();
-    timerControl.set(value & TIMER_CONTROL_MASK);
-    if (wasHigh && !timerInput()) incrementTimer();
+    const bool wasHigh = isTimerInputHigh();
+    timerControl.set(value & timer::TIMER_CONTROL_MASK);
+    if (wasHigh && !isTimerInputHigh()) incrementTimer();
 }
 
-bool Timer::timerInput() const
+bool Timer::isTimerInputHigh() const
 {
-    if (!timerControl.checkBit(TIMER_ENABLE_BIT)) return false;
+    if (!timerControl.checkBit(timer::TIMER_ENABLE_BIT)) return false;
 
     // TIMA increments when this bit of the internal counter falls.
     // Indexed by TAC bits 0-1: 4096, 262144, 65536, and 16384 Hz.
     static constexpr uint8_t DIVIDER_BITS[4] = {9, 3, 5, 7};
-    return (dividerCounter & (1u << DIVIDER_BITS[timerControl.getValue() & TIMER_CLOCK_SELECT_MASK])) != 0;
+    return (dividerCounter & (1u << DIVIDER_BITS[timerControl.getValue() & timer::TIMER_CLOCK_SELECT_MASK])) != 0;
 }
 
 void Timer::incrementTimer()
@@ -72,7 +72,7 @@ void Timer::incrementTimer()
     if (timerCounter.getValue() == 0xFF) // TIMA overflows
     {
         timerCounter.set(0);
-        reloadDelay = TIMER_RELOAD_DELAY;
+        reloadDelay = timer::TIMER_RELOAD_DELAY;
     }
     else
     {
@@ -86,7 +86,7 @@ void Timer::tick(uint32_t cycles)
     // divider counter. Step per T-cycle so writes and overflows retain order.
     for (uint32_t cycle = 0; cycle < cycles; ++cycle)
     {
-        const bool wasHigh = timerInput();
+        const bool wasHigh = isTimerInputHigh();
         ++dividerCounter;
 
         if (reloadDelay > 0)
@@ -95,10 +95,10 @@ void Timer::tick(uint32_t cycles)
             if (reloadDelay == 0)
             {
                 timerCounter.set(timerModulo.getValue());
-                emulator.cpu.interruptFlag.setBitTo(INTERRUPT_TIMER_BIT, true);
+                emulator.cpu.interruptFlag.setBitTo(cpu::INTERRUPT_TIMER_BIT, true);
             }
         }
 
-        if (wasHigh && !timerInput()) incrementTimer();
+        if (wasHigh && !isTimerInputHigh()) incrementTimer();
     }
 }
