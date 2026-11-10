@@ -5,8 +5,6 @@
 
 // https://gbdev.io/pandocs/Audio_Registers.html
 
-
-
 uint8_t APU::reg(uint16_t address) const
 {
     return registers[address - io::AUDIO_ADDRESS_START];
@@ -47,9 +45,11 @@ void APU::triggerSquare(SquareChannel &channel, bool hasSweep, uint8_t sweepReg)
 {
     const uint16_t envelopeRegister = &channel == &square1 ? io::CHANNEL1_ENVELOPE_REGISTER : io::CHANNEL2_ENVELOPE_REGISTER;
     if (channel.length == 0) channel.length = apu::SQUARE_NOISE_MAX_LENGTH;
+
     channel.enabled = (reg(envelopeRegister) & apu::DAC_ENABLE_MASK) != 0;
     channel.timer = squarePeriod(channel);
     channel.dutyPosition = 0;
+
     const uint8_t envelope = reg(envelopeRegister);
     channel.initialVolume = envelope >> 4;
     channel.volume = channel.initialVolume;
@@ -61,8 +61,10 @@ void APU::triggerSquare(SquareChannel &channel, bool hasSweep, uint8_t sweepReg)
     {
         const uint8_t shift = sweepReg & apu::SWEEP_SHIFT_MASK;
         const bool negate = checkBit(sweepReg, apu::SWEEP_NEGATE_BIT);
+
         sweepShadowFrequency = channel.frequency;
         sweepTimer = (sweepReg >> apu::SWEEP_PERIOD_SHIFT) & apu::SWEEP_PERIOD_MASK;
+
         if (sweepTimer == 0) sweepTimer = apu::ZERO_PERIOD_VALUE;
         sweepEnabled = ((sweepReg & apu::SWEEP_PERIOD_BITS_MASK) != 0) || (shift != 0);
         sweepNegateUsed = false;
@@ -92,6 +94,7 @@ void APU::triggerNoise()
     noise.enabled = (reg(io::CHANNEL4_ENVELOPE_REGISTER) & apu::DAC_ENABLE_MASK) != 0;
     noise.timer = noisePeriod();
     noise.lfsr = apu::LFSR_RESET_VALUE;
+
     const uint8_t envelope = reg(io::CHANNEL4_ENVELOPE_REGISTER);
     noise.initialVolume = envelope >> 4;
     noise.volume = noise.initialVolume;
@@ -102,7 +105,8 @@ void APU::triggerNoise()
 
 void APU::clockLength()
 {
-    auto clockSquare = [](SquareChannel &channel) {
+    auto clockSquare = [](SquareChannel &channel)
+    {
         if (channel.lengthEnabled && channel.length > 0 && --channel.length == 0)
             channel.enabled = false;
     };
@@ -114,7 +118,8 @@ void APU::clockLength()
 
 void APU::clockEnvelopes()
 {
-    auto clockSquare = [](SquareChannel &channel) {
+    auto clockSquare = [](SquareChannel &channel)
+    {
         if (channel.envelopePeriod == 0) return;
         if (channel.envelopeTimer > 0) --channel.envelopeTimer;
         if (channel.envelopeTimer == 0)
@@ -184,7 +189,8 @@ void APU::clockFrameSequencer()
 
 void APU::clockOscillators()
 {
-    auto clockSquare = [this](SquareChannel &channel) {
+    auto clockSquare = [this](SquareChannel &channel)
+    {
         if (!channel.enabled) return;
         if (channel.timer > 0) --channel.timer;
         if (channel.timer == 0)
@@ -250,14 +256,17 @@ int APU::noiseOutput() const
 
 void APU::accumulateSample()
 {
-    const int outputs[apu::CHANNEL_COUNT] = {
+    const int outputs[apu::CHANNEL_COUNT] =
+    {
         squareOutput(square1, reg(io::CHANNEL1_LENGTH_DUTY_REGISTER)),
         squareOutput(square2, reg(io::CHANNEL2_LENGTH_DUTY_REGISTER)),
         waveOutput(),
         noiseOutput()
     };
+
     const bool active[apu::CHANNEL_COUNT] = {square1.enabled, square2.enabled, wave.enabled, noise.enabled};
     const uint8_t routing = reg(io::SOUND_PANNING_REGISTER);
+
     int left = 0;
     int right = 0;
     int leftChannels = 0;
@@ -298,6 +307,7 @@ void APU::emitSample()
         + static_cast<int32_t>((static_cast<int64_t>(previousOutputLeft) * HIGH_PASS_COEFFICIENT) >> 16);
     const int32_t filteredRight = right - previousInputRight
         + static_cast<int32_t>((static_cast<int64_t>(previousOutputRight) * HIGH_PASS_COEFFICIENT) >> 16);
+
     previousInputLeft = left;
     previousInputRight = right;
     previousOutputLeft = filteredLeft;
@@ -334,9 +344,9 @@ void APU::tick(uint32_t tCycles)
         // clocks, averaging everything accumulated since the last one
         accumulateSample();
         samplePhase += sampleRate;
-        if (samplePhase >= static_cast<uint32_t>(GAMEBOY_CLOCK_RATE))
+        if (samplePhase >= static_cast<uint32_t>(common::GAMEBOY_CLOCK_RATE))
         {
-            samplePhase -= GAMEBOY_CLOCK_RATE;
+            samplePhase -= common::GAMEBOY_CLOCK_RATE;
             emitSample();
         }
     }
@@ -359,12 +369,13 @@ uint8_t APU::read(uint16_t address) const
     }
 
     // 0xFF27-0xFF2F are unused
-    if (address > io::SOUND_CONTROL_REGISTER) return UNMAPPED_READ_VALUE;
+    if (address > io::SOUND_CONTROL_REGISTER) return io::UNMAPPED_READ_VALUE;
 
     // Bits that always read as 1 in NR10-NR51: write-only
     // bits (lengths, periods, triggers) and unused bits.
     // 0xFF15 and 0xFF1F are unused registers.
-    static constexpr uint8_t READ_MASKS[io::SOUND_CONTROL_REGISTER - io::AUDIO_ADDRESS_START] = {
+    static constexpr uint8_t READ_MASKS[io::SOUND_CONTROL_REGISTER - io::AUDIO_ADDRESS_START] =
+    {
         0x80, 0x3F, 0x00, 0xFF, 0xBF, 0xFF, 0x3F, 0x00,
         0xFF, 0xBF, 0x7F, 0xFF, 0x9F, 0xFF, 0xBF, 0xFF,
         0x3F, 0x00, 0x00, 0xBF, 0x00, 0x00
