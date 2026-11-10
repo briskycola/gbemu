@@ -5,6 +5,8 @@
 #include <cstring>
 #include <system_error>
 
+namespace
+{
 namespace fs = std::filesystem;
 
 static constexpr const char *POPUP_NAME = "Open ROM";
@@ -29,6 +31,8 @@ static std::string toLower(std::string text)
     std::transform(text.begin(), text.end(), text.begin(),
         [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return text;
+}
+
 }
 
 FileBrowser::FileBrowser()

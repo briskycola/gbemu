@@ -62,14 +62,14 @@ std::string describeCartridge(CartridgeType type)
 
 std::string getTitleFromCartridge(const std::vector<uint8_t> &rom)
 {
-    char name[TITLE_LENGTH];
+    char name[cartridge::TITLE_LENGTH];
 
-    for (uint8_t i = 0; i < TITLE_LENGTH; i++)
+    for (uint8_t i = 0; i < cartridge::TITLE_LENGTH; i++)
     {
-        name[i] = static_cast<char>(rom[TITLE_START_ADDRESS + i]);
+        name[i] = static_cast<char>(rom[cartridge::TITLE_START_ADDRESS + i]);
     }
 
-    return std::string(name, TITLE_LENGTH);
+    return std::string(name, cartridge::TITLE_LENGTH);
 }
 
 // Header byte 0x148
@@ -233,14 +233,14 @@ std::unique_ptr<CartridgeInfo> getInfo(const std::vector<uint8_t> &rom)
     info = std::make_unique<CartridgeInfo>();
 
     info->title = getTitleFromCartridge(rom);
-    info->type = getCartridgeType(rom[CARTRIDGE_TYPE_START_ADDRESS]);
-    info->supportsCGB = (rom[CGB_FLAG_START_ADDRESS] & CGB_SUPPORT_FLAG) != 0;
-    info->cgbOnly = rom[CGB_FLAG_START_ADDRESS] == CGB_ONLY_FLAG;
-    info->supportsSGB = rom[SGB_FLAG_START_ADDRESS] == SGB_SUPPORT_FLAG &&
-        rom[OLD_LICENSEE_CODE_START_ADDRESS] == USE_NEW_LICENSEE_CODE_FLAG;
-    info->version = ROM_VERSION_NUMBER_START_ADDRESS;
-    info->romSize = getRomSize(rom[ROM_SIZE_START_ADDRESS]);
-    info->ramSize = getRamSize(rom[RAM_SIZE_START_ADDRESS]);
+    info->type = getCartridgeType(rom[cartridge::CARTRIDGE_TYPE_START_ADDRESS]);
+    info->supportsCGB = (rom[cartridge::CGB_FLAG_START_ADDRESS] & cartridge::CGB_SUPPORT_FLAG) != 0;
+    info->cgbOnly = rom[cartridge::CGB_FLAG_START_ADDRESS] == cartridge::CGB_ONLY_FLAG;
+    info->supportsSGB = rom[cartridge::SGB_FLAG_START_ADDRESS] == cartridge::SGB_SUPPORT_FLAG &&
+        rom[cartridge::OLD_LICENSEE_CODE_START_ADDRESS] == cartridge::USE_NEW_LICENSEE_CODE_FLAG;
+    info->version = cartridge::ROM_VERSION_NUMBER_START_ADDRESS;
+    info->romSize = getRomSize(rom[cartridge::ROM_SIZE_START_ADDRESS]);
+    info->ramSize = getRamSize(rom[cartridge::RAM_SIZE_START_ADDRESS]);
 
     std::cout << "Title: " << info->title << "\n";
     std::cout << "Type: " << describeCartridge(info->type) << "\n";

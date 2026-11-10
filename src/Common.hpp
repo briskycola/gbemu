@@ -2,14 +2,17 @@
 
 #include <cstdint>
 
-static constexpr uint8_t GAMEBOY_WIDTH       = 160;
-static constexpr uint8_t GAMEBOY_HEIGHT      = 144;
-static constexpr uint16_t BACKGROUND_MAP_SIZE = 256;
-static constexpr int32_t GAMEBOY_CLOCK_RATE   = 4194304; // T-cycles (clocks) per second
-
-// The CPU counts in machine cycles (M-cycles), each
-// of which is 4 clock cycles (T-cycles)
-static constexpr uint32_t T_CYCLES_PER_M_CYCLE = 4;
+namespace common
+{
+    static constexpr uint8_t GAMEBOY_WIDTH        = 160;
+    static constexpr uint8_t GAMEBOY_HEIGHT       = 144;
+    static constexpr uint16_t BACKGROUND_MAP_SIZE = 256;
+    static constexpr int32_t GAMEBOY_CLOCK_RATE   = 4194304; // T-cycles (clocks) per second
+    
+    // The CPU counts in machine cycles (M-cycles), each
+    // of which is 4 clock cycles (T-cycles)
+    static constexpr uint32_t T_CYCLES_PER_M_CYCLE = 4;
+}
 
 // Make a base type that is designed
 // to only allow creation and not

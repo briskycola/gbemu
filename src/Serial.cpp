@@ -16,7 +16,7 @@ void Serial::write(const uint8_t byte)
 
 void Serial::writeControl(const uint8_t byte) const
 {
-    if (checkBit(byte, SERIAL_TRANSFER_START_BIT))
+    if (checkBit(byte, io::SERIAL_TRANSFER_START_BIT))
     {
         std::cout << data;
         std::cout.flush();

@@ -34,11 +34,14 @@
 // as a ByteRegister, and a 16-bit register
 // as a WordRegister
 
-static constexpr uint8_t CPU_FLAG_MASK        = 0xF0;
-static constexpr uint8_t ZERO_FLAG_BIT        = 0x7;
-static constexpr uint8_t SUBTRACTION_FLAG_BIT = 0x6;
-static constexpr uint8_t HALF_CARRY_FLAG_BIT   = 0x5;
-static constexpr uint8_t CARRY_FLAG_BIT       = 0x4;
+namespace cpu
+{
+    static constexpr uint8_t CPU_FLAG_MASK        = 0xF0;
+    static constexpr uint8_t ZERO_FLAG_BIT        = 0x7;
+    static constexpr uint8_t SUBTRACTION_FLAG_BIT = 0x6;
+    static constexpr uint8_t HALF_CARRY_FLAG_BIT  = 0x5;
+    static constexpr uint8_t CARRY_FLAG_BIT       = 0x4;
+}
 
 class ByteRegister : NoCopy
 {

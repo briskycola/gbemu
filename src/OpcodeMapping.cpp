@@ -210,7 +210,7 @@ void CPU::opcodeC3() { opcodeJp(); }
 void CPU::opcodeC4() { opcodeCall(Condition::NZ); }
 void CPU::opcodeC5() { opcodePush(bc); }
 void CPU::opcodeC6() { opcodeAddA(); }
-void CPU::opcodeC7() { opcodeRst(RST1); }
+void CPU::opcodeC7() { opcodeRst(cpu::RST1); }
 void CPU::opcodeC8() { opcodeRet(Condition::Z); }
 void CPU::opcodeC9() { opcodeRet(); }
 void CPU::opcodeCA() { opcodeJp(Condition::Z); }
@@ -218,7 +218,7 @@ void CPU::opcodeCB() { /* External Ops */ }
 void CPU::opcodeCC() { opcodeCall(Condition::Z); }
 void CPU::opcodeCD() { opcodeCall(); }
 void CPU::opcodeCE() { opcodeAdc(); }
-void CPU::opcodeCF() { opcodeRst(RST2); }
+void CPU::opcodeCF() { opcodeRst(cpu::RST2); }
 void CPU::opcodeD0() { opcodeRet(Condition::NC); }
 void CPU::opcodeD1() { opcodePop(de); }
 void CPU::opcodeD2() { opcodeJp(Condition::NC); }
@@ -226,7 +226,7 @@ void CPU::opcodeD3() { /* Undefined */ }
 void CPU::opcodeD4() { opcodeCall(Condition::NC); }
 void CPU::opcodeD5() { opcodePush(de); }
 void CPU::opcodeD6() { opcodeSub(); }
-void CPU::opcodeD7() { opcodeRst(RST3); }
+void CPU::opcodeD7() { opcodeRst(cpu::RST3); }
 void CPU::opcodeD8() { opcodeRet(Condition::C); }
 void CPU::opcodeD9() { opcodeReti(); }
 void CPU::opcodeDA() { opcodeJp(Condition::C); }
@@ -234,7 +234,7 @@ void CPU::opcodeDB() { /* Undefined */ }
 void CPU::opcodeDC() { opcodeCall(Condition::C); }
 void CPU::opcodeDD() { /* Undefined */ }
 void CPU::opcodeDE() { opcodeSbc(); }
-void CPU::opcodeDF() { opcodeRst(RST4); }
+void CPU::opcodeDF() { opcodeRst(cpu::RST4); }
 void CPU::opcodeE0() { opcodeLdhIntoData(); }
 void CPU::opcodeE1() { opcodePop(hl); }
 void CPU::opcodeE2() { opcodeLdhIntoC(); }
@@ -242,7 +242,7 @@ void CPU::opcodeE3() { /* Undefined */ }
 void CPU::opcodeE4() { /* Undefined */ }
 void CPU::opcodeE5() { opcodePush(hl); }
 void CPU::opcodeE6() { opcodeAnd(); }
-void CPU::opcodeE7() { opcodeRst(RST5); }
+void CPU::opcodeE7() { opcodeRst(cpu::RST5); }
 void CPU::opcodeE8() { opcodeAddSP(); }
 void CPU::opcodeE9() { opcodeJp(Address(hl)); }
 void CPU::opcodeEA() { opcodeLdToAddr(a); }
@@ -250,7 +250,7 @@ void CPU::opcodeEB() { /* Undefined */ }
 void CPU::opcodeEC() { /* Undefined */ }
 void CPU::opcodeED() { /* Undefined */ }
 void CPU::opcodeEE() { opcodeXor(); }
-void CPU::opcodeEF() { opcodeRst(RST6); }
+void CPU::opcodeEF() { opcodeRst(cpu::RST6); }
 void CPU::opcodeF0() { opcodeLdhIntoA(); }
 void CPU::opcodeF1() { opcodePop(af); }
 void CPU::opcodeF2() { opcodeLdhCIntoA(); }
@@ -258,7 +258,7 @@ void CPU::opcodeF3() { opcodeDi(); }
 void CPU::opcodeF4() { /* Undefined */ }
 void CPU::opcodeF5() { opcodePush(af); }
 void CPU::opcodeF6() { opcodeOr(); }
-void CPU::opcodeF7() { opcodeRst(RST7); }
+void CPU::opcodeF7() { opcodeRst(cpu::RST7); }
 void CPU::opcodeF8() { opcodeLdhl(); }
 void CPU::opcodeF9() { opcodeLd(sp, hl); }
 void CPU::opcodeFA() { opcodeLdFromAddr(a); }
@@ -266,7 +266,7 @@ void CPU::opcodeFB() { opcodeEi(); }
 void CPU::opcodeFC() { /* Undefined */ }
 void CPU::opcodeFD() { /* Undefined */ }
 void CPU::opcodeFE() { opcodeCp(); }
-void CPU::opcodeFF() { opcodeRst(RST8); }
+void CPU::opcodeFF() { opcodeRst(cpu::RST8); }
 
 /**
  * This section contains two-byte opcodes, which are triggered when prefixed with

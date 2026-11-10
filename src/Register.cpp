@@ -118,47 +118,47 @@ void FlagRegister::set(const uint8_t newValue)
     //
     // This is because the flags themselves
     // are stored only on the upper 8 bits.
-    value = newValue & CPU_FLAG_MASK;
+    value = newValue & cpu::CPU_FLAG_MASK;
 }
 
 void FlagRegister::setZeroFlag(const bool set)
 {
-    setBitTo(ZERO_FLAG_BIT, set);
+    setBitTo(cpu::ZERO_FLAG_BIT, set);
 }
 
 void FlagRegister::setSubtractionFlag(const bool set)
 {
-    setBitTo(SUBTRACTION_FLAG_BIT, set);
+    setBitTo(cpu::SUBTRACTION_FLAG_BIT, set);
 }
 
 void FlagRegister::setHalfCarryFlag(const bool set)
 {
-    setBitTo(HALF_CARRY_FLAG_BIT, set);
+    setBitTo(cpu::HALF_CARRY_FLAG_BIT, set);
 }
 
 void FlagRegister::setCarryFlag(const bool set)
 {
-    setBitTo(CARRY_FLAG_BIT, set);
+    setBitTo(cpu::CARRY_FLAG_BIT, set);
 }
 
 bool FlagRegister::zeroFlag() const
 {
-    return checkBit(ZERO_FLAG_BIT);
+    return checkBit(cpu::ZERO_FLAG_BIT);
 }
 
 bool FlagRegister::subtractionFlag() const
 {
-    return checkBit(SUBTRACTION_FLAG_BIT);
+    return checkBit(cpu::SUBTRACTION_FLAG_BIT);
 }
 
 bool FlagRegister::halfCarryFlag() const
 {
-    return checkBit(HALF_CARRY_FLAG_BIT);
+    return checkBit(cpu::HALF_CARRY_FLAG_BIT);
 }
 
 bool FlagRegister::carryFlag() const
 {
-    return checkBit(CARRY_FLAG_BIT);
+    return checkBit(cpu::CARRY_FLAG_BIT);
 }
 
 

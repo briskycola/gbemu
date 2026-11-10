@@ -14,10 +14,12 @@
 #include <fstream>
 #include <iterator>
 
+namespace
+{
 // The scale of the Game Boy screen in the initial window
 static constexpr uint32_t PIXEL_SIZE = 6;
-static constexpr uint32_t WIDTH = GAMEBOY_WIDTH * PIXEL_SIZE;
-static constexpr uint32_t HEIGHT = GAMEBOY_HEIGHT * PIXEL_SIZE;
+static constexpr uint32_t WIDTH = common::GAMEBOY_WIDTH * PIXEL_SIZE;
+static constexpr uint32_t HEIGHT = common::GAMEBOY_HEIGHT * PIXEL_SIZE;
 
 // Smallest ROM that still contains a full cartridge header
 static constexpr size_t MINIMUM_ROM_SIZE = 0x150;
@@ -40,7 +42,7 @@ enum ExitCode
 // before the queue is flushed to keep latency down.
 static constexpr uint8_t AUDIO_CHANNELS = 2;
 static constexpr uint16_t AUDIO_DEVICE_BUFFER_SAMPLES = 1024;
-static constexpr uint32_t MAX_QUEUED_AUDIO_BYTES = AUDIO_SAMPLE_RATE / 10 * AUDIO_CHANNELS * sizeof(int16_t);
+static constexpr uint32_t MAX_QUEUED_AUDIO_BYTES = apu::AUDIO_SAMPLE_RATE / 10 * AUDIO_CHANNELS * sizeof(int16_t);
 
 // Texture pixels are ARGB; the Game Boy's colors are fully opaque
 static constexpr uint32_t OPAQUE_ALPHA = 0xFF000000;
@@ -135,10 +137,10 @@ void clearScreenTexture()
     int32_t pitch = 0;
 
     if (SDL_LockTexture(gbScreenTexture, nullptr, &pixelsPointer, &pitch) != 0) return;
-    for (uint32_t y = 0; y < GAMEBOY_HEIGHT; y++)
+    for (uint32_t y = 0; y < common::GAMEBOY_HEIGHT; y++)
     {
         uint32_t *row = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(pixelsPointer) + y * pitch);
-        std::fill(row, row + GAMEBOY_WIDTH, OPAQUE_ALPHA | shadeToRGB(Color::White));
+        std::fill(row, row + common::GAMEBOY_WIDTH, OPAQUE_ALPHA | shadeToRGB(Color::White));
     }
     SDL_UnlockTexture(gbScreenTexture);
 }
@@ -269,10 +271,10 @@ void updateScreenTexture(const FrameBuffer &buffer)
     int32_t pitch = 0;
 
     if (SDL_LockTexture(gbScreenTexture, nullptr, &pixelsPointer, &pitch) != 0) return;
-    for (uint32_t y = 0; y < GAMEBOY_HEIGHT; y++)
+    for (uint32_t y = 0; y < common::GAMEBOY_HEIGHT; y++)
     {
         uint32_t *row = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(pixelsPointer) + y * pitch);
-        for (uint32_t x = 0; x < GAMEBOY_WIDTH; x++)
+        for (uint32_t x = 0; x < common::GAMEBOY_WIDTH; x++)
         {
             row[x] = OPAQUE_ALPHA | buffer.getPixelRGB(x, y);
         }
@@ -359,6 +361,8 @@ SDL_Rect getScreenRect()
     return rect;
 }
 
+}
+
 int main(int argc, char **argv)
 {
     if (SDL_Init(SDL_INIT_VIDEO) != 0)
@@ -370,7 +374,7 @@ int main(int argc, char **argv)
     if (SDL_InitSubSystem(SDL_INIT_AUDIO) == 0)
     {
         SDL_AudioSpec audioSpec{};
-        audioSpec.freq = AUDIO_SAMPLE_RATE;
+        audioSpec.freq = apu::AUDIO_SAMPLE_RATE;
         audioSpec.format = AUDIO_S16SYS;
         audioSpec.channels = AUDIO_CHANNELS;
         audioSpec.samples = AUDIO_DEVICE_BUFFER_SAMPLES;
@@ -398,7 +402,7 @@ int main(int argc, char **argv)
     // The texture is the Game Boy's native resolution and
     // gets scaled up with nearest-neighbor filtering
     gbScreenTexture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
-                                        GAMEBOY_WIDTH, GAMEBOY_HEIGHT);
+                                        common::GAMEBOY_WIDTH, common::GAMEBOY_HEIGHT);
     if (gbScreenTexture == nullptr)
     {
         std::cerr << "Failed to create SDL texture\n";

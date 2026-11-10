@@ -7,24 +7,27 @@
 // https://gbdev.io/pandocs/SGB_Functions.html
 
 // Commands arrive as 1 to 7 packets of 16 bytes each
-static constexpr uint8_t SGB_PACKET_BYTES = 16;
-static constexpr uint16_t SGB_PACKET_BITS = SGB_PACKET_BYTES * 8;
-static constexpr uint8_t SGB_MAX_PACKETS  = 7;
-
-// Color attributes are set per 8x8 tile, so the screen is
-// a 20x18 grid of cells each using one of 4 palettes
-static constexpr uint8_t SGB_ATTRIBUTE_COLUMNS = GAMEBOY_WIDTH / 8;
-static constexpr uint8_t SGB_ATTRIBUTE_ROWS    = GAMEBOY_HEIGHT / 8;
-static constexpr uint8_t SGB_PALETTE_COUNT     = 4;
-static constexpr uint8_t SGB_COLORS_PER_PALETTE = 4;
+namespace sgb
+{
+    static constexpr uint8_t SGB_PACKET_BYTES = 16;
+    static constexpr uint16_t SGB_PACKET_BITS = SGB_PACKET_BYTES * 8;
+    static constexpr uint8_t SGB_MAX_PACKETS  = 7;
+    
+    // Color attributes are set per 8x8 tile, so the screen is
+    // a 20x18 grid of cells each using one of 4 palettes
+    static constexpr uint8_t SGB_ATTRIBUTE_COLUMNS  = common::GAMEBOY_WIDTH / 8;
+    static constexpr uint8_t SGB_ATTRIBUTE_ROWS     = common::GAMEBOY_HEIGHT / 8;
+    static constexpr uint8_t SGB_PALETTE_COUNT      = 4;
+    static constexpr uint8_t SGB_COLORS_PER_PALETTE = 4;
+}
 
 class SGB
 {
     private:
-        std::array<uint8_t, SGB_PACKET_BYTES * SGB_MAX_PACKETS> command{};
-        std::array<uint32_t, SGB_PALETTE_COUNT * SGB_COLORS_PER_PALETTE> palettes{};
-        std::array<uint8_t, SGB_ATTRIBUTE_COLUMNS * SGB_ATTRIBUTE_ROWS> attributes{};
-        std::array<uint32_t, GAMEBOY_WIDTH * GAMEBOY_HEIGHT> previousFrame{};
+        std::array<uint8_t, sgb::SGB_PACKET_BYTES * sgb::SGB_MAX_PACKETS> command{};
+        std::array<uint32_t, sgb::SGB_PALETTE_COUNT * sgb::SGB_COLORS_PER_PALETTE> palettes{};
+        std::array<uint8_t, sgb::SGB_ATTRIBUTE_COLUMNS * sgb::SGB_ATTRIBUTE_ROWS> attributes{};
+        std::array<uint32_t, common::GAMEBOY_WIDTH * common::GAMEBOY_HEIGHT> previousFrame{};
         uint16_t bitCount = 0;
         bool readyForPulse = true;
         bool readyForWrite = false;

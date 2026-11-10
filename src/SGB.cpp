@@ -37,16 +37,16 @@ constexpr uint8_t MASK_COLOR0 = 3; // Fill with palette 0's color 0
 constexpr uint8_t ATTRIBUTE_CELL_SIZE = 8;
 
 // The longest data list that fits after a command's 2 header bytes
-constexpr uint8_t MAX_ATTRIBUTE_LINES   = SGB_PACKET_BYTES * SGB_MAX_PACKETS - 2;
+constexpr uint8_t MAX_ATTRIBUTE_LINES   = sgb::SGB_PACKET_BYTES * sgb::SGB_MAX_PACKETS - 2;
 constexpr uint8_t ATTRIBUTE_BLOCK_BYTES = 6;
 constexpr uint8_t MAX_ATTRIBUTE_BLOCKS  = MAX_ATTRIBUTE_LINES / ATTRIBUTE_BLOCK_BYTES;
 
 // The default palettes are shades of gray (RGB555):
 // white, light gray, dark gray, and black
-constexpr uint16_t DEFAULT_PALETTE[SGB_COLORS_PER_PALETTE] = {0x7FFF, 0x56B5, 0x294A, 0x0000};
+constexpr uint16_t DEFAULT_PALETTE[sgb::SGB_COLORS_PER_PALETTE] = {0x7FFF, 0x56B5, 0x294A, 0x0000};
 
 // Little-endian RGB555 color stored at command[offset]
-uint32_t readColor(const std::array<uint8_t, SGB_PACKET_BYTES * SGB_MAX_PACKETS> &command, uint8_t offset)
+uint32_t readColor(const std::array<uint8_t, sgb::SGB_PACKET_BYTES * sgb::SGB_MAX_PACKETS> &command, uint8_t offset)
 {
     return rgb555ToRGB888(command[offset] | (command[offset + 1] << 8));
 }
@@ -54,20 +54,20 @@ uint32_t readColor(const std::array<uint8_t, SGB_PACKET_BYTES * SGB_MAX_PACKETS>
 
 SGB::SGB()
 {
-    for (uint8_t p = 0; p < SGB_PALETTE_COUNT; ++p)
-        for (uint8_t c = 0; c < SGB_COLORS_PER_PALETTE; ++c)
-            palettes[p * SGB_COLORS_PER_PALETTE + c] = rgb555ToRGB888(DEFAULT_PALETTE[c]);
+    for (uint8_t p = 0; p < sgb::SGB_PALETTE_COUNT; ++p)
+        for (uint8_t c = 0; c < sgb::SGB_COLORS_PER_PALETTE; ++c)
+            palettes[p * sgb::SGB_COLORS_PER_PALETTE + c] = rgb555ToRGB888(DEFAULT_PALETTE[c]);
     attributes.fill(0);
     previousFrame.fill(shadeToRGB(Color::White));
 }
 
 void SGB::writeJOYP(uint8_t value)
 {
-    const uint8_t select = (value & JOYPAD_SELECT_MASK) >> JOYPAD_SELECT_DIRECTION_BIT;
+    const uint8_t select = (value & input::JOYPAD_SELECT_MASK) >> input::JOYPAD_SELECT_DIRECTION_BIT;
 
     // In multiplayer mode, a rising edge on the button select
     // line moves on to the next player's controller
-    if (checkBit(value, JOYPAD_SELECT_BUTTONS_BIT) && !checkBit(previousJoyp, JOYPAD_SELECT_BUTTONS_BIT) && playerCount > 1)
+    if (checkBit(value, input::JOYPAD_SELECT_BUTTONS_BIT) && !checkBit(previousJoyp, input::JOYPAD_SELECT_BUTTONS_BIT) && playerCount > 1)
         currentPlayer = (currentPlayer + 1) & (playerCount - 1);
     previousJoyp = value;
     if (select == PULSE_IDLE) { readyForPulse = true; return; }
@@ -78,7 +78,7 @@ void SGB::writeJOYP(uint8_t value)
         {
             readyForWrite = true;
             readyForPulse = false;
-            if ((bitCount % SGB_PACKET_BITS) != 0 || bitCount == 0)
+            if ((bitCount % sgb::SGB_PACKET_BITS) != 0 || bitCount == 0)
             {
                 bitCount = 0;
                 command.fill(0);
@@ -103,7 +103,7 @@ void SGB::writeJOYP(uint8_t value)
             return;
         }
         const uint16_t packets = (command[0] & PACKET_COUNT_MASK) ? (command[0] & PACKET_COUNT_MASK) : 1;
-        if (bitCount >= packets * SGB_PACKET_BITS)
+        if (bitCount >= packets * sgb::SGB_PACKET_BITS)
         {
             commandReady();
             bitCount = 0;
@@ -118,7 +118,7 @@ void SGB::writeJOYP(uint8_t value)
     if (bitCount < command.size() * 8 && select == PULSE_ONE)
         command[bitCount / 8] |= static_cast<uint8_t>(1u << (bitCount % 8));
     if (bitCount < command.size() * 8) ++bitCount;
-    if ((bitCount % SGB_PACKET_BITS) == 0) readyForStop = true;
+    if ((bitCount % sgb::SGB_PACKET_BITS) == 0) readyForStop = true;
 }
 
 void SGB::commandReady()
@@ -133,11 +133,11 @@ void SGB::commandReady()
         const uint8_t first = op == COMMAND_PAL01 ? 0 : (op == COMMAND_PAL23 ? 2 : (op == COMMAND_PAL03 ? 0 : 1));
         const uint8_t second = op == COMMAND_PAL01 ? 1 : (op == COMMAND_PAL23 ? 3 : (op == COMMAND_PAL03 ? 3 : 2));
         const uint32_t color0 = readColor(command, 1);
-        for (uint8_t p = 0; p < SGB_PALETTE_COUNT; ++p) palettes[p * SGB_COLORS_PER_PALETTE] = color0;
-        for (uint8_t i = 0; i < SGB_COLORS_PER_PALETTE - 1; ++i)
+        for (uint8_t p = 0; p < sgb::SGB_PALETTE_COUNT; ++p) palettes[p * sgb::SGB_COLORS_PER_PALETTE] = color0;
+        for (uint8_t i = 0; i < sgb::SGB_COLORS_PER_PALETTE - 1; ++i)
         {
-            palettes[first * SGB_COLORS_PER_PALETTE + i + 1] = readColor(command, 3 + i * 2);
-            palettes[second * SGB_COLORS_PER_PALETTE + i + 1] = readColor(command, 9 + i * 2);
+            palettes[first * sgb::SGB_COLORS_PER_PALETTE + i + 1] = readColor(command, 3 + i * 2);
+            palettes[second * sgb::SGB_COLORS_PER_PALETTE + i + 1] = readColor(command, 9 + i * 2);
         }
         return;
     }
@@ -154,11 +154,11 @@ void SGB::commandReady()
             const uint8_t line = data & 0x1F;
             if (data & 0x80)
             {
-                if (line < SGB_ATTRIBUTE_ROWS)
-                    for (uint8_t x = 0; x < SGB_ATTRIBUTE_COLUMNS; ++x) attributes[line * SGB_ATTRIBUTE_COLUMNS + x] = palette;
+                if (line < sgb::SGB_ATTRIBUTE_ROWS)
+                    for (uint8_t x = 0; x < sgb::SGB_ATTRIBUTE_COLUMNS; ++x) attributes[line * sgb::SGB_ATTRIBUTE_COLUMNS + x] = palette;
             }
-            else if (line < SGB_ATTRIBUTE_COLUMNS)
-                for (uint8_t y = 0; y < SGB_ATTRIBUTE_ROWS; ++y) attributes[y * SGB_ATTRIBUTE_COLUMNS + line] = palette;
+            else if (line < sgb::SGB_ATTRIBUTE_COLUMNS)
+                for (uint8_t y = 0; y < sgb::SGB_ATTRIBUTE_ROWS; ++y) attributes[y * sgb::SGB_ATTRIBUTE_COLUMNS + line] = palette;
         }
         return;
     }
@@ -173,10 +173,10 @@ void SGB::commandReady()
         const uint8_t middle = (mode >> 4) & 3;
         const uint8_t high = mode & 3;
         const uint8_t line = command[2] & 0x1F;
-        for (uint8_t y = 0; y < SGB_ATTRIBUTE_ROWS; ++y) for (uint8_t x = 0; x < SGB_ATTRIBUTE_COLUMNS; ++x)
+        for (uint8_t y = 0; y < sgb::SGB_ATTRIBUTE_ROWS; ++y) for (uint8_t x = 0; x < sgb::SGB_ATTRIBUTE_COLUMNS; ++x)
         {
             const uint8_t coord = (mode & 0x40) ? y : x;
-            attributes[y * SGB_ATTRIBUTE_COLUMNS + x] = coord < line ? low : (coord == line ? middle : high);
+            attributes[y * sgb::SGB_ATTRIBUTE_COLUMNS + x] = coord < line ? low : (coord == line ? middle : high);
         }
         return;
     }
@@ -189,13 +189,13 @@ void SGB::commandReady()
         uint8_t x = command[1], y = command[2];
         const uint16_t count = command[3] | (command[4] << 8);
         const bool vertical = (command[5] & 1) != 0;
-        for (uint16_t i = 0; i < count && i < SGB_ATTRIBUTE_COLUMNS * SGB_ATTRIBUTE_ROWS; ++i)
+        for (uint16_t i = 0; i < count && i < sgb::SGB_ATTRIBUTE_COLUMNS * sgb::SGB_ATTRIBUTE_ROWS; ++i)
         {
             const uint8_t palette = (command[6 + i / 4] >> (((~i) & 3) * 2)) & 3;
-            if (x >= SGB_ATTRIBUTE_COLUMNS || y >= SGB_ATTRIBUTE_ROWS) break;
-            attributes[y * SGB_ATTRIBUTE_COLUMNS + x] = palette;
-            if (vertical) { if (++y == SGB_ATTRIBUTE_ROWS) { y = 0; if (++x == SGB_ATTRIBUTE_COLUMNS) break; } }
-            else { if (++x == SGB_ATTRIBUTE_COLUMNS) { x = 0; if (++y == SGB_ATTRIBUTE_ROWS) break; } }
+            if (x >= sgb::SGB_ATTRIBUTE_COLUMNS || y >= sgb::SGB_ATTRIBUTE_ROWS) break;
+            attributes[y * sgb::SGB_ATTRIBUTE_COLUMNS + x] = palette;
+            if (vertical) { if (++y == sgb::SGB_ATTRIBUTE_ROWS) { y = 0; if (++x == sgb::SGB_ATTRIBUTE_COLUMNS) break; } }
+            else { if (++x == sgb::SGB_ATTRIBUTE_COLUMNS) { x = 0; if (++y == sgb::SGB_ATTRIBUTE_ROWS) break; } }
         }
         return;
     }
@@ -234,14 +234,14 @@ void SGB::commandReady()
             else if (changeOutside && !changeEdge && !changeInside) { changeEdge = true; edgePalette = outsidePalette; }
             const uint8_t left = block[2] & 0x1F, top = block[3] & 0x1F;
             const uint8_t right = block[4] & 0x1F, bottom = block[5] & 0x1F;
-            for (uint8_t y = 0; y < SGB_ATTRIBUTE_ROWS; ++y) for (uint8_t x = 0; x < SGB_ATTRIBUTE_COLUMNS; ++x)
+            for (uint8_t y = 0; y < sgb::SGB_ATTRIBUTE_ROWS; ++y) for (uint8_t x = 0; x < sgb::SGB_ATTRIBUTE_COLUMNS; ++x)
             {
                 const bool outside = x < left || x > right || y < top || y > bottom;
                 const bool inside = x > left && x < right && y > top && y < bottom;
                 const bool edge = !outside && !inside;
-                if (outside && changeOutside) attributes[y * SGB_ATTRIBUTE_COLUMNS + x] = outsidePalette;
-                else if (inside && changeInside) attributes[y * SGB_ATTRIBUTE_COLUMNS + x] = insidePalette;
-                else if (edge && changeEdge) attributes[y * SGB_ATTRIBUTE_COLUMNS + x] = edgePalette;
+                if (outside && changeOutside) attributes[y * sgb::SGB_ATTRIBUTE_COLUMNS + x] = outsidePalette;
+                else if (inside && changeInside) attributes[y * sgb::SGB_ATTRIBUTE_COLUMNS + x] = insidePalette;
+                else if (edge && changeEdge) attributes[y * sgb::SGB_ATTRIBUTE_COLUMNS + x] = edgePalette;
             }
         }
         return;
@@ -252,18 +252,18 @@ void SGB::commandReady()
 
 uint32_t SGB::getColor(uint8_t palette, uint8_t color, uint8_t x, uint8_t y)
 {
-    const size_t index = y * GAMEBOY_WIDTH + x;
+    const size_t index = y * common::GAMEBOY_WIDTH + x;
     if (maskMode == MASK_FREEZE) return previousFrame[index];
     uint32_t rgb = maskMode == MASK_BLACK ? shadeToRGB(Color::Black) :
         (maskMode == MASK_COLOR0 ? palettes[0]
-                                : palettes[(palette % SGB_PALETTE_COUNT) * SGB_COLORS_PER_PALETTE + (color % SGB_COLORS_PER_PALETTE)]);
+                                : palettes[(palette % sgb::SGB_PALETTE_COUNT) * sgb::SGB_COLORS_PER_PALETTE + (color % sgb::SGB_COLORS_PER_PALETTE)]);
     previousFrame[index] = rgb;
     return rgb;
 }
 
 uint8_t SGB::getAttribute(uint8_t x, uint8_t y) const
 {
-    const uint8_t row = std::min<uint8_t>(y / ATTRIBUTE_CELL_SIZE, SGB_ATTRIBUTE_ROWS - 1);
-    const uint8_t column = std::min<uint8_t>(x / ATTRIBUTE_CELL_SIZE, SGB_ATTRIBUTE_COLUMNS - 1);
-    return attributes[row * SGB_ATTRIBUTE_COLUMNS + column];
+    const uint8_t row = std::min<uint8_t>(y / ATTRIBUTE_CELL_SIZE, sgb::SGB_ATTRIBUTE_ROWS - 1);
+    const uint8_t column = std::min<uint8_t>(x / ATTRIBUTE_CELL_SIZE, sgb::SGB_ATTRIBUTE_COLUMNS - 1);
+    return attributes[row * sgb::SGB_ATTRIBUTE_COLUMNS + column];
 }

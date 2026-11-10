@@ -5,6 +5,7 @@
 #include "IORegisters.hpp"
 #include "MMU.hpp"
 
+
 // ADC
 void CPU::opcodeAdcImpl(uint8_t value)
 {
@@ -306,7 +307,7 @@ void CPU::opcodeDi()
 // EI
 void CPU::opcodeEi()
 {
-    imeEnableDelay = EI_ENABLE_DELAY;
+    imeEnableDelay = cpu::EI_ENABLE_DELAY;
 }
 
 // INC
@@ -394,8 +395,8 @@ void CPU::opcodeJr(Condition condition)
 void CPU::opcodeHalt()
 {
     const uint8_t pendingInterrupts =
-        emulator.mmu.read(Address(INTERRUPT_FLAG_REGISTER)) &
-        emulator.mmu.read(Address(INTERRUPT_ENABLE_REGISTER)) & INTERRUPT_MASK;
+        emulator.mmu.read(Address(io::INTERRUPT_FLAG_REGISTER)) &
+        emulator.mmu.read(Address(mmu::INTERRUPT_ENABLE_REGISTER)) & cpu::INTERRUPT_MASK;
 
     if (!isInterruptEnabled && pendingInterrupts != 0)
     {
@@ -503,7 +504,7 @@ void CPU::opcodeLdd(const Address &address, const ByteRegister &reg)
 void CPU::opcodeLdhIntoA()
 {
     uint8_t offset = getByteFromPC();
-    Address address = Address(IO_ADDRESS_START + offset);
+    Address address = Address(mmu::IO_ADDRESS_START + offset);
 
     uint8_t value = emulator.mmu.read(address);
     a.set(value);
@@ -513,7 +514,7 @@ void CPU::opcodeLdhIntoA()
 void CPU::opcodeLdhIntoData()
 {
     uint8_t offset = getByteFromPC();
-    Address address = Address(IO_ADDRESS_START + offset);
+    Address address = Address(mmu::IO_ADDRESS_START + offset);
 
     emulator.mmu.write(address, a.getValue());
 }
@@ -522,7 +523,7 @@ void CPU::opcodeLdhIntoData()
 void CPU::opcodeLdhIntoC()
 {
     uint8_t offset = c.getValue();
-    Address address = Address(IO_ADDRESS_START + offset);
+    Address address = Address(mmu::IO_ADDRESS_START + offset);
 
     emulator.mmu.write(address, a.getValue());
 }
@@ -530,7 +531,7 @@ void CPU::opcodeLdhIntoC()
 // A, (reg)
 void CPU::opcodeLdhCIntoA()
 {
-    Address address = Address(IO_ADDRESS_START + c.getValue());
+    Address address = Address(mmu::IO_ADDRESS_START + c.getValue());
     a.set(emulator.mmu.read(address));
 }
 

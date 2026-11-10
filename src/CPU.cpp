@@ -22,7 +22,7 @@ void CPU::initializeCGBPostBoot()
     de.set(0xFF56);
     hl.set(0x000D);
     sp.set(0xFFFE);                  // Top of high RAM
-    pc.set(ENTRY_POINT_START_ADDRESS);  // Cartridge entry point
+    pc.set(cartridge::ENTRY_POINT_START_ADDRESS);  // Cartridge entry point
     isInterruptEnabled = false;
     isHalted = false;
     haltBug = false;
@@ -38,7 +38,7 @@ Cycles CPU::executeOpcode(uint8_t opcode, uint16_t opcodePC)
 
     // 0xCB is a special opcode indicating that
     // the Game Boy should go to the CB instruction table.
-    if (opcode == OPCODE_CB_PREFIX)
+    if (opcode == cpu::OPCODE_CB_PREFIX)
     {
         cbOpcode = getByteFromPC();
         return executeCBOpcode(cbOpcode, opcodePC);
@@ -57,7 +57,7 @@ Cycles CPU::tick()
     }
 
     // Take care of interrupts before next CPU tick
-    if (handleInterrupts()) return Cycles(INTERRUPT_DISPATCH_CYCLES);
+    if (handleInterrupts()) return Cycles(cpu::INTERRUPT_DISPATCH_CYCLES);
 
     if (isHalted) return 1;
 
@@ -89,7 +89,7 @@ bool CPU::handleInterrupt(uint8_t interruptBit, uint16_t interruptVector, uint8_
 
 bool CPU::handleInterrupts()
 {
-    const uint8_t firedInterrupts = interruptFlag.getValue() & interruptEnabled.getValue() & INTERRUPT_MASK;
+    const uint8_t firedInterrupts = interruptFlag.getValue() & interruptEnabled.getValue() & cpu::INTERRUPT_MASK;
     if (!firedInterrupts) return false;
 
     if (isHalted && firedInterrupts != 0x0)
@@ -105,15 +105,15 @@ bool CPU::handleInterrupts()
     stackPush(pc);
 
     // Handle all possible interrupts.
-    if (handleInterrupt(INTERRUPT_VBLANK_BIT, INTERRUPT_VBLANK_VECTOR, firedInterrupts)) return true;
+    if (handleInterrupt(cpu::INTERRUPT_VBLANK_BIT, cpu::INTERRUPT_VBLANK_VECTOR, firedInterrupts)) return true;
 
-    if (handleInterrupt(INTERRUPT_LCD_STATUS_BIT, INTERRUPT_LCD_STATUS_VECTOR, firedInterrupts)) return true;
+    if (handleInterrupt(cpu::INTERRUPT_LCD_STATUS_BIT, cpu::INTERRUPT_LCD_STATUS_VECTOR, firedInterrupts)) return true;
 
-    if (handleInterrupt(INTERRUPT_TIMER_BIT, INTERRUPT_TIMER_VECTOR, firedInterrupts)) return true;
+    if (handleInterrupt(cpu::INTERRUPT_TIMER_BIT, cpu::INTERRUPT_TIMER_VECTOR, firedInterrupts)) return true;
 
-    if (handleInterrupt(INTERRUPT_SERIAL_BIT, INTERRUPT_SERIAL_VECTOR, firedInterrupts)) return true;
+    if (handleInterrupt(cpu::INTERRUPT_SERIAL_BIT, cpu::INTERRUPT_SERIAL_VECTOR, firedInterrupts)) return true;
 
-    return handleInterrupt(INTERRUPT_JOYPAD_BIT, INTERRUPT_JOYPAD_VECTOR, firedInterrupts);
+    return handleInterrupt(cpu::INTERRUPT_JOYPAD_BIT, cpu::INTERRUPT_JOYPAD_VECTOR, firedInterrupts);
 }
 
 uint8_t CPU::getByteFromPC()
@@ -212,7 +212,7 @@ Cycles CPU::executeNormalOpcode(uint8_t opcode, uint16_t opcodePC)
 {
     //std::cout << "0x"
     //      << std::uppercase << std::hex
-    //      << opcodePC << ": " << OPCODE_NAMES[opcode] << "\n";
+    //      << opcodePC << ": " << cpu::OPCODE_NAMES[opcode] << "\n";
     switch (opcode)
     {
         case 0x00: opcode00(); break; case 0x01: opcode01(); break; case 0x02: opcode02(); break; case 0x03: opcode03(); break; case 0x04: opcode04(); break; case 0x05: opcode05(); break; case 0x06: opcode06(); break; case 0x07: opcode07(); break; case 0x08: opcode08(); break; case 0x09: opcode09(); break; case 0x0A: opcode0A(); break; case 0x0B: opcode0B(); break; case 0x0C: opcode0C(); break; case 0x0D: opcode0D(); break; case 0x0E: opcode0E(); break; case 0x0F: opcode0F(); break;
@@ -232,14 +232,14 @@ Cycles CPU::executeNormalOpcode(uint8_t opcode, uint16_t opcodePC)
         case 0xE0: opcodeE0(); break; case 0xE1: opcodeE1(); break; case 0xE2: opcodeE2(); break; case 0xE3: opcodeE3(); break; case 0xE4: opcodeE4(); break; case 0xE5: opcodeE5(); break; case 0xE6: opcodeE6(); break; case 0xE7: opcodeE7(); break; case 0xE8: opcodeE8(); break; case 0xE9: opcodeE9(); break; case 0xEA: opcodeEA(); break; case 0xEB: opcodeEB(); break; case 0xEC: opcodeEC(); break; case 0xED: opcodeED(); break; case 0xEE: opcodeEE(); break; case 0xEF: opcodeEF(); break;
         case 0xF0: opcodeF0(); break; case 0xF1: opcodeF1(); break; case 0xF2: opcodeF2(); break; case 0xF3: opcodeF3(); break; case 0xF4: opcodeF4(); break; case 0xF5: opcodeF5(); break; case 0xF6: opcodeF6(); break; case 0xF7: opcodeF7(); break; case 0xF8: opcodeF8(); break; case 0xF9: opcodeF9(); break; case 0xFA: opcodeFA(); break; case 0xFB: opcodeFB(); break; case 0xFC: opcodeFC(); break; case 0xFD: opcodeFD(); break; case 0xFE: opcodeFE(); break; case 0xFF: opcodeFF(); break;
     }
-    return !branchTaken ? OPCODE_CYCLES[opcode] : OPCODE_CYCLES_BRANCHED[opcode];
+    return !branchTaken ? cpu::OPCODE_CYCLES[opcode] : cpu::OPCODE_CYCLES_BRANCHED[opcode];
 }
 
 Cycles CPU::executeCBOpcode(const uint8_t opcode, uint16_t opcodePC)
 {
     //std::cout << "0x"
     //      << std::uppercase << std::hex
-    //      << opcodePC << ": " << OPCODE_CB_NAMES[opcode] << "\n";
+    //      << opcodePC << ": " << cpu::OPCODE_CB_NAMES[opcode] << "\n";
     switch (opcode)
     {
         case 0x00: opcodeCB00(); break; case 0x01: opcodeCB01(); break; case 0x02: opcodeCB02(); break; case 0x03: opcodeCB03(); break; case 0x04: opcodeCB04(); break; case 0x05: opcodeCB05(); break; case 0x06: opcodeCB06(); break; case 0x07: opcodeCB07(); break; case 0x08: opcodeCB08(); break; case 0x09: opcodeCB09(); break; case 0x0A: opcodeCB0A(); break; case 0x0B: opcodeCB0B(); break; case 0x0C: opcodeCB0C(); break; case 0x0D: opcodeCB0D(); break; case 0x0E: opcodeCB0E(); break; case 0x0F: opcodeCB0F(); break;
@@ -259,5 +259,5 @@ Cycles CPU::executeCBOpcode(const uint8_t opcode, uint16_t opcodePC)
         case 0xE0: opcodeCBE0(); break; case 0xE1: opcodeCBE1(); break; case 0xE2: opcodeCBE2(); break; case 0xE3: opcodeCBE3(); break; case 0xE4: opcodeCBE4(); break; case 0xE5: opcodeCBE5(); break; case 0xE6: opcodeCBE6(); break; case 0xE7: opcodeCBE7(); break; case 0xE8: opcodeCBE8(); break; case 0xE9: opcodeCBE9(); break; case 0xEA: opcodeCBEA(); break; case 0xEB: opcodeCBEB(); break; case 0xEC: opcodeCBEC(); break; case 0xED: opcodeCBED(); break; case 0xEE: opcodeCBEE(); break; case 0xEF: opcodeCBEF(); break;
         case 0xF0: opcodeCBF0(); break; case 0xF1: opcodeCBF1(); break; case 0xF2: opcodeCBF2(); break; case 0xF3: opcodeCBF3(); break; case 0xF4: opcodeCBF4(); break; case 0xF5: opcodeCBF5(); break; case 0xF6: opcodeCBF6(); break; case 0xF7: opcodeCBF7(); break; case 0xF8: opcodeCBF8(); break; case 0xF9: opcodeCBF9(); break; case 0xFA: opcodeCBFA(); break; case 0xFB: opcodeCBFB(); break; case 0xFC: opcodeCBFC(); break; case 0xFD: opcodeCBFD(); break; case 0xFE: opcodeCBFE(); break; case 0xFF: opcodeCBFF(); break;
     }
-    return OPCODE_CYCLES_CB[opcode];
+    return cpu::OPCODE_CYCLES_CB[opcode];
 }

@@ -8,6 +8,47 @@
 // https://gbdev.io/pandocs/CPU_Instruction_Set.html
 // https://gbdev.io/pandocs/Interrupts.html
 
+// RST
+namespace cpu
+{
+    static constexpr uint16_t RST1 = 0x00;
+    static constexpr uint16_t RST2 = 0x08;
+    static constexpr uint16_t RST3 = 0x10;
+    static constexpr uint16_t RST4 = 0x18;
+    static constexpr uint16_t RST5 = 0x20;
+    static constexpr uint16_t RST6 = 0x28;
+    static constexpr uint16_t RST7 = 0x30;
+    static constexpr uint16_t RST8 = 0x38;
+    
+    // Addresses the CPU jumps to when servicing each interrupt
+    static constexpr uint16_t INTERRUPT_VBLANK_VECTOR     = 0x40;
+    static constexpr uint16_t INTERRUPT_LCD_STATUS_VECTOR = 0x48;
+    static constexpr uint16_t INTERRUPT_TIMER_VECTOR      = 0x50;
+    static constexpr uint16_t INTERRUPT_SERIAL_VECTOR     = 0x58;
+    static constexpr uint16_t INTERRUPT_JOYPAD_VECTOR     = 0x60;
+    
+    // Bit of each interrupt in the IF and IE registers.
+    // Lower bits have higher priority.
+    static constexpr uint8_t INTERRUPT_VBLANK_BIT     = 0;
+    static constexpr uint8_t INTERRUPT_LCD_STATUS_BIT = 1;
+    static constexpr uint8_t INTERRUPT_TIMER_BIT      = 2;
+    static constexpr uint8_t INTERRUPT_SERIAL_BIT     = 3;
+    static constexpr uint8_t INTERRUPT_JOYPAD_BIT     = 4;
+    
+    // Only the low 5 bits of IF and IE are used; the
+    // upper 3 bits always read back as 1
+    static constexpr uint8_t INTERRUPT_MASK = 0x1F;
+    
+    // Servicing an interrupt takes 5 machine cycles
+    static constexpr uint32_t INTERRUPT_DISPATCH_CYCLES = 5;
+    
+    // EI enables interrupts only after the instruction
+    // following it, so the enable is delayed by 2 steps
+    static constexpr uint8_t EI_ENABLE_DELAY = 2;
+    
+    static constexpr uint16_t OPCODE_CB_PREFIX = 0xCB;
+}
+
 class Emulator;
 
 enum class Condition
@@ -17,44 +58,6 @@ enum class Condition
     NC,
     C,
 };
-
-// RST
-static constexpr uint16_t RST1 = 0x00;
-static constexpr uint16_t RST2 = 0x08;
-static constexpr uint16_t RST3 = 0x10;
-static constexpr uint16_t RST4 = 0x18;
-static constexpr uint16_t RST5 = 0x20;
-static constexpr uint16_t RST6 = 0x28;
-static constexpr uint16_t RST7 = 0x30;
-static constexpr uint16_t RST8 = 0x38;
-
-// Addresses the CPU jumps to when servicing each interrupt
-static constexpr uint16_t INTERRUPT_VBLANK_VECTOR    = 0x40;
-static constexpr uint16_t INTERRUPT_LCD_STATUS_VECTOR = 0x48;
-static constexpr uint16_t INTERRUPT_TIMER_VECTOR     = 0x50;
-static constexpr uint16_t INTERRUPT_SERIAL_VECTOR    = 0x58;
-static constexpr uint16_t INTERRUPT_JOYPAD_VECTOR    = 0x60;
-
-// Bit of each interrupt in the IF and IE registers.
-// Lower bits have higher priority.
-static constexpr uint8_t INTERRUPT_VBLANK_BIT    = 0;
-static constexpr uint8_t INTERRUPT_LCD_STATUS_BIT = 1;
-static constexpr uint8_t INTERRUPT_TIMER_BIT     = 2;
-static constexpr uint8_t INTERRUPT_SERIAL_BIT    = 3;
-static constexpr uint8_t INTERRUPT_JOYPAD_BIT    = 4;
-
-// Only the low 5 bits of IF and IE are used; the
-// upper 3 bits always read back as 1
-static constexpr uint8_t INTERRUPT_MASK = 0x1F;
-
-// Servicing an interrupt takes 5 machine cycles
-static constexpr uint32_t INTERRUPT_DISPATCH_CYCLES = 5;
-
-// EI enables interrupts only after the instruction
-// following it, so the enable is delayed by 2 steps
-static constexpr uint8_t EI_ENABLE_DELAY = 2;
-
-static constexpr uint16_t OPCODE_CB_PREFIX = 0xCB;
 
 class CPU
 {
