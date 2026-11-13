@@ -1,98 +1,72 @@
 #include "Emulator.hpp"
-#include "FrameBuffer.hpp"
-#include "Input.hpp"
 #include "File.hpp"
-#include "FileBrowser.hpp"
-#include <imgui.h>
-#include <imgui_impl_sdl2.h>
-#include <imgui_impl_sdlrenderer2.h>
-#include <SDL2/SDL.h>
+#include "FrameBuffer.hpp"
+
+#include <QAction>
+#include <QApplication>
+#include <QAudioFormat>
+#include <QAudioDevice>
+#include <QAudioSink>
+#include <QDir>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QIODevice>
+#include <QImage>
+#include <QKeyEvent>
+#include <QKeySequence>
+#include <QMainWindow>
+#include <QMenuBar>
+#include <QMessageBox>
+#include <QElapsedTimer>
+#include <QOpenGLBuffer>
+#include <QOpenGLFunctions>
+#include <QOpenGLShaderProgram>
+#include <QOpenGLWidget>
+#include <QTimer>
+#include <QMediaDevices>
+#include <QDebug>
+
 #include <algorithm>
+#include <cstdint>
 #include <exception>
-#include <filesystem>
-#include <iostream>
 #include <fstream>
+#include <iostream>
 #include <iterator>
+#include <memory>
+#include <string>
+#include <vector>
 
-#ifdef _WIN32
-#include <windows.h>
-#endif
-
-namespace
+namespace constants
 {
-// The scale of the Game Boy screen in the initial window
-static constexpr uint32_t PIXEL_SIZE = 6;
-static constexpr uint32_t WIDTH = common::GAMEBOY_WIDTH * PIXEL_SIZE;
-static constexpr uint32_t HEIGHT = common::GAMEBOY_HEIGHT * PIXEL_SIZE;
+    constexpr int PIXEL_SIZE = 6;
+    constexpr int WIDTH = common::GAMEBOY_WIDTH * PIXEL_SIZE;
+    constexpr int HEIGHT = common::GAMEBOY_HEIGHT * PIXEL_SIZE;
+    constexpr size_t MINIMUM_ROM_SIZE = 0x150;
+    constexpr int ROM_ARGUMENT = 1;
+    constexpr int BOOT_ROM_ARGUMENT = 2;
+    constexpr uint8_t AUDIO_CHANNELS = 2;
+    constexpr int MAX_QUEUED_AUDIO_BYTES = apu::AUDIO_SAMPLE_RATE / 10 * AUDIO_CHANNELS * sizeof(int16_t);
+    // A DMG/CGB frame is 70224 T-cycles at a 4194304 Hz clock: about 59.73 Hz.
+    constexpr qint64 FRAME_PERIOD_NS = (1'000'000'000LL * ppu::CLOCKS_PER_FRAME) / common::GAMEBOY_CLOCK_RATE;
+}
 
-// Smallest ROM that still contains a full cartridge header
-static constexpr size_t MINIMUM_ROM_SIZE = 0x150;
-
-// Optional command line arguments
-static constexpr int ROM_ARGUMENT = 1;
-static constexpr int BOOT_ROM_ARGUMENT = 2;
-
-// Exit codes
-enum ExitCode
+bool tryToGetGBButton(int key, GBButton &button)
 {
-    ExitSDLInitFailed = 2,
-    ExitWindowFailed = 3,
-    ExitRendererFailed = 4,
-    ExitTextureFailed = 5,
-};
-
-// Audio output: stereo, signed 16-bit samples. The device pulls
-// 1024 samples at a time, and at most 100 ms of audio is queued
-// before the queue is flushed to keep latency down.
-static constexpr uint8_t AUDIO_CHANNELS = 2;
-static constexpr uint16_t AUDIO_DEVICE_BUFFER_SAMPLES = 1024;
-static constexpr uint32_t MAX_QUEUED_AUDIO_BYTES = apu::AUDIO_SAMPLE_RATE / 10 * AUDIO_CHANNELS * sizeof(int16_t);
-
-// Texture pixels are ARGB; the Game Boy's colors are fully opaque
-static constexpr uint32_t OPAQUE_ALPHA = 0xFF000000;
-
-// GUI sizes and colors
-static constexpr float ERROR_BUTTON_WIDTH = 120.0f;
-static const ImU32 PLACEHOLDER_TEXT_COLOR = IM_COL32(200, 200, 200, 255);
-static const ImVec2 CENTER_PIVOT(0.5f, 0.5f);
-
-// SDL stuff
-static SDL_Window *window;
-static SDL_Renderer *renderer;
-static SDL_Texture *gbScreenTexture;
-static SDL_AudioDeviceID audioDevice;
-
-static std::unique_ptr<Emulator> emulator;
-static bool shouldExit = false;
-
-// GUI state
-static FileBrowser fileBrowser;
-static std::string currentROMPath;
-static std::vector<uint8_t> cgbBootROM;
-static std::string errorMessage;
-static bool showErrorPopup = false;
-static float menuBarHeight = 0.0f;
-
-bool tryToGetGBButton(int32_t keyCode, GBButton &button)
-{
-    switch (keyCode)
+    switch (key)
     {
-        case SDLK_w:         button = GBButton::Up;     return true;
-        case SDLK_s:         button = GBButton::Down;   return true;
-        case SDLK_a:         button = GBButton::Left;   return true;
-        case SDLK_d:         button = GBButton::Right;  return true;
-        case SDLK_p:         button = GBButton::A;      return true;
-        case SDLK_o:         button = GBButton::B;      return true;
-        case SDLK_BACKSPACE: button = GBButton::Select; return true;
-        case SDLK_RETURN:    button = GBButton::Start;  return true;
+        case Qt::Key_W: button = GBButton::Up; return true;
+        case Qt::Key_S: button = GBButton::Down; return true;
+        case Qt::Key_A: button = GBButton::Left; return true;
+        case Qt::Key_D: button = GBButton::Right; return true;
+        case Qt::Key_P: button = GBButton::A; return true;
+        case Qt::Key_O: button = GBButton::B; return true;
+        case Qt::Key_Backspace: button = GBButton::Select; return true;
+        case Qt::Key_Return: case Qt::Key_Enter: button = GBButton::Start; return true;
         default: return false;
     }
 }
 
-std::string getSaveFilename(const std::string &filename)
-{
-    return filename + ".battery";
-}
+std::string getSaveFilename(const std::string &filename) { return filename + ".battery"; }
 
 bool fileExists(const std::string &filename)
 {
@@ -100,418 +74,378 @@ bool fileExists(const std::string &filename)
     return file.good();
 }
 
-void saveState(const std::string &filename)
+void saveBatteryState(Emulator *emulator, const std::string &filename)
 {
-    std::vector<uint8_t> cartridgeRAM = emulator->getCartridgeRAM();
-
-    // Don't save if the cartridge
-    // has no RAM
-    if (cartridgeRAM.size() == 0) return;
-
-    std::string saveFile = getSaveFilename(filename);
-    std::ofstream outputFile(saveFile);
+    if (!emulator) return;
+    const std::vector<uint8_t> cartridgeRAM = emulator->getCartridgeRAM();
+    if (cartridgeRAM.empty()) return;
+    std::ofstream outputFile(getSaveFilename(filename));
     std::copy(cartridgeRAM.begin(), cartridgeRAM.end(), std::ostreambuf_iterator<char>(outputFile));
 }
 
 std::vector<uint8_t> loadState(const std::string &filename)
 {
-    std::string saveFile = getSaveFilename(filename);
-    if (!fileExists(saveFile))
-    {
-        return {};
-    }
-
-    else
-    {
-        std::vector<uint8_t> saveData = readFile(saveFile);
-        return saveData;
-    }
+    const std::string saveFile = getSaveFilename(filename);
+    return fileExists(saveFile) ? readFile(saveFile) : std::vector<uint8_t>{};
 }
 
-void showError(const std::string &message)
+class ScreenWidget final : public QOpenGLWidget, protected QOpenGLFunctions
 {
-    std::cerr << message << "\n";
-    errorMessage = message;
-    showErrorPopup = true;
-}
+    private:
+        QImage image;
+        Emulator *emulator = nullptr;
+        GLuint texture = 0;
+        QOpenGLBuffer vertexBuffer{QOpenGLBuffer::VertexBuffer};
+        std::unique_ptr<QOpenGLShaderProgram> shader;
 
-void clearScreenTexture()
-{
-    void *pixelsPointer = nullptr;
-    int32_t pitch = 0;
+        static constexpr char VERTEX_SHADER[] =
+            "attribute vec2 position;"
+            "attribute vec2 texCoord;"
+            "varying vec2 textureCoord;"
+            "void main() {"
+            "  gl_Position = vec4(position, 0.0, 1.0);"
+            "  textureCoord = texCoord;"
+            "}";
 
-    if (SDL_LockTexture(gbScreenTexture, nullptr, &pixelsPointer, &pitch) != 0) return;
-    for (uint32_t y = 0; y < common::GAMEBOY_HEIGHT; y++)
-    {
-        uint32_t *row = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(pixelsPointer) + y * pitch);
-        std::fill(row, row + common::GAMEBOY_WIDTH, OPAQUE_ALPHA | shadeToRGB(Color::White));
-    }
-    SDL_UnlockTexture(gbScreenTexture);
-}
+        static constexpr char FRAGMENT_SHADER[] =
+            "uniform sampler2D screenTexture;"
+            "varying vec2 textureCoord;"
+            "void main() {"
+            "  gl_FragColor = texture2D(screenTexture, textureCoord);"
+            "}";
 
-void closeROM()
-{
-    if (!emulator) return;
-
-    saveState(currentROMPath);
-    emulator.reset();
-    currentROMPath.clear();
-
-    if (audioDevice != 0) SDL_ClearQueuedAudio(audioDevice);
-    SDL_SetWindowTitle(window, "gbemu");
-}
-
-bool openROM(const std::string &path)
-{
-    std::vector<uint8_t> romData = readFile(path);
-    if (romData.size() < MINIMUM_ROM_SIZE)
-    {
-        showError("Could not load ROM: " + path);
-        return false;
-    }
-
-    // Flush the current game's save first, in
-    // case the same ROM is being reopened
-    if (emulator) saveState(currentROMPath);
-
-    std::unique_ptr<Emulator> newEmulator;
-    try
-    {
-        newEmulator = std::make_unique<Emulator>(romData, loadState(path), cgbBootROM);
-    }
-    catch (const std::exception &e)
-    {
-        showError("Could not load ROM: " + std::string(e.what()));
-        return false;
-    }
-
-    closeROM();
-    emulator = std::move(newEmulator);
-    currentROMPath = path;
-    clearScreenTexture();
-
-    std::filesystem::path romPath(path);
-    fileBrowser.setDirectory(romPath.parent_path().empty() ? "." : romPath.parent_path());
-    std::string title = "gbemu - " + romPath.filename().string();
-    SDL_SetWindowTitle(window, title.c_str());
-    return true;
-}
-
-void processSDLEvents()
-{
-    SDL_Event event;
-    const ImGuiIO &io = ImGui::GetIO();
-
-    while (SDL_PollEvent(&event))
-    {
-        ImGui_ImplSDL2_ProcessEvent(&event);
-
-        switch (event.type)
+    protected:
+        void initializeGL() override
         {
-            case SDL_KEYDOWN:
-            {
-                // Don't let typing into the GUI press Game Boy buttons
-                if (event.key.repeat == true || io.WantCaptureKeyboard || !emulator) break;
-                GBButton button;
+            initializeOpenGLFunctions();
+            glGenTextures(1, &texture);
+            glBindTexture(GL_TEXTURE_2D, texture);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, common::GAMEBOY_WIDTH,
+                         common::GAMEBOY_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 
-                if (tryToGetGBButton(event.key.keysym.sym, button))
+            shader = std::make_unique<QOpenGLShaderProgram>();
+            shader->addShaderFromSourceCode(QOpenGLShader::Vertex, VERTEX_SHADER);
+            shader->addShaderFromSourceCode(QOpenGLShader::Fragment, FRAGMENT_SHADER);
+            shader->link();
+
+            // Position (x,y) followed by texture coordinate (u,v).
+            static constexpr float vertices[] = {
+                -1.0f, -1.0f, 0.0f, 1.0f,
+                 1.0f, -1.0f, 1.0f, 1.0f,
+                -1.0f,  1.0f, 0.0f, 0.0f,
+                 1.0f,  1.0f, 1.0f, 0.0f,
+            };
+            vertexBuffer.create();
+            vertexBuffer.bind();
+            vertexBuffer.allocate(vertices, sizeof(vertices));
+            vertexBuffer.release();
+        }
+
+        void paintGL() override
+        {
+            glViewport(0, 0, static_cast<GLsizei>(width() * devicePixelRatioF()),
+                       static_cast<GLsizei>(height() * devicePixelRatioF()));
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+            if (!shader || !texture || image.isNull()) return;
+
+            glBindTexture(GL_TEXTURE_2D, texture);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, image.width(), image.height(),
+                            GL_RGBA, GL_UNSIGNED_BYTE, image.constBits());
+
+            shader->bind();
+            shader->setUniformValue("screenTexture", 0);
+            vertexBuffer.bind();
+            const int positionLocation = shader->attributeLocation("position");
+            const int textureLocation = shader->attributeLocation("texCoord");
+            shader->enableAttributeArray(positionLocation);
+            shader->setAttributeBuffer(positionLocation, GL_FLOAT, 0, 2, 4 * sizeof(float));
+            shader->enableAttributeArray(textureLocation);
+            shader->setAttributeBuffer(textureLocation, GL_FLOAT, 2 * sizeof(float), 2, 4 * sizeof(float));
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            shader->disableAttributeArray(positionLocation);
+            shader->disableAttributeArray(textureLocation);
+            vertexBuffer.release();
+            shader->release();
+        }
+
+        void keyPressEvent(QKeyEvent *event) override
+        {
+            if (event->isAutoRepeat() || !emulator) return;
+            GBButton button;
+            if (tryToGetGBButton(event->key(), button))
+            {
+                emulator->buttonPressed(button);
+                event->accept();
+            }
+            else QWidget::keyPressEvent(event);
+        }
+
+        void keyReleaseEvent(QKeyEvent *event) override
+        {
+            if (event->isAutoRepeat() || !emulator) return;
+            GBButton button;
+            if (tryToGetGBButton(event->key(), button))
+            {
+                emulator->buttonReleased(button);
+                event->accept();
+            }
+            else QWidget::keyReleaseEvent(event);
+        }
+
+        void resizeGL(int width, int height) override
+        {
+            Q_UNUSED(width);
+            Q_UNUSED(height);
+        }
+
+    public:
+        explicit ScreenWidget(QWidget *parent = nullptr) : QOpenGLWidget(parent)
+        {
+            setFocusPolicy(Qt::StrongFocus);
+            setMinimumSize(constants::WIDTH, constants::HEIGHT);
+            setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        }
+
+        void setEmulator(Emulator *value) { emulator = value; }
+
+        void clear()
+        {
+            image = QImage(common::GAMEBOY_WIDTH, common::GAMEBOY_HEIGHT, QImage::Format_RGBA8888);
+            image.fill(Qt::white);
+            update();
+        }
+
+        void updateFrame(const FrameBuffer &buffer)
+        {
+            if (image.size() != QSize(common::GAMEBOY_WIDTH, common::GAMEBOY_HEIGHT))
+                image = QImage(common::GAMEBOY_WIDTH, common::GAMEBOY_HEIGHT, QImage::Format_RGBA8888);
+            for (uint32_t y = 0; y < common::GAMEBOY_HEIGHT; ++y)
+            {
+                auto *row = image.scanLine(static_cast<int>(y));
+                for (uint32_t x = 0; x < common::GAMEBOY_WIDTH; ++x)
                 {
-                    emulator->buttonPressed(button);
+                    const uint32_t rgb = buffer.getPixelRGB(x, y);
+                    row[4 * x + 0] = static_cast<uchar>((rgb >> 16) & 0xFF); // red
+                    row[4 * x + 1] = static_cast<uchar>((rgb >> 8) & 0xFF);  // green
+                    row[4 * x + 2] = static_cast<uchar>(rgb & 0xFF);         // blue
+                    row[4 * x + 3] = 0xFF;                                  // alpha
                 }
-                break;
             }
-
-            case SDL_KEYUP:
-            {
-                // Always forward releases so buttons can't get stuck
-                if (event.key.repeat == true || !emulator) break;
-                GBButton button;
-
-                if (tryToGetGBButton(event.key.keysym.sym, button))
-                {
-                    emulator->buttonReleased(button);
-                }
-                break;
-            }
-
-            case SDL_WINDOWEVENT:
-            {
-                if (event.window.event == SDL_WINDOWEVENT_CLOSE)
-                {
-                    shouldExit = true;
-                }
-                break;
-            }
-
-            case SDL_QUIT:
-            {
-                shouldExit = true;
-                break;
-            }
-
-            default: break;
+            update();
         }
-    }
-}
+};
 
-void queueAudio()
+class MainWindow final : public QMainWindow
 {
-    std::vector<int16_t> audioSamples = emulator->takeAudioSamples();
-    if (audioDevice != 0)
-    {
-        if (!audioSamples.empty())
+    private:
+        ScreenWidget *screen;
+        QTimer *timer;
+        std::unique_ptr<QAudioSink> audioSink;
+        QIODevice *audioOutput = nullptr;
+        bool audioStarted = false;
+        std::unique_ptr<Emulator> emulator;
+        std::string currentROMPath;
+        std::vector<uint8_t> cgbBootROM;
+        QElapsedTimer frameClock;
+        qint64 nextFrameDeadline = 0;
+        std::vector<int16_t> pendingAudio;
+
+        void showError(const QString &message)
         {
-            const uint32_t queuedBytes = SDL_GetQueuedAudioSize(audioDevice);
-            if (queuedBytes > MAX_QUEUED_AUDIO_BYTES) SDL_ClearQueuedAudio(audioDevice);
-            SDL_QueueAudio(audioDevice, audioSamples.data(),
-                static_cast<uint32_t>(audioSamples.size() * sizeof(int16_t)));
-        }
-    }
-}
-
-void updateScreenTexture(const FrameBuffer &buffer)
-{
-    void *pixelsPointer = nullptr;
-    int32_t pitch = 0;
-
-    if (SDL_LockTexture(gbScreenTexture, nullptr, &pixelsPointer, &pitch) != 0) return;
-    for (uint32_t y = 0; y < common::GAMEBOY_HEIGHT; y++)
-    {
-        uint32_t *row = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(pixelsPointer) + y * pitch);
-        for (uint32_t x = 0; x < common::GAMEBOY_WIDTH; x++)
-        {
-            row[x] = OPAQUE_ALPHA | buffer.getPixelRGB(x, y);
-        }
-    }
-    SDL_UnlockTexture(gbScreenTexture);
-}
-
-void drawMenuBar()
-{
-    if (!ImGui::BeginMainMenuBar()) return;
-
-    if (ImGui::BeginMenu("File"))
-    {
-        if (ImGui::MenuItem("Open ROM..."))
-        {
-            fileBrowser.open();
+            std::cerr << message.toStdString() << "\n";
+            QMessageBox::critical(this, tr("gbemu"), message);
         }
 
-        if (ImGui::MenuItem("Close ROM", nullptr, false, emulator != nullptr))
+        void closeROM()
         {
+            if (!emulator) return;
+            saveBatteryState(emulator.get(), currentROMPath);
+            emulator.reset();
+            currentROMPath.clear();
+            if (audioSink) audioSink->stop();
+            audioOutput = nullptr;
+            audioStarted = false;
+            pendingAudio.clear();
+            screen->setEmulator(nullptr);
+            screen->clear();
+            setWindowTitle("gbemu");
+        }
+
+        bool openROM(const QString &filename)
+        {
+            const std::string path = filename.toStdString();
+            const std::vector<uint8_t> romData = readFile(path);
+            if (romData.size() < constants::MINIMUM_ROM_SIZE)
+            {
+                showError(tr("Could not load ROM: %1").arg(filename));
+                return false;
+            }
+            if (emulator) saveBatteryState(emulator.get(), currentROMPath);
+
+            std::unique_ptr<Emulator> newEmulator;
+            try
+            {
+                newEmulator = std::make_unique<Emulator>(romData, loadState(path), cgbBootROM);
+            }
+            catch (const std::exception &error)
+            {
+                showError(tr("Could not load ROM: %1").arg(QString::fromStdString(error.what())));
+                return false;
+            }
+
             closeROM();
+            emulator = std::move(newEmulator);
+            currentROMPath = path;
+            screen->setEmulator(emulator.get());
+            screen->clear();
+            setWindowTitle(tr("gbemu - %1").arg(QFileInfo(filename).fileName()));
+            screen->setFocus();
+            return true;
         }
 
-        ImGui::Separator();
-
-        if (ImGui::MenuItem("Exit"))
+        void openROMDialog()
         {
-            shouldExit = true;
+            const QString directory = currentROMPath.empty()
+                ? QDir::currentPath() : QFileInfo(QString::fromStdString(currentROMPath)).absolutePath();
+            const QString filename = QFileDialog::getOpenFileName(
+                this, tr("Open ROM"), directory,
+                tr("Game Boy ROMs (*.gb *.gbc *.sgb);;All files (*)"));
+            if (!filename.isEmpty()) openROM(filename);
         }
-        ImGui::EndMenu();
-    }
 
-    menuBarHeight = ImGui::GetWindowSize().y;
-    ImGui::EndMainMenuBar();
-}
-
-void drawErrorPopup()
-{
-    if (showErrorPopup)
-    {
-        ImGui::OpenPopup("Error");
-        showErrorPopup = false;
-    }
-
-    const ImGuiViewport *viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, CENTER_PIVOT);
-    if (ImGui::BeginPopupModal("Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-    {
-        ImGui::TextUnformatted(errorMessage.c_str());
-        if (ImGui::Button("OK", ImVec2(ERROR_BUTTON_WIDTH, 0.0f)))
+        void runFrame()
         {
-            ImGui::CloseCurrentPopup();
+            if (!emulator) return;
+
+            const qint64 now = frameClock.nsecsElapsed();
+            if (now < nextFrameDeadline) return;
+            if (nextFrameDeadline == 0) nextFrameDeadline = now;
+
+            try
+            {
+                emulator->runFrame([this](const FrameBuffer &buffer) { screen->updateFrame(buffer); });
+                std::vector<int16_t> newSamples = emulator->takeAudioSamples();
+                if (!newSamples.empty())
+                {
+                    pendingAudio.insert(pendingAudio.end(), newSamples.begin(), newSamples.end());
+                    const size_t maxSamples = constants::MAX_QUEUED_AUDIO_BYTES / sizeof(int16_t);
+                    if (pendingAudio.size() > maxSamples)
+                        pendingAudio.erase(pendingAudio.begin(), pendingAudio.end() - maxSamples);
+                }
+                // Start with a small cushion so the sink does not enter an
+                // underrun state before the next emulation frame arrives.
+                if (!audioStarted && audioSink && pendingAudio.size() >= apu::AUDIO_SAMPLE_RATE / 20 * constants::AUDIO_CHANNELS)
+                {
+                    audioOutput = audioSink->start();
+                    audioStarted = true;
+                    if (audioSink->error() != QAudio::NoError)
+                        qWarning() << "Unable to start audio output:" << audioSink->error();
+                }
+                if (audioStarted && audioOutput && !pendingAudio.empty())
+                {
+                    const qint64 bytesAvailable = audioSink->bytesFree();
+                    const qint64 bytesPending = static_cast<qint64>(pendingAudio.size() * sizeof(int16_t));
+                    const qint64 audioFrameBytes = constants::AUDIO_CHANNELS * sizeof(int16_t);
+                    const qint64 bytesToWrite = (std::min(bytesAvailable, bytesPending) / audioFrameBytes)
+                        * audioFrameBytes;
+                    if (bytesToWrite > 0)
+                    {
+                        const qint64 bytesWritten = audioOutput->write(
+                            reinterpret_cast<const char *>(pendingAudio.data()), bytesToWrite);
+                        if (bytesWritten > 0)
+                            pendingAudio.erase(pendingAudio.begin(),
+                                pendingAudio.begin() + bytesWritten / sizeof(int16_t));
+                    }
+                }
+                nextFrameDeadline += constants::FRAME_PERIOD_NS;
+                // Do not run a burst of catch-up frames after a dialog or a slow frame.
+                if (nextFrameDeadline <= frameClock.nsecsElapsed())
+                    nextFrameDeadline = frameClock.nsecsElapsed() + constants::FRAME_PERIOD_NS;
+            }
+            catch (const std::exception &error)
+            {
+                closeROM();
+                showError(tr("Emulation stopped: %1").arg(QString::fromStdString(error.what())));
+            }
         }
-        ImGui::EndPopup();
-    }
-}
 
-void drawPlaceholder()
-{
-    const char *message = "No ROM loaded. Use File > Open ROM... to start a game.";
-    const ImGuiViewport *viewport = ImGui::GetMainViewport();
-    const ImVec2 textSize = ImGui::CalcTextSize(message);
-    // Centered in the space below the menu bar
-    const ImVec2 position(viewport->Pos.x + (viewport->Size.x - textSize.x) / 2.0f,
-                          viewport->Pos.y + menuBarHeight + (viewport->Size.y - menuBarHeight - textSize.y) / 2.0f);
-    ImGui::GetBackgroundDrawList()->AddText(position, PLACEHOLDER_TEXT_COLOR, message);
-}
+    public:
+        explicit MainWindow(std::vector<uint8_t> bootROM, QWidget *parent = nullptr)
+            : QMainWindow(parent), cgbBootROM(std::move(bootROM))
+        {
+            setWindowTitle("gbemu");
+            resize(constants::WIDTH, constants::HEIGHT);
+            screen = new ScreenWidget(this);
+            setCentralWidget(screen);
 
-// Stretch the Game Boy screen to fill
-// the whole window below the menu bar
-SDL_Rect getScreenRect()
-{
-    int32_t outputWidth = 0;
-    int32_t outputHeight = 0;
-    SDL_GetRendererOutputSize(renderer, &outputWidth, &outputHeight);
+            QMenu *fileMenu = menuBar()->addMenu(tr("&File"));
+            QAction *openAction = fileMenu->addAction(tr("&Open ROM..."));
+            openAction->setShortcut(QKeySequence::Open);
+            connect(openAction, &QAction::triggered, this, &MainWindow::openROMDialog);
+            QAction *closeAction = fileMenu->addAction(tr("&Close ROM"));
+            connect(closeAction, &QAction::triggered, this, &MainWindow::closeROM);
+            fileMenu->addSeparator();
+            QAction *exitAction = fileMenu->addAction(tr("E&xit"));
+            exitAction->setShortcut(QKeySequence::Quit);
+            connect(exitAction, &QAction::triggered, qApp, &QApplication::quit);
 
-    const int32_t top = static_cast<int32_t>(menuBarHeight * ImGui::GetIO().DisplayFramebufferScale.y);
+            const QAudioDevice audioDevice = QMediaDevices::defaultAudioOutput();
+            QAudioFormat format;
+            format.setSampleRate(apu::AUDIO_SAMPLE_RATE);
+            format.setChannelCount(constants::AUDIO_CHANNELS);
+            format.setSampleFormat(QAudioFormat::Int16);
+            if (audioDevice.isNull())
+            {
+                qWarning() << "No default audio output device is available";
+            }
+            else if (!audioDevice.isFormatSupported(format))
+            {
+                qWarning() << "Default audio device does not support 48 kHz, stereo, signed 16-bit audio";
+            }
+            else
+            {
+                audioSink = std::make_unique<QAudioSink>(audioDevice, format, this);
+                audioSink->setBufferSize(apu::AUDIO_SAMPLE_RATE / 10 * constants::AUDIO_CHANNELS * sizeof(int16_t));
+                connect(audioSink.get(), &QAudioSink::stateChanged, this,
+                    [this](QAudio::State state)
+                    {
+                        if (state == QAudio::StoppedState && audioSink->error() != QAudio::NoError)
+                            qWarning() << "Audio output stopped with error:" << audioSink->error();
+                    });
+            }
+            timer = new QTimer(this);
+            timer->setTimerType(Qt::PreciseTimer);
+            connect(timer, &QTimer::timeout, this, &MainWindow::runFrame);
+            frameClock.start();
+            timer->start(1);
+        }
 
-    SDL_Rect rect;
-    rect.x = 0;
-    rect.y = top;
-    rect.w = outputWidth;
-    rect.h = std::max(0, outputHeight - top);
-    return rect;
-}
+        ~MainWindow() override
+        {
+            timer->stop();
+            closeROM();
+            if (audioSink) audioSink->stop();
+        }
 
-}
+        void loadInitialROM(const QString &filename) { if (!filename.isEmpty()) openROM(filename); }
+};
 
 int main(int argc, char **argv)
 {
-#ifdef _WIN32
-    // Prevent Windows from bitmap-scaling the whole window on high-DPI displays.
-    // SDL_WINDOW_ALLOW_HIGHDPI then lets SDL and ImGui use the real framebuffer
-    // size instead.
-    SetProcessDPIAware();
-#endif
+    QApplication application(argc, argv);
+    application.setApplicationName("gbemu");
+    application.setApplicationDisplayName("gbemu");
 
-    if (SDL_Init(SDL_INIT_VIDEO) != 0)
-    {
-        std::cerr << "Failed to initalize SDL\n";
-        return ExitSDLInitFailed;
-    }
+    std::vector<uint8_t> bootROM;
+    if (argc > constants::BOOT_ROM_ARGUMENT) bootROM = readFile(argv[constants::BOOT_ROM_ARGUMENT]);
 
-    if (SDL_InitSubSystem(SDL_INIT_AUDIO) == 0)
-    {
-        SDL_AudioSpec audioSpec{};
-        audioSpec.freq = apu::AUDIO_SAMPLE_RATE;
-        audioSpec.format = AUDIO_S16SYS;
-        audioSpec.channels = AUDIO_CHANNELS;
-        audioSpec.samples = AUDIO_DEVICE_BUFFER_SAMPLES;
-        audioDevice = SDL_OpenAudioDevice(nullptr, 0, &audioSpec, nullptr, 0);
-        if (audioDevice != 0) SDL_PauseAudioDevice(audioDevice, 0);
-        else std::cerr << "Audio output unavailable: " << SDL_GetError() << "\n";
-    }
-
-    window = SDL_CreateWindow("gbemu", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, WIDTH, HEIGHT,
-                              SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
-
-    if (window == nullptr)
-    {
-        std::cerr << "Failed to create SDL window\n";
-        return ExitWindowFailed;
-    }
-
-    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    if (renderer == nullptr)
-    {
-        std::cerr << "Failed to create SDL renderer\n";
-        return ExitRendererFailed;
-    }
-
-    // The texture is the Game Boy's native resolution and
-    // gets scaled up with nearest-neighbor filtering
-    gbScreenTexture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
-                                        common::GAMEBOY_WIDTH, common::GAMEBOY_HEIGHT);
-    if (gbScreenTexture == nullptr)
-    {
-        std::cerr << "Failed to create SDL texture\n";
-        return ExitTextureFailed;
-    }
-    SDL_SetTextureScaleMode(gbScreenTexture, SDL_ScaleModeNearest);
-
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGui::GetIO().IniFilename = nullptr;
-    ImGui::StyleColorsDark();
-
-    // Keep ImGui's style and font rendering sharp at non-100% display scales.
-    // The SDL2 backend separately reports the framebuffer scale every frame for
-    // rendering and input; these settings scale the logical UI itself.
-    const float contentScale = ImGui_ImplSDL2_GetContentScaleForWindow(window);
-    ImGuiStyle &style = ImGui::GetStyle();
-    style.ScaleAllSizes(contentScale);
-    style.FontScaleDpi = contentScale;
-
-    ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
-    ImGui_ImplSDLRenderer2_Init(renderer);
-
-    // A ROM and CGB boot ROM can still be passed on
-    // the command line, but neither is required
-    if (argc > BOOT_ROM_ARGUMENT) cgbBootROM = readFile(argv[BOOT_ROM_ARGUMENT]);
-    if (argc > ROM_ARGUMENT) openROM(argv[ROM_ARGUMENT]);
-
-    bool windowSizedForMenuBar = false;
-
-    while (!shouldExit)
-    {
-        processSDLEvents();
-
-        // Pause the game while the file browser is open
-        if (emulator && !fileBrowser.isOpen())
-        {
-            try
-            {
-                emulator->runFrame(&updateScreenTexture);
-                queueAudio();
-            }
-            catch (const std::exception &e)
-            {
-                closeROM();
-                showError("Emulation stopped: " + std::string(e.what()));
-            }
-        }
-
-        ImGui_ImplSDLRenderer2_NewFrame();
-        ImGui_ImplSDL2_NewFrame();
-        ImGui::NewFrame();
-
-        drawMenuBar();
-
-        std::string chosenPath;
-        if (fileBrowser.draw(chosenPath))
-        {
-            openROM(chosenPath);
-        }
-
-        drawErrorPopup();
-        if (!emulator) drawPlaceholder();
-
-        ImGui::Render();
-
-        // Grow the window once so the menu bar
-        // doesn't eat into the Game Boy screen
-        if (!windowSizedForMenuBar && menuBarHeight > 0.0f)
-        {
-            SDL_SetWindowSize(window, WIDTH, HEIGHT + static_cast<int32_t>(menuBarHeight));
-            windowSizedForMenuBar = true;
-        }
-
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); // Opaque black behind everything
-        SDL_RenderClear(renderer);
-
-        if (emulator)
-        {
-            SDL_Rect screenRect = getScreenRect();
-            SDL_RenderCopy(renderer, gbScreenTexture, nullptr, &screenRect);
-        }
-
-        ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), renderer);
-        SDL_RenderPresent(renderer);
-    }
-
-    closeROM();
-
-    ImGui_ImplSDLRenderer2_Shutdown();
-    ImGui_ImplSDL2_Shutdown();
-    ImGui::DestroyContext();
-
-    SDL_DestroyTexture(gbScreenTexture);
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-    if (audioDevice != 0) SDL_CloseAudioDevice(audioDevice);
-    SDL_Quit();
-
-    return 0;
+    MainWindow window(std::move(bootROM));
+    window.show();
+    if (argc > constants::ROM_ARGUMENT) window.loadInitialROM(QString::fromLocal8Bit(argv[constants::ROM_ARGUMENT]));
+    return application.exec();
 }

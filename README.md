@@ -1,6 +1,6 @@
 # Game Boy Emulator
 
-This is a Game Boy and Game Boy Color emulator written in C++17 with an SDL2 and Dear ImGui desktop frontend.
+This is a Game Boy and Game Boy Color emulator written in C++17 with a Qt 6 desktop frontend.
 The project includes CPU, memory, cartridge, timer, graphics, input, audio,
 and Super Game Boy components.
 
@@ -8,9 +8,9 @@ and Super Game Boy components.
 
 - Game Boy and Game Boy Color cartridge support
 - Cartridge controllers: ROM-only, MBC1, MBC2, MBC3, and MBC5
-- SDL-rendered display and keyboard controls
-- Dear ImGui menu bar with a built-in file browser for opening and closing ROMs
-- Stereo audio output through SDL
+- Qt-rendered display and keyboard controls
+- Qt menu bar with a native file dialog for opening and closing ROMs
+- Stereo audio output through Qt Multimedia
 - Battery-backed cartridge RAM saved beside the ROM
 - Optional Game Boy Color boot ROM
 
@@ -34,8 +34,7 @@ Emulation coverage is still evolving, so compatibility varies by game.
 
 - C++17-compatible compiler: GCC 9 or newer, Clang 9 or newer
 - CMake 3.23 or newer
-- SDL2 development package with CMake package configuration
-- [Dear ImGui](https://github.com/ocornut/imgui), included as a git submodule in `external/imgui`
+- Qt 6 development packages with the Widgets and Multimedia modules
 
 ## Build
 
@@ -89,8 +88,7 @@ When the cartridge has battery-backed RAM, the emulator stores it in a
 
 ## Project layout
 
-- `src/` — emulator core and SDL/ImGui application
-- `external/imgui/` — Dear ImGui submodule
+- `src/` — emulator core and Qt application
 - `CMakeLists.txt` — build configuration
 
 ## Contributing

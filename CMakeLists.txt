@@ -7,30 +7,14 @@ project(gbemu)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# ---- SDL2 ----
-find_package(SDL2 CONFIG REQUIRED)
-
-# ---- Dear ImGui (git submodule) ----
-set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui)
-if(NOT EXISTS ${IMGUI_DIR}/imgui.cpp)
-    message(FATAL_ERROR "Dear ImGui was not found. Run: git submodule update --init --recursive")
-endif()
-
-add_library(imgui STATIC
-    ${IMGUI_DIR}/imgui.cpp
-    ${IMGUI_DIR}/imgui_draw.cpp
-    ${IMGUI_DIR}/imgui_tables.cpp
-    ${IMGUI_DIR}/imgui_widgets.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_sdlrenderer2.cpp
-)
-target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends)
-target_link_libraries(imgui PUBLIC SDL2::SDL2)
+# ---- Qt6 desktop frontend ----
+find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia OpenGL OpenGLWidgets)
 
 # Collect source files
-file(GLOB SRC_FILES src/*.cpp)
+file(GLOB SRC_FILES CONFIGURE_DEPENDS src/*.cpp)
 
 # Create executable
 add_executable(gbemu ${SRC_FILES})
-target_link_libraries(gbemu PRIVATE imgui SDL2::SDL2)
+target_link_libraries(gbemu PRIVATE Qt6::Widgets Qt6::Multimedia Qt6::OpenGL Qt6::OpenGLWidgets)
