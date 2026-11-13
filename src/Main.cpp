@@ -14,6 +14,10 @@
 #include <fstream>
 #include <iterator>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 namespace
 {
 // The scale of the Game Boy screen in the initial window
@@ -365,6 +369,13 @@ SDL_Rect getScreenRect()
 
 int main(int argc, char **argv)
 {
+#ifdef _WIN32
+    // Prevent Windows from bitmap-scaling the whole window on high-DPI displays.
+    // SDL_WINDOW_ALLOW_HIGHDPI then lets SDL and ImGui use the real framebuffer
+    // size instead.
+    SetProcessDPIAware();
+#endif
+
     if (SDL_Init(SDL_INIT_VIDEO) != 0)
     {
         std::cerr << "Failed to initalize SDL\n";
@@ -414,6 +425,15 @@ int main(int argc, char **argv)
     ImGui::CreateContext();
     ImGui::GetIO().IniFilename = nullptr;
     ImGui::StyleColorsDark();
+
+    // Keep ImGui's style and font rendering sharp at non-100% display scales.
+    // The SDL2 backend separately reports the framebuffer scale every frame for
+    // rendering and input; these settings scale the logical UI itself.
+    const float contentScale = ImGui_ImplSDL2_GetContentScaleForWindow(window);
+    ImGuiStyle &style = ImGui::GetStyle();
+    style.ScaleAllSizes(contentScale);
+    style.FontScaleDpi = contentScale;
+
     ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer2_Init(renderer);
 
