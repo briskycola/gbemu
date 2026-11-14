@@ -35,26 +35,34 @@ Emulation coverage is still evolving, so compatibility varies by game.
 - C++17-compatible compiler: GCC 9 or newer, Clang 9 or newer
 - CMake 3.23 or newer
 - Qt 6 development packages with the Widgets and Multimedia modules
+- On Windows: [MSYS2](https://www.msys2.org/), building from the **UCRT64** shell
 
 ## Build
 
-Clone with submodules, or initialize them in an existing checkout:
+From the repository root:
 
 ```sh
-git clone --recursive <repository-url>
-# or, inside an existing clone:
-git submodule update --init --recursive
+cmake -B build
+cmake --build build --parallel
 ```
 
-Then, from the repository root:
+The executable is created at `build/gbemu` (`build/gbemu.exe` on Windows).
+
+### Windows (MSYS2 UCRT64)
+
+Windows builds are only supported from the MSYS2 **UCRT64** shell. Install the
+compiler, CMake and Qt there:
 
 ```sh
-cmake -S . -B build
-cmake --build build
+pacman -S --needed mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake \
+    mingw-w64-ucrt-x86_64-qt6-base mingw-w64-ucrt-x86_64-qt6-multimedia
 ```
 
-The executable is created at `build/gbemu` (on Windows, it may be `build/Debug/gbemu.exe`
-or `build/Release/gbemu.exe`, depending on the generator).
+Use `mingw-w64-ucrt-x86_64-cmake`, not the plain `cmake` package: that one is
+built for the MSYS environment and fails to configure Qt.
+
+Then build with the same commands as above. Run `build/gbemu.exe` from the
+UCRT64 shell so it can find the Qt and GCC DLLs.
 
 ## Run
 
