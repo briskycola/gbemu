@@ -50,14 +50,14 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Qt6 desktop frontend
-find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia OpenGL OpenGLWidgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia)
 
 # Collect source files
 file(GLOB SRC_FILES CONFIGURE_DEPENDS src/*.cpp)
 
 # Create executable
 add_executable(gbemu ${SRC_FILES})
-target_link_libraries(gbemu PRIVATE Qt6::Widgets Qt6::Multimedia Qt6::OpenGL Qt6::OpenGLWidgets)
+target_link_libraries(gbemu PRIVATE Qt6::Widgets Qt6::Multimedia)
 
 # Copy the Qt DLLs and plugins next to gbemu.exe so it runs from the build dir.
 if(WIN32 AND TARGET Qt6::windeployqt)
