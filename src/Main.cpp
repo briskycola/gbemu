@@ -383,6 +383,11 @@ class MainWindow final : public QMainWindow
             screen = new ScreenWidget(this);
             setCentralWidget(screen);
 
+#ifdef Q_OS_WIN
+            // Qt's "windows11" style pads menu bar items far more than native
+            // Win32 menus; trim it to a typical Windows menu bar height.
+            menuBar()->setStyleSheet("QMenuBar::item { padding: 3px 8px 2px 8px; }");
+#endif
             QMenu *fileMenu = menuBar()->addMenu(tr("&File"));
             QAction *openAction = fileMenu->addAction(tr("&Open ROM..."));
             openAction->setShortcut(QKeySequence::Open);
