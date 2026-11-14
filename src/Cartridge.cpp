@@ -19,8 +19,8 @@ Cartridge::Cartridge(std::vector<uint8_t> rom, const std::vector<uint8_t> &ram,
     {
         if (ram.size() != cartridgeRAMSize)
         {
-            std::cerr << "Invalid RAM File\n";
-            exit(1);
+            throw std::runtime_error("Invalid RAM file: expected " + std::to_string(cartridgeRAMSize)
+                + " bytes, got " + std::to_string(ram.size()));
         }
         this->ram = ram;
     }
@@ -88,7 +88,7 @@ std::shared_ptr<Cartridge> getCartridge(const std::vector<uint8_t> &rom,
         case CartridgeType::NotImplemented:
             throw std::runtime_error("Not implemented");
         default:
-            std::runtime_error("Unknown cartridge type");
+            throw std::runtime_error("Unknown cartridge type");
     }
     return nullptr;
 }
@@ -115,7 +115,7 @@ uint8_t NoMBC::read(const Address &address) const
     }
     else
     {
-        std::runtime_error("Invalid address for NoMBC cartridge");
+        throw std::runtime_error("Invalid address for NoMBC cartridge");
     }
 
     return io::UNMAPPED_READ_VALUE;

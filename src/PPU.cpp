@@ -542,7 +542,7 @@ Color PPU::getRealColor(uint8_t pixelValue)
         case 1: return Color::LightGray;
         case 2: return Color::DarkGray;
         case 3: return Color::Black;
-        default: std::runtime_error("Invalid color");
+        default: throw std::runtime_error("Invalid color");
     }
     return Color::White;
 }

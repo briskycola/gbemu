@@ -70,7 +70,7 @@ std::string getSaveFilename(const std::string &filename) { return filename + ".b
 
 bool fileExists(const std::string &filename)
 {
-    std::ifstream file(filename.c_str());
+    std::ifstream file(filename.c_str(), std::ios::binary);
     return file.good();
 }
 
@@ -79,7 +79,8 @@ void saveBatteryState(Emulator *emulator, const std::string &filename)
     if (!emulator) return;
     const std::vector<uint8_t> cartridgeRAM = emulator->getCartridgeRAM();
     if (cartridgeRAM.empty()) return;
-    std::ofstream outputFile(getSaveFilename(filename));
+    // ROM files are raw bytes, so always open them in binary mode.
+    std::ofstream outputFile(getSaveFilename(filename), std::ios::binary);
     std::copy(cartridgeRAM.begin(), cartridgeRAM.end(), std::ostreambuf_iterator<char>(outputFile));
 }
 
@@ -246,6 +247,8 @@ class MainWindow final : public QMainWindow
         ScreenWidget *screen;
         QTimer *timer;
         std::unique_ptr<QAudioSink> audioSink;
+        QMediaDevices *mediaDevices = nullptr;
+        QByteArray audioDeviceId;
         QIODevice *audioOutput = nullptr;
         bool audioStarted = false;
         std::unique_ptr<Emulator> emulator;
@@ -254,6 +257,41 @@ class MainWindow final : public QMainWindow
         QElapsedTimer frameClock;
         qint64 nextFrameDeadline = 0;
         std::vector<int16_t> pendingAudio;
+
+        // (Re)creates the audio sink on the current default output device.
+        // Playback restarts from the queued samples on the next frame.
+        void setUpAudioOutput()
+        {
+            if (audioSink) audioSink->stop();
+            audioSink.reset();
+            audioOutput = nullptr;
+            audioStarted = false;
+
+            const QAudioDevice audioDevice = QMediaDevices::defaultAudioOutput();
+            audioDeviceId = audioDevice.id();
+            QAudioFormat format;
+            format.setSampleRate(apu::AUDIO_SAMPLE_RATE);
+            format.setChannelCount(constants::AUDIO_CHANNELS);
+            format.setSampleFormat(QAudioFormat::Int16);
+            if (audioDevice.isNull())
+            {
+                qWarning() << "No default audio output device is available";
+                return;
+            }
+            if (!audioDevice.isFormatSupported(format))
+            {
+                qWarning() << "Default audio device does not support 48 kHz, stereo, signed 16-bit audio";
+                return;
+            }
+            audioSink = std::make_unique<QAudioSink>(audioDevice, format, this);
+            audioSink->setBufferSize(apu::AUDIO_SAMPLE_RATE / 10 * constants::AUDIO_CHANNELS * sizeof(int16_t));
+            connect(audioSink.get(), &QAudioSink::stateChanged, this,
+                [this](QAudio::State state)
+                {
+                    if (state == QAudio::StoppedState && audioSink->error() != QAudio::NoError)
+                        qWarning() << "Audio output stopped with error:" << audioSink->error();
+                });
+        }
 
         void showError(const QString &message)
         {
@@ -399,30 +437,14 @@ class MainWindow final : public QMainWindow
             exitAction->setShortcut(QKeySequence::Quit);
             connect(exitAction, &QAction::triggered, qApp, &QApplication::quit);
 
-            const QAudioDevice audioDevice = QMediaDevices::defaultAudioOutput();
-            QAudioFormat format;
-            format.setSampleRate(apu::AUDIO_SAMPLE_RATE);
-            format.setChannelCount(constants::AUDIO_CHANNELS);
-            format.setSampleFormat(QAudioFormat::Int16);
-            if (audioDevice.isNull())
-            {
-                qWarning() << "No default audio output device is available";
-            }
-            else if (!audioDevice.isFormatSupported(format))
-            {
-                qWarning() << "Default audio device does not support 48 kHz, stereo, signed 16-bit audio";
-            }
-            else
-            {
-                audioSink = std::make_unique<QAudioSink>(audioDevice, format, this);
-                audioSink->setBufferSize(apu::AUDIO_SAMPLE_RATE / 10 * constants::AUDIO_CHANNELS * sizeof(int16_t));
-                connect(audioSink.get(), &QAudioSink::stateChanged, this,
-                    [this](QAudio::State state)
-                    {
-                        if (state == QAudio::StoppedState && audioSink->error() != QAudio::NoError)
-                            qWarning() << "Audio output stopped with error:" << audioSink->error();
-                    });
-            }
+            setUpAudioOutput();
+            // Follow the system default output, e.g. when headphones are plugged in.
+            mediaDevices = new QMediaDevices(this);
+            connect(mediaDevices, &QMediaDevices::audioOutputsChanged, this, [this]
+                {
+                    if (QMediaDevices::defaultAudioOutput().id() != audioDeviceId) setUpAudioOutput();
+                });
+
             timer = new QTimer(this);
             timer->setTimerType(Qt::PreciseTimer);
             connect(timer, &QTimer::timeout, this, &MainWindow::runFrame);
