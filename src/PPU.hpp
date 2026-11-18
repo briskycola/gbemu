@@ -41,13 +41,27 @@ namespace ppu
     // STAT (LCD status register) bits. Bits 0-1 hold the current
     // mode and bit 2 the LY == LYC flag; both are read-only.
     // Bits 3-6 enable the STAT interrupt sources and bit 7 is unused.
-    static constexpr uint8_t STAT_MODE_MASK             = 0x03;
-    static constexpr uint8_t STAT_COINCIDENCE_BIT       = 2;
-    static constexpr uint8_t STAT_HBLANK_INTERRUPT_BIT  = 3;
-    static constexpr uint8_t STAT_LYC_INTERRUPT_BIT     = 6;
-    static constexpr uint8_t STAT_READ_ONLY_MASK        = 0x07;
-    static constexpr uint8_t STAT_INTERRUPT_ENABLE_MASK = 0x78;
-    static constexpr uint8_t STAT_UNUSED_BITS           = 0x80;
+    static constexpr uint8_t STAT_MODE_MASK              = 0x03;
+    static constexpr uint8_t STAT_COINCIDENCE_BIT        = 2;
+    static constexpr uint8_t STAT_HBLANK_INTERRUPT_BIT   = 3;
+    static constexpr uint8_t STAT_VBLANK_INTERRUPT_BIT   = 4;
+    static constexpr uint8_t STAT_OAM_INTERRUPT_BIT      = 5;
+    static constexpr uint8_t STAT_LYC_INTERRUPT_BIT      = 6;
+    static constexpr uint8_t STAT_READ_ONLY_MASK         = 0x07;
+    static constexpr uint8_t STAT_INTERRUPT_ENABLE_MASK  = 0x78;
+    static constexpr uint8_t STAT_UNUSED_BITS            = 0x80;
+
+    // IRQ48 signal bit positions (internal, not in register)
+    static constexpr uint8_t IRQ48_HBLANK_BIT  = 0;
+    static constexpr uint8_t IRQ48_VBLANK_BIT  = 1;
+    static constexpr uint8_t IRQ48_OAM_BIT     = 2;
+    static constexpr uint8_t IRQ48_LYC_BIT     = 3;
+
+    // Sprites per scanline limit
+    static constexpr uint32_t MAX_SPRITES_PER_LINE = 10;
+
+    // LY=153 resets to 0 after this many T-cycles into that line
+    static constexpr uint32_t LY153_EARLY_RESET_CLOCKS = 4;
     
     // Sprites (objects). OAM holds 40 entries of 4 bytes:
     // Y position, X position, tile number, and attributes.
@@ -111,17 +125,40 @@ class PPU
         uint8_t objectPriorityMode = 0;
         CGBPaletteRAM bgColorPalettes{0xFF}; // CGB startup background palettes are white (0x7FFF).
         CGBPaletteRAM objColorPalettes;
-        std::array<uint8_t, common::GAMEBOY_WIDTH * common::GAMEBOY_HEIGHT> bgAttributePriority{};
+
+        // Per-pixel BG color cache:
+        //   bits 1-0: 2-bit color index (0-3)
+        //   bit  2:   CGB tile priority (BG-over-OBJ)
+        //   bit  3:   sprite has been drawn here
+        std::array<uint8_t, common::GAMEBOY_WIDTH * common::GAMEBOY_HEIGHT> colorCache{};
+
+        // Internal window line counter. Only increments when a window
+        // scanline is actually rendered (WY trigger must be active).
+        int32_t windowLine = 0;
+        bool windowYTriggered = false;
+
+        // IRQ48 rising-edge gate: the STAT interrupt fires only when the
+        // combined signal goes from 0 to non-zero (level→edge conversion).
+        uint8_t irq48Signal = 0;
+
+        // LY=153 briefly shows 0 after just 4 T-clocks.
+        bool ly153EarlyZero = false;
+
+        // VBlank line counter inside the VBlank period (0-9)
+        int32_t vblankLine = 0;
 
         std::function<void(const FrameBuffer&)> vblankCallback;
 
         void setMode(VideoMode mode);
+        void refreshStatSignal(bool requestInterrupt);
+        void compareLYToLYC();
+        void checkWindowYTrigger();
         void writeScanline(uint8_t currentLine);
-        void writeSprites();
-        void draw();
         void drawBGLine(uint32_t currentLine);
         void drawWindowLine(uint32_t currentLine);
-        void drawSprite(uint32_t sprite);
+        void drawSpritesForLine(uint32_t currentLine);
+        void drawSprite(int32_t line, uint8_t spriteIndex, int32_t spriteHeight);
+        void draw();
         GBColor getPixelFromLine(uint8_t byteOne, uint8_t byteTwo, uint8_t pixelIndex);
 
         bool isOnScreen(int32_t x, int32_t y);
@@ -135,8 +172,6 @@ class PPU
         bool usesLargeSprites() const;
         bool spritesEnabled() const;
         bool bgEnabled() const;
-
-        TileInfo getTileInfo(Address &tileSetLocation, uint8_t tileID, uint8_t tileLine) const;
 
         Color getRealColor(uint8_t pixelValue);
         ColorPalette loadPalette(ByteRegister &paletteRegister);

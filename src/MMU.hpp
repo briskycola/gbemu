@@ -59,12 +59,14 @@ namespace mmu
     static constexpr uint16_t CGB_BOOT_ROM_SECOND_PART_START = 0x200;
     static constexpr uint16_t CGB_BOOT_ROM_SIZE              = 0x900;
     
-    // OAM DMA copies 160 bytes (0x00-0x9F) from page
-    // (value * 0x100) into OAM, stalling the CPU for
-    // 160 machine cycles
+    // OAM DMA copies 160 bytes from page (value * 0x100)
+    // into OAM, one byte per machine cycle, after a one
+    // cycle startup delay. The CPU keeps running, but while
+    // the transfer is active it cannot reach OAM or the bus
+    // the DMA is reading from (HRAM and I/O stay usable).
     static constexpr uint16_t DMA_SOURCE_PAGE_SHIFT = 0x100;
-    static constexpr uint16_t DMA_TRANSFER_LENGTH   = 0x9F;
-    static constexpr uint16_t OAM_DMA_CYCLES        = 160;
+    static constexpr uint16_t DMA_TRANSFER_LENGTH   = 0xA0;
+    static constexpr uint8_t OAM_DMA_START_DELAY    = 1;
     
     // Game Boy Color HDMA copies data into VRAM in
     // 16-byte blocks. Bit 7 of HDMA5 picks HBlank mode
@@ -95,16 +97,31 @@ class MMU
         bool hdmaHBlankMode = false;
         ByteRegister disableBootROMSwitch;
 
+        // OAM DMA state
+        enum class Bus { None, External, WorkRAM, Video };
+        uint8_t oamDMARegister = 0xFF;     // Last value written to 0xFF46
+        uint16_t oamDMASource = 0;         // Source of the running transfer
+        uint8_t oamDMAIndex = 0;           // Next byte to copy
+        bool oamDMAActive = false;         // Transfer in progress (bus is locked)
+        uint8_t oamDMALastByte = 0xFF;     // Byte currently on the DMA's bus
+        uint16_t oamDMAPendingSource = 0;  // Source of a requested (re)start
+        bool oamDMAStartRequested = false; // 0xFF46 written during this CPU step
+        uint8_t oamDMAStartDelay = 0;      // Cycles until the pending transfer starts
+
         uint8_t readIO(const Address &address) const;
         void writeIO(const Address &address, const uint8_t value);
-        void dmaTransfer(uint8_t value);
+        void requestOAMDMA(uint8_t value);
+        void copyOAMDMAByte();
+        Bus busOf(uint16_t address) const;
+        bool oamDMABlocksCPU(uint16_t address) const;
         bool isBootROMActive() const;
         void transferHDMABlock();
     public:
         MMU(Emulator &emulator);
         uint8_t read(const Address &address, bool bypassPPURestrictions = false) const;
         void write(const Address &address, const uint8_t value, bool bypassPPURestrictions = false);
-        void hblankDMA();
+        void tickOAMDMA(uint32_t mCycles);
+        uint32_t hblankDMA(); // Returns CPU M-cycles consumed by the DMA transfer
         bool loadCGBBootROM(const std::vector<uint8_t> &rom);
         bool hasCGBBootROM() const { return !cgbBootROM.empty(); }
 };

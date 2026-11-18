@@ -51,9 +51,26 @@ void Emulator::tick()
     Cycles m = cpu.tick();    // M-cycles
     Cycles t{ m.cycles * common::T_CYCLES_PER_M_CYCLE }; // T-cycles
 
-    // In double speed mode the CPU and timer run twice as fast,
-    // but the PPU and APU keep their normal speed
     elapsedCycles += t.cycles;
+
+    // OAM DMA runs at CPU speed, one byte per machine cycle
+    mmu.tickOAMDMA(m.cycles);
+
+    // During a general-purpose GDMA transfer both the CPU and the PPU are
+    // frozen for the same real-time duration.  Consume the GDMA stall budget
+    // before allowing the PPU to advance so VRAM is fully loaded before any
+    // scanline that might read from it.
+    if (gdmaCyclesRemaining > 0)
+    {
+        const uint32_t consume = std::min(gdmaCyclesRemaining, m.cycles);
+        gdmaCyclesRemaining -= consume;
+        // PPU and APU do not advance during GDMA stall
+        timer.tick(t.cycles);
+        return;
+    }
+
+    // In double speed mode the CPU and timer run twice as fast,
+    // but the PPU and APU keep their normal speed.
     ppu.tick(Cycles(doubleSpeed ? t.cycles / 2 : t.cycles));
     timer.tick(t.cycles);
     apu.tick(doubleSpeed ? t.cycles / 2 : t.cycles);

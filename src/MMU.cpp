@@ -21,6 +21,11 @@ MMU::MMU(Emulator &emulator) :
 
 uint8_t MMU::read(const Address &address, bool bypassPPURestrictions) const
 {
+    // While OAM DMA runs the CPU cannot reach OAM, and reads from the
+    // bus the DMA is using return the byte currently being transferred
+    if (!bypassPPURestrictions && oamDMABlocksCPU(address.getValue()))
+        return address.getValue() >= mmu::OAM_ADDRESS_START ? io::UNMAPPED_READ_VALUE : oamDMALastByte;
+
     // Cartridge ROM
     if (address.inRange(mmu::CARTRIDGE_ROM_ADDRESS_START, mmu::CARTRIDGE_ROM_ADDRESS_END))
     {
@@ -140,7 +145,7 @@ uint8_t MMU::readIO(const Address &address) const
         case io::SCROLL_X_REGISTER: return emulator.ppu.scrollX.getValue();
         case io::LCD_Y_REGISTER: return emulator.ppu.line.getValue();
         case io::LCD_Y_COMPARE_REGISTER: return emulator.ppu.lyCompare.getValue();
-        case io::OAM_DMA_REGISTER: return io::UNMAPPED_READ_VALUE;
+        case io::OAM_DMA_REGISTER: return oamDMARegister;
         case io::BG_PALETTE_REGISTER: return emulator.ppu.bgPalette.getValue();
         case io::OBJ_PALETTE0_REGISTER: return emulator.ppu.spritePalette0.getValue();
         case io::OBJ_PALETTE1_REGISTER: return emulator.ppu.spritePalette1.getValue();
@@ -204,6 +209,9 @@ uint8_t MMU::readIO(const Address &address) const
 
 void MMU::write(const Address &address, const uint8_t value, bool bypassPPURestrictions)
 {
+    // CPU writes that conflict with a running OAM DMA are lost
+    if (!bypassPPURestrictions && oamDMABlocksCPU(address.getValue())) return;
+
     // Cartridge ROM
     if (address.inRange(mmu::CARTRIDGE_ROM_ADDRESS_START, mmu::CARTRIDGE_ROM_ADDRESS_END))
     {
@@ -335,7 +343,7 @@ void MMU::writeIO(const Address &address, const uint8_t value)
             return;
 
         case io::LCD_Y_COMPARE_REGISTER: emulator.ppu.lyCompare.set(value); return;
-        case io::OAM_DMA_REGISTER: dmaTransfer(value); return;
+        case io::OAM_DMA_REGISTER: requestOAMDMA(value); return;
         case io::BG_PALETTE_REGISTER: emulator.ppu.bgPalette.set(value); return;
         case io::OBJ_PALETTE0_REGISTER: emulator.ppu.spritePalette0.set(value); return;
         case io::OBJ_PALETTE1_REGISTER: emulator.ppu.spritePalette1.set(value); return;
@@ -407,19 +415,72 @@ void MMU::writeIO(const Address &address, const uint8_t value)
     }
 }
 
-void MMU::dmaTransfer(const uint8_t value)
+void MMU::requestOAMDMA(const uint8_t value)
 {
-    uint8_t valueAtAddress;
-    Address startAddress = value * mmu::DMA_SOURCE_PAGE_SHIFT;
+    oamDMARegister = value;
 
-    for (uint8_t i = 0x0; i <= mmu::DMA_TRANSFER_LENGTH; i++)
+    // Sources 0xE000-0xFFFF read from the work RAM behind echo RAM
+    uint16_t source = static_cast<uint16_t>(value * mmu::DMA_SOURCE_PAGE_SHIFT);
+    if (source >= mmu::ECHO_RAM_ADDRESS_START) source -= mmu::ECHO_RAM_OFFSET;
+    oamDMAPendingSource = source;
+
+    // The write lands on the last cycle of the instruction, so the
+    // startup delay is armed after the rest of this step has run
+    oamDMAStartRequested = true;
+}
+
+void MMU::copyOAMDMAByte()
+{
+    oamDMALastByte = read(Address(static_cast<uint16_t>(oamDMASource + oamDMAIndex)), true);
+    oamRAM[oamDMAIndex] = oamDMALastByte;
+    if (++oamDMAIndex >= mmu::DMA_TRANSFER_LENGTH) oamDMAActive = false;
+}
+
+void MMU::tickOAMDMA(const uint32_t mCycles)
+{
+    for (uint32_t i = 0; i < mCycles; ++i)
     {
-        Address fromAddress = startAddress.getValue() + i;
-        Address toAddress = mmu::OAM_ADDRESS_START + i;
-        valueAtAddress = read(fromAddress, true);
-        write(toAddress, valueAtAddress, true);
+        // A transfer that is already running keeps going during a
+        // restart's startup delay, so OAM stays locked throughout
+        if (oamDMAActive) copyOAMDMAByte();
+
+        if (oamDMAStartDelay && --oamDMAStartDelay == 0)
+        {
+            oamDMASource = oamDMAPendingSource;
+            oamDMAIndex = 0;
+            oamDMAActive = true;
+        }
     }
-    emulator.dmaCyclesRemaining = mmu::OAM_DMA_CYCLES;
+
+    if (oamDMAStartRequested)
+    {
+        oamDMAStartRequested = false;
+        oamDMAStartDelay = mmu::OAM_DMA_START_DELAY;
+    }
+}
+
+MMU::Bus MMU::busOf(const uint16_t address) const
+{
+    if (address <= mmu::CARTRIDGE_ROM_ADDRESS_END) return Bus::External;
+    if (address <= mmu::VRAM_ADDRESS_END) return Bus::Video;
+    if (address <= mmu::CARTRIDGE_RAM_ADDRESS_END) return Bus::External;
+
+    // The CGB has work RAM on its own bus, separate from the cartridge
+    if (address <= mmu::ECHO_RAM_ADDRESS_END) return emulator.cgbMode ? Bus::WorkRAM : Bus::External;
+    return Bus::None;
+}
+
+bool MMU::oamDMABlocksCPU(const uint16_t address) const
+{
+    if (!oamDMAActive) return false;
+
+    // HRAM, I/O and IE are always reachable
+    if (address >= mmu::IO_ADDRESS_START) return false;
+
+    // OAM (and the unusable area after it) belongs to the DMA
+    if (address >= mmu::OAM_ADDRESS_START) return true;
+
+    return busOf(address) == busOf(oamDMASource);
 }
 
 void MMU::transferHDMABlock()
@@ -450,9 +511,15 @@ void MMU::transferHDMABlock()
     if (!hdmaBlocksRemaining) hdmaHBlankMode = false;
 }
 
-void MMU::hblankDMA()
+uint32_t MMU::hblankDMA()
 {
-    if (emulator.cgbMode && hdmaHBlankMode && hdmaBlocksRemaining) transferHDMABlock();
+    if (!emulator.cgbMode || !hdmaHBlankMode || !hdmaBlocksRemaining) return 0;
+    const uint16_t dmaBefore = emulator.dmaCyclesRemaining;
+    transferHDMABlock();
+    // Return the M-cycles this block consumed so the PPU can absorb them
+    // and keep the HBlank period in sync with the CPU stall.
+    return emulator.dmaCyclesRemaining > dmaBefore
+        ? emulator.dmaCyclesRemaining - dmaBefore : 0;
 }
 
 bool MMU::isBootROMActive() const

@@ -17,6 +17,12 @@ class Emulator
         std::shared_ptr<Cartridge> cartridge;
         uint32_t elapsedCycles = 0;
         uint16_t dmaCyclesRemaining = 0;
+        // General-purpose DMA (GDMA) freezes both the CPU and the PPU for
+        // the entire transfer duration.  HDMA blocks freeze only the CPU
+        // (through dmaCyclesRemaining); OAM DMA freezes neither.
+        // We track the two stalls separately so tick() can suppress PPU
+        // advancement during a GDMA.
+        uint32_t gdmaCyclesRemaining = 0;
         bool cgbMode = false;
         bool doubleSpeed = false;
         bool speedSwitchPrepared = false;
@@ -41,7 +47,7 @@ class Emulator
         friend class PPU;
         PPU ppu;
 
-        friend class MMU;
+        friend class APU;
         APU apu;
 
         void tick();
