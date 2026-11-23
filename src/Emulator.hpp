@@ -51,6 +51,9 @@ class Emulator
         APU apu;
 
         void tick();
+
+        // Runs everything but the CPU (DMA, PPU, timer, APU) for some machine cycles
+        void advance(uint32_t mCycles);
     public:
         Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<uint8_t> &saveData = {},
                  const std::vector<uint8_t> &cgbBootROM = {});

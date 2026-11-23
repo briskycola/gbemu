@@ -48,8 +48,17 @@ std::vector<int16_t> Emulator::takeAudioSamples()
 
 void Emulator::tick()
 {
-    Cycles m = cpu.tick();    // M-cycles
-    Cycles t{ m.cycles * common::T_CYCLES_PER_M_CYCLE }; // T-cycles
+    // Bus accesses already advanced the system by one machine cycle each
+    // while the instruction ran; advance the rest (internal cycles) now.
+    const Cycles m = cpu.tick();
+    const uint32_t alreadyAdvanced = cpu.takeBusCycles();
+    if (m.cycles > alreadyAdvanced) advance(m.cycles - alreadyAdvanced);
+}
+
+void Emulator::advance(const uint32_t mCycles)
+{
+    const Cycles m{ mCycles };
+    const Cycles t{ m.cycles * common::T_CYCLES_PER_M_CYCLE }; // T-cycles
 
     elapsedCycles += t.cycles;
 

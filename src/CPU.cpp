@@ -116,9 +116,30 @@ bool CPU::handleInterrupts()
     return handleInterrupt(cpu::INTERRUPT_JOYPAD_BIT, cpu::INTERRUPT_JOYPAD_VECTOR, firedInterrupts);
 }
 
+uint8_t CPU::busRead(const Address &address)
+{
+    emulator.advance(1);
+    ++busCycles;
+    return emulator.mmu.read(address);
+}
+
+void CPU::busWrite(const Address &address, uint8_t value)
+{
+    emulator.advance(1);
+    ++busCycles;
+    emulator.mmu.write(address, value);
+}
+
+uint32_t CPU::takeBusCycles()
+{
+    const uint32_t cycles = busCycles;
+    busCycles = 0;
+    return cycles;
+}
+
 uint8_t CPU::getByteFromPC()
 {
-    uint8_t byte = emulator.mmu.read(Address(pc));
+    uint8_t byte = busRead(Address(pc));
     if (haltBug)
     {
         haltBug = false;
@@ -192,16 +213,16 @@ bool CPU::isConditon(Condition condition)
 void CPU::stackPush(const WordValue &reg)
 {
     sp.decrement();
-    emulator.mmu.write(Address(sp), reg.getHighByte());
+    busWrite(Address(sp), reg.getHighByte());
     sp.decrement();
-    emulator.mmu.write(Address(sp), reg.getLowByte());
+    busWrite(Address(sp), reg.getLowByte());
 }
 
 void CPU::stackPop(WordValue &reg)
 {
-    uint8_t lowByte = emulator.mmu.read(Address(sp));
+    uint8_t lowByte = busRead(Address(sp));
     sp.increment();
-    uint8_t highByte = emulator.mmu.read(Address(sp));
+    uint8_t highByte = busRead(Address(sp));
     sp.increment();
 
     uint16_t value = composeBytes(highByte, lowByte);

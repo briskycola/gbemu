@@ -103,6 +103,16 @@ class CPU
 
         bool isConditon(Condition condition);
 
+        // Every CPU memory access takes one machine cycle. These advance the
+        // rest of the system by that cycle before making the access, so the
+        // timer, PPU and so on see each access on the right cycle of the
+        // instruction instead of all of them at its start.
+        uint8_t busRead(const Address &address);
+        void busWrite(const Address &address, uint8_t value);
+
+        // Machine cycles already advanced by bus accesses during this step
+        uint32_t busCycles = 0;
+
         uint8_t getByteFromPC();
         int8_t getSignedByteFromPC();
         uint16_t getWordFromPC();
@@ -376,6 +386,11 @@ class CPU
         CPU(Emulator &emulator);
         void initializeCGBPostBoot();
         Cycles tick();
+
+        // Returns how many cycles of the last tick() were already advanced
+        // by bus accesses, and resets the count
+        uint32_t takeBusCycles();
+
         Cycles executeOpcode(uint8_t opcode, uint16_t opcodePC);
         Cycles executeNormalOpcode(uint8_t opcode, uint16_t opcodePC);
         Cycles executeCBOpcode(uint8_t opcode, uint16_t opcodePC);

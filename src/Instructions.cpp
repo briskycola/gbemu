@@ -37,7 +37,7 @@ void CPU::opcodeAdc(const ByteRegister &reg)
 
 void CPU::opcodeAdc(const Address &&address)
 {
-    opcodeAdcImpl(emulator.mmu.read(address));
+    opcodeAdcImpl(busRead(address));
 }
 
 // ADD
@@ -65,7 +65,7 @@ void CPU::opcodeAddA(const ByteRegister &reg)
 
 void CPU::opcodeAddA(const Address &address)
 {
-    opcodeAddImpl(a.getValue(), emulator.mmu.read(address));
+    opcodeAddImpl(a.getValue(), busRead(address));
 }
 
 void CPU::opcodeAddHLImpl(uint16_t value)
@@ -134,7 +134,7 @@ void CPU::opcodeAnd(ByteRegister &reg)
 
 void CPU::opcodeAnd(Address &&addr)
 {
-    opcodeAndImpl(emulator.mmu.read(addr));
+    opcodeAndImpl(busRead(addr));
 }
 
 // BIT
@@ -152,7 +152,7 @@ void CPU::opcodeBit(const uint8_t bit, ByteRegister &reg)
 
 void CPU::opcodeBit(const uint8_t bit, Address &&address)
 {
-    opcodeBitImpl(bit, emulator.mmu.read(address));
+    opcodeBitImpl(bit, busRead(address));
 }
 
 // CALL
@@ -209,7 +209,7 @@ void CPU::opcodeCp(const ByteRegister &reg)
 
 void CPU::opcodeCp(const Address &address)
 {
-    opcodeCpImpl(emulator.mmu.read(address));
+    opcodeCpImpl(busRead(address));
 }
 
 // CPL
@@ -287,9 +287,9 @@ void CPU::opcodeDec(WordRegister &reg)
 
 void CPU::opcodeDec(Address &&addr)
 {
-    uint8_t value = emulator.mmu.read(addr);
+    uint8_t value = busRead(addr);
     uint8_t result = static_cast<uint8_t>(value - 1);
-    emulator.mmu.write(addr, result);
+    busWrite(addr, result);
 
     setFlagZero(result == 0);
     setFlagSubtract(true);
@@ -333,9 +333,9 @@ void CPU::opcodeInc(WordRegister &reg)
 
 void CPU::opcodeInc(Address &&address)
 {
-    uint8_t value = emulator.mmu.read(address);
+    uint8_t value = busRead(address);
     uint8_t result = static_cast<uint8_t>(value + 1);
-    emulator.mmu.write(address, result);
+    busWrite(address, result);
 
     setFlagZero(result == 0);
     setFlagSubtract(false);
@@ -442,7 +442,7 @@ void CPU::opcodeLd(ByteRegister &reg, const ByteRegister &byteReg)
 
 void CPU::opcodeLd(ByteRegister &reg, const Address &address)
 {
-    reg.set(emulator.mmu.read(address));
+    reg.set(busRead(address));
 }
 
 void CPU::opcodeLd(RegisterPair& reg)
@@ -465,31 +465,31 @@ void CPU::opcodeLd(WordRegister &reg, const RegisterPair &regPair)
 void CPU::opcodeLd(const Address &address)
 {
     uint8_t byte = getByteFromPC();
-    emulator.mmu.write(address, byte);
+    busWrite(address, byte);
 }
 
 void CPU::opcodeLd(const Address &address, const ByteRegister &byteReg)
 {
-    emulator.mmu.write(address, byteReg.getValue());
+    busWrite(address, byteReg.getValue());
 }
 
 void CPU::opcodeLd(const Address &address, const WordRegister &wordReg)
 {
-    emulator.mmu.write(address, wordReg.getLowByte());
-    emulator.mmu.write(address + 1, wordReg.getHighByte());
+    busWrite(address, wordReg.getLowByte());
+    busWrite(address + 1, wordReg.getHighByte());
 }
 
 // (nn), A
 void CPU::opcodeLdToAddr(const ByteRegister &reg)
 {
     uint16_t address = getWordFromPC();
-    emulator.mmu.write(Address(address), reg.getValue());
+    busWrite(Address(address), reg.getValue());
 }
 
 void CPU::opcodeLdFromAddr(ByteRegister &reg)
 {
     uint16_t word = getWordFromPC();
-    reg.set(emulator.mmu.read(word));
+    reg.set(busRead(word));
 }
 
 // LDD
@@ -500,13 +500,13 @@ void CPU::opcodeLdFromAddr(ByteRegister &reg)
 
 void CPU::opcodeLdd(ByteRegister &reg, const Address &address)
 {
-    reg.set(emulator.mmu.read(address));
+    reg.set(busRead(address));
     hl.decrement();
 }
 
 void CPU::opcodeLdd(const Address &address, const ByteRegister &reg)
 {
-    emulator.mmu.write(address, reg.getValue());
+    busWrite(address, reg.getValue());
     hl.decrement();
 }
 
@@ -518,7 +518,7 @@ void CPU::opcodeLdhIntoA()
     uint8_t offset = getByteFromPC();
     Address address = Address(mmu::IO_ADDRESS_START + offset);
 
-    uint8_t value = emulator.mmu.read(address);
+    uint8_t value = busRead(address);
     a.set(value);
 }
 
@@ -528,7 +528,7 @@ void CPU::opcodeLdhIntoData()
     uint8_t offset = getByteFromPC();
     Address address = Address(mmu::IO_ADDRESS_START + offset);
 
-    emulator.mmu.write(address, a.getValue());
+    busWrite(address, a.getValue());
 }
 
 // (reg), A
@@ -537,14 +537,14 @@ void CPU::opcodeLdhIntoC()
     uint8_t offset = c.getValue();
     Address address = Address(mmu::IO_ADDRESS_START + offset);
 
-    emulator.mmu.write(address, a.getValue());
+    busWrite(address, a.getValue());
 }
 
 // A, (reg)
 void CPU::opcodeLdhCIntoA()
 {
     Address address = Address(mmu::IO_ADDRESS_START + c.getValue());
-    a.set(emulator.mmu.read(address));
+    a.set(busRead(address));
 }
 
 // LDHL
@@ -567,13 +567,13 @@ void CPU::opcodeLdhl()
 // LDI
 void CPU::opcodeLdi(ByteRegister &reg, const Address &address)
 {
-    reg.set(emulator.mmu.read(address));
+    reg.set(busRead(address));
     hl.increment();
 }
 
 void CPU::opcodeLdi(const Address &address, const ByteRegister &reg)
 {
-    emulator.mmu.write(address, reg.getValue());
+    busWrite(address, reg.getValue());
     hl.increment();
 }
 
@@ -610,7 +610,7 @@ void CPU::opcodeOr(const ByteRegister &reg)
 
 void CPU::opcodeOr(const Address &address)
 {
-    opcodeOrImpl(emulator.mmu.read(address));
+    opcodeOrImpl(busRead(address));
 }
 
 // POP
@@ -634,9 +634,9 @@ void CPU::opcodeRes(uint8_t bit, ByteRegister &reg)
 
 void CPU::opcodeRes(uint8_t bit, Address &&address)
 {
-    uint8_t value = emulator.mmu.read(address);
+    uint8_t value = busRead(address);
     uint8_t result = clearBit(value, bit);
-    emulator.mmu.write(address, result);
+    busWrite(address, result);
 }
 
 // RET
@@ -686,8 +686,8 @@ void CPU::opcodeRl(ByteRegister &reg)
 
 void CPU::opcodeRl(Address &&address)
 {
-    uint8_t result = opcodeRlImpl(emulator.mmu.read(address));
-    emulator.mmu.write(address, result);
+    uint8_t result = opcodeRlImpl(busRead(address));
+    busWrite(address, result);
 }
 
 // RLA
@@ -720,8 +720,8 @@ void CPU::opcodeRlc(ByteRegister &reg)
 
 void CPU::opcodeRlc(Address &&address)
 {
-    uint8_t result = opcodeRlcImpl(emulator.mmu.read(address));
-    emulator.mmu.write(address, result);
+    uint8_t result = opcodeRlcImpl(busRead(address));
+    busWrite(address, result);
 }
 
 // RLCA
@@ -756,8 +756,8 @@ void CPU::opcodeRr(ByteRegister &reg)
 
 void CPU::opcodeRr(Address &&address)
 {
-    uint8_t result = opcodeRrImpl(emulator.mmu.read(address));
-    emulator.mmu.write(address, result);
+    uint8_t result = opcodeRrImpl(busRead(address));
+    busWrite(address, result);
 }
 
 // RRA
@@ -790,8 +790,8 @@ void CPU::opcodeRrc(ByteRegister &reg)
 
 void CPU::opcodeRrc(Address &&address)
 {
-    uint8_t result = opcodeRrcImpl(emulator.mmu.read(address));
-    emulator.mmu.write(address, result);
+    uint8_t result = opcodeRrcImpl(busRead(address));
+    busWrite(address, result);
 }
 
 // RRCA
@@ -838,7 +838,7 @@ void CPU::opcodeSbc(ByteRegister &reg)
 
 void CPU::opcodeSbc(Address &&address)
 {
-    opcodeSbcImpl(emulator.mmu.read(address));
+    opcodeSbcImpl(busRead(address));
 }
 
 // SCF
@@ -858,9 +858,9 @@ void CPU::opcodeSet(uint8_t bit, ByteRegister &reg)
 
 void CPU::opcodeSet(uint8_t bit, Address &&address)
 {
-    uint8_t value = emulator.mmu.read(address);
+    uint8_t value = busRead(address);
     uint8_t result = setBit(value, bit);
-    emulator.mmu.write(address, result);
+    busWrite(address, result);
 }
 
 // SLA
@@ -885,8 +885,8 @@ void CPU::opcodeSla(ByteRegister &reg)
 
 void CPU::opcodeSla(Address &&address)
 {
-    uint8_t result = opcodeSlaImpl(emulator.mmu.read(address));
-    emulator.mmu.write(address, result);
+    uint8_t result = opcodeSlaImpl(busRead(address));
+    busWrite(address, result);
 }
 
 // SRA
@@ -914,8 +914,8 @@ void CPU::opcodeSra(ByteRegister &reg)
 
 void CPU::opcodeSra(Address &&address)
 {
-    uint8_t result = opcodeSraImpl(emulator.mmu.read(address));
-    emulator.mmu.write(address, result);
+    uint8_t result = opcodeSraImpl(busRead(address));
+    busWrite(address, result);
 }
 
 // SRL
@@ -940,8 +940,8 @@ void CPU::opcodeSrl(ByteRegister &reg)
 
 void CPU::opcodeSrl(Address &&address)
 {
-    uint8_t result = opcodeSrlImpl(emulator.mmu.read(address));
-    emulator.mmu.write(address, result);
+    uint8_t result = opcodeSrlImpl(busRead(address));
+    busWrite(address, result);
 }
 
 // STOP
@@ -985,7 +985,7 @@ void CPU::opcodeSub(ByteRegister &reg)
 
 void CPU::opcodeSub(Address &&address)
 {
-    opcodeSubImpl(emulator.mmu.read(address));
+    opcodeSubImpl(busRead(address));
 }
 
 // SWAP
@@ -1011,8 +1011,8 @@ void CPU::opcodeSwap(ByteRegister &reg)
 
 void CPU::opcodeSwap(Address &&address)
 {
-    uint8_t result = opcodeSwapImpl(emulator.mmu.read(address));
-    emulator.mmu.write(address, result);
+    uint8_t result = opcodeSwapImpl(busRead(address));
+    busWrite(address, result);
 }
 
 // XOR
@@ -1041,5 +1041,5 @@ void CPU::opcodeXor(const ByteRegister &reg)
 
 void CPU::opcodeXor(const Address &address)
 {
-    opcodeXorImpl(emulator.mmu.read(address));
+    opcodeXorImpl(busRead(address));
 }
