@@ -54,11 +54,22 @@ void PPU::write(const Address &address, uint8_t value)
     videoRAM.at(static_cast<size_t>(vramBank) * mmu::VRAM_BANK_SIZE + address.getValue()) = value;
 }
 
+// The PPU switches mode now. STAT shows it at the next M-cycle boundary: at
+// the end of this M-cycle if the switch fell partway through it (dots left
+// over in cycleCounter), otherwise one M-cycle later.
 void PPU::setMode(VideoMode mode)
 {
     currentMode = mode;
+    statModeDelay = ppu::STAT_MODE_DELAY;
+    if (cycleCounter > 0) showModeInSTAT();
+}
+
+// https://gbdev.io/pandocs/STAT.html#ff41--stat-lcd-status
+void PPU::showModeInSTAT()
+{
+    statModeDelay = 0;
     const uint8_t otherBits = lcdStatus.getValue() & static_cast<uint8_t>(~ppu::STAT_MODE_MASK);
-    lcdStatus.set(otherBits | static_cast<uint8_t>(mode));
+    lcdStatus.set(otherBits | static_cast<uint8_t>(currentMode));
 }
 
 // Recompute the IRQ48 combined signal and fire a STAT interrupt on the
@@ -111,9 +122,98 @@ void PPU::checkWindowYTrigger()
     }
 }
 
+// Whether the window appears on the current line: it is enabled, WY has
+// matched LY this frame, and WX puts it on screen
+bool PPU::windowShownOnLine() const
+{
+    return windowEnabled() && windowYTriggered &&
+        windowX.getValue() < common::GAMEBOY_WIDTH + ppu::WINDOW_X_OFFSET;
+}
+
+// Mode 3 lasts 172 dots plus the penalties Pan Docs lists: SCX % 8 for the
+// discarded pixels, 6 if the window starts, and 6 to 11 for each object drawn
+// https://gbdev.io/pandocs/Rendering.html#mode-3-length
+uint32_t PPU::calculateMode3Length() const
+{
+    const uint8_t scx = scrollX.getValue();
+    uint32_t length = ppu::CLOCKS_PER_SCANLINE_VRAM + scx % ppu::TILE_WIDTH_PX;
+
+    const bool window = windowShownOnLine();
+    const int32_t windowStart = static_cast<int32_t>(windowX.getValue()) - static_cast<int32_t>(ppu::WINDOW_X_OFFSET);
+    if (window) length += ppu::WINDOW_PENALTY;
+
+    if (!spritesEnabled()) return length;
+
+    // The objects the OAM scan found for this line: the first 10 in OAM order
+    const int32_t spriteHeight = usesLargeSprites() ? 16 : 8;
+    const int32_t currentLine = line.getValue();
+    std::vector<std::pair<uint8_t, uint8_t>> objects; // OAM X, OAM index
+    for (uint8_t i = 0; i < ppu::MAX_SPRITES && objects.size() < ppu::MAX_SPRITES_PER_LINE; ++i)
+    {
+        const uint16_t oamBase = mmu::OAM_ADDRESS_START + i * ppu::SPRITE_BYTES;
+        const int32_t spriteY = static_cast<int32_t>(emulator.mmu.read(Address(oamBase + ppu::OAM_SPRITE_Y_BYTE), true)) - ppu::SPRITE_Y_OFFSET;
+        if (currentLine >= spriteY && currentLine < spriteY + spriteHeight)
+            objects.emplace_back(emulator.mmu.read(Address(oamBase + ppu::OAM_SPRITE_X_BYTE), true), i);
+    }
+
+    // OBJ penalty algorithm: objects are considered from left to right,
+    // ties broken by OAM index
+    // https://gbdev.io/pandocs/Rendering.html#obj-penalty-algorithm
+    std::sort(objects.begin(), objects.end());
+    std::vector<int32_t> tilesConsidered;
+    for (const auto &object : objects)
+    {
+        const uint8_t oamX = object.first;
+        if (oamX >= common::GAMEBOY_WIDTH + ppu::SPRITE_X_OFFSET) continue; // Entirely off the right edge
+
+        // The background or window tile that the object's leftmost pixel is
+        // in, and how many of that tile's pixels are to its right. An object
+        // at OAM X = 0 is off the left edge, in a tile of its own whatever
+        // SCX is: the first one costs the 11 dots Pan Docs gives, and others
+        // at X = 0 share that tile, as mooneye's intr_2_mode0_timing_sprites
+        // shows.
+        int32_t tile = ppu::OBJ_X0_TILE;
+        int32_t pixelsToTheRight = static_cast<int32_t>(ppu::TILE_WIDTH_PX) - 1;
+        if (oamX != 0)
+        {
+            const int32_t pixel = static_cast<int32_t>(oamX) - ppu::SPRITE_X_OFFSET;
+            const bool inWindow = window && pixel >= windowStart;
+            const int32_t coordinate = inWindow ? pixel - windowStart : (pixel + scx) & (common::BACKGROUND_MAP_SIZE - 1);
+            tile = (inWindow ? ppu::OBJ_WINDOW_TILE_BASE : 0) + coordinate / static_cast<int32_t>(ppu::TILE_WIDTH_PX);
+            pixelsToTheRight = static_cast<int32_t>(ppu::TILE_WIDTH_PX) - 1 - coordinate % static_cast<int32_t>(ppu::TILE_WIDTH_PX);
+        }
+
+        // Waiting for that tile's fetch to finish, once per tile
+        if (std::find(tilesConsidered.begin(), tilesConsidered.end(), tile) == tilesConsidered.end())
+        {
+            tilesConsidered.push_back(tile);
+            length += static_cast<uint32_t>(std::max(0, pixelsToTheRight - static_cast<int32_t>(ppu::OBJ_BG_FETCH_ALLOWANCE)));
+        }
+        length += ppu::OBJ_FETCH_PENALTY;
+    }
+    return length;
+}
+
+// Starts drawing a line: mode 3 gets its length, and mode 0 the rest of the
+// line. lineLength and mode3Start are 456 and 80 except on the first line
+// after the LCD is switched on.
+void PPU::startMode3(uint32_t lineLength, uint32_t mode3Start)
+{
+    mode3Length = calculateMode3Length();
+    hblankLength = lineLength - mode3Start - mode3Length;
+    setMode(VideoMode::AccessVRAM);
+}
+
 void PPU::tick(Cycles cycles)
 {
     if (!displayEnabled()) return;
+
+    // STAT catches up with a mode change after STAT_MODE_DELAY dots
+    if (statModeDelay > 0)
+    {
+        statModeDelay = cycles.cycles >= statModeDelay ? 0 : statModeDelay - cycles.cycles;
+        if (statModeDelay == 0) showModeInSTAT();
+    }
 
     uint32_t elapsed = cycles.cycles;
 
@@ -134,10 +234,10 @@ void PPU::tick(Cycles cycles)
         vblankLine = 0;
         ly153EarlyZero = false;
         colorCache.fill(0);
-        // No OAM scan on this first line: go straight to drawing
-        setMode(VideoMode::AccessVRAM);
-        // Check WY trigger for line 0 immediately
+        // No OAM scan on this first line: go straight to drawing. The line is
+        // 4 dots short, and drawing starts LCD_ENABLE_DELAY dots in.
         checkWindowYTrigger();
+        startMode3(ppu::CLOCKS_PER_SCANLINE - ppu::LCD_ENABLE_FIRST_LINE_SHORTFALL, ppu::LCD_ENABLE_DELAY);
         compareLYToLYC();
         refreshStatSignal(true);
     }
@@ -151,7 +251,7 @@ void PPU::tick(Cycles cycles)
             if (cycleCounter >= ppu::CLOCKS_PER_SCANLINE_OAM)
             {
                 cycleCounter -= ppu::CLOCKS_PER_SCANLINE_OAM;
-                setMode(VideoMode::AccessVRAM);
+                startMode3(ppu::CLOCKS_PER_SCANLINE, ppu::CLOCKS_PER_SCANLINE_OAM);
                 refreshStatSignal(true);
             }
             break;
@@ -159,9 +259,9 @@ void PPU::tick(Cycles cycles)
 
         case VideoMode::AccessVRAM:
         {
-            if (cycleCounter >= ppu::CLOCKS_PER_SCANLINE_VRAM)
+            if (cycleCounter >= mode3Length)
             {
-                cycleCounter -= ppu::CLOCKS_PER_SCANLINE_VRAM;
+                cycleCounter -= mode3Length;
                 setMode(VideoMode::HBlank);
 
                 // Render this scanline at the transition to HBlank.
@@ -185,9 +285,9 @@ void PPU::tick(Cycles cycles)
 
         case VideoMode::HBlank:
         {
-            if (cycleCounter >= ppu::CLOCKS_PER_HBLANK)
+            if (cycleCounter >= hblankLength)
             {
-                cycleCounter -= ppu::CLOCKS_PER_HBLANK;
+                cycleCounter -= hblankLength;
 
                 line.increment();
 
@@ -286,6 +386,7 @@ void PPU::setControlByte(uint8_t value)
         irq48Signal = 0;
         // On disable, STAT mode bits go to 0 and coincidence flag is cleared.
         // LYC=0==LY=0 coincidence is set since both are 0 after disable.
+        showModeInSTAT();
         lcdStatus.setBitTo(ppu::STAT_COINCIDENCE_BIT, lyCompare.getValue() == 0);
         buffer.reset();
         colorCache.fill(0);
@@ -295,6 +396,7 @@ void PPU::setControlByte(uint8_t value)
         screenEnableDelay = ppu::LCD_ENABLE_DELAY;
         cycleCounter = 0;
         setMode(VideoMode::HBlank);
+        showModeInSTAT();
         line.set(0);
         // The coincidence flag and STAT interrupt are set up once the enable
         // delay expires and the PPU starts (in tick() above).

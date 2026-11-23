@@ -11,11 +11,23 @@
 
 namespace ppu
 {
-    static constexpr uint32_t CLOCKS_PER_HBLANK        = 204;  // Mode 0
+    // A scanline lasts 456 dots: mode 2 (OAM scan) takes 80, mode 3 (drawing)
+    // at least 172, and mode 0 (HBlank) the rest. Mode 3 runs longer with
+    // scrolling, the window and objects, which shortens mode 0 to match.
+    // https://gbdev.io/pandocs/Rendering.html#ppu-modes
+    static constexpr uint32_t CLOCKS_PER_HBLANK        = 204;  // Mode 0, with the shortest mode 3
     static constexpr uint32_t CLOCKS_PER_VBLANK        = 4560; // Mode 1
     static constexpr uint32_t CLOCKS_PER_SCANLINE_OAM  = 80;   // Mode 2
-    static constexpr uint32_t CLOCKS_PER_SCANLINE_VRAM = 172;  // Mode 3
-    
+    static constexpr uint32_t CLOCKS_PER_SCANLINE_VRAM = 172;  // Mode 3, at its shortest
+
+    // Mode 3 penalties
+    // https://gbdev.io/pandocs/Rendering.html#mode-3-length
+    static constexpr uint32_t WINDOW_PENALTY          = 6;  // Setting up the fetcher for the window
+    static constexpr uint32_t OBJ_FETCH_PENALTY       = 6;  // Fetching each object's tile
+    static constexpr int32_t OBJ_X0_TILE              = -1;    // The off-screen tile of objects at OAM X = 0
+    static constexpr int32_t OBJ_WINDOW_TILE_BASE     = 0x100; // Keeps window tiles apart from background ones
+    static constexpr uint32_t OBJ_BG_FETCH_ALLOWANCE  = 2;  // Subtracted from the pixels left in the tile
+
     static constexpr uint32_t CLOCKS_PER_SCANLINE = (CLOCKS_PER_SCANLINE_OAM + CLOCKS_PER_SCANLINE_VRAM + CLOCKS_PER_HBLANK);
     static constexpr uint32_t SCANLINES_PER_FRAME = 144;
     static constexpr uint32_t CLOCKS_PER_FRAME    = (CLOCKS_PER_SCANLINE * SCANLINES_PER_FRAME) + CLOCKS_PER_VBLANK;
@@ -29,6 +41,7 @@ namespace ppu
     // many clocks after the switch, so LY becomes 1 after 452 clocks
     // (76 + 172 + 204), as oam_bug/1-lcd_sync expects.
     static constexpr uint32_t LCD_ENABLE_DELAY = 76;
+    static constexpr uint32_t LCD_ENABLE_FIRST_LINE_SHORTFALL = 4;
     
     // LCDC (LCD control register) bits
     static constexpr uint8_t LCDC_DISPLAY_ENABLE_BIT      = 7;
@@ -58,6 +71,15 @@ namespace ppu
     static constexpr uint8_t IRQ48_VBLANK_BIT  = 1;
     static constexpr uint8_t IRQ48_OAM_BIT     = 2;
     static constexpr uint8_t IRQ48_LYC_BIT     = 3;
+
+    // The mode bits in STAT, and the CPU's VRAM and OAM locks that follow
+    // them, change at the first M-cycle boundary after the PPU itself changes
+    // mode: this many dots later when the change falls on a boundary. The
+    // STAT interrupt sources switch with the PPU, without the delay. Pan Docs
+    // doesn't give this detail; mooneye's intr_2_mode0_timing,
+    // intr_2_mode3_timing, intr_2_oam_ok_timing and
+    // intr_2_mode0_timing_sprites pin it down.
+    static constexpr uint32_t STAT_MODE_DELAY = 4;
 
     // Sprites per scanline limit
     static constexpr uint32_t MAX_SPRITES_PER_LINE = 10;
@@ -122,6 +144,11 @@ class PPU
 
         VideoMode currentMode = VideoMode::AccessOAM;
         uint32_t cycleCounter = 0;
+
+        // The current line's mode 3 and mode 0 lengths, set when mode 3 starts
+        uint32_t mode3Length = ppu::CLOCKS_PER_SCANLINE_VRAM;
+        uint32_t hblankLength = ppu::CLOCKS_PER_HBLANK;
+        uint32_t statModeDelay = 0; // Dots until STAT shows currentMode
         uint32_t screenEnableDelay = 0;
         uint8_t vramBank = 0;
         uint8_t objectPriorityMode = 0;
@@ -152,9 +179,13 @@ class PPU
         std::function<void(const FrameBuffer&)> vblankCallback;
 
         void setMode(VideoMode mode);
+        void showModeInSTAT();
         void refreshStatSignal(bool requestInterrupt);
         void compareLYToLYC();
         void checkWindowYTrigger();
+        bool windowShownOnLine() const;
+        uint32_t calculateMode3Length() const;
+        void startMode3(uint32_t lineLength, uint32_t mode3Start);
         void writeScanline(uint8_t currentLine);
         void drawBGLine(uint32_t currentLine);
         void drawWindowLine(uint32_t currentLine);
