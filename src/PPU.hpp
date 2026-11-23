@@ -112,6 +112,7 @@ namespace ppu
     static constexpr uint8_t LCD_OUTPUT_LATENCY = 3;
     static constexpr uint8_t LCD_PIPELINE_CAPACITY = 8;
     static constexpr uint8_t PALETTE_GLITCH_DOTS = 1;
+    static constexpr uint8_t LCD_CONTROL_OUTPUT_DELAY = 1; // LCDC bits 0 and 1 on the DMG
 
     // The VBlank interrupt and mode 1 STAT source at line 144, and the mode 2
     // STAT source at line 0, rise this many dots after their line starts; on
@@ -233,8 +234,10 @@ class PPU
         FetchStep fetchStep = FetchStep::Tile;
         uint8_t fetchStepDots = 0;      // Dots spent in the current step
         bool firstFetch = false;        // The line's first fetch, which is thrown away
+        bool fetcherStarting = false;   // The fetcher was just reset and waits a dot
         bool fetchingWindow = false;
         uint8_t fetcherX = 0;           // Tiles fetched since the line or the window started
+        uint16_t fetchAddress = 0;      // The VRAM address the current step reads
         uint8_t fetchedTile = 0;
         uint8_t fetchedAttributes = 0;
         uint8_t fetchedLow = 0;
@@ -246,6 +249,7 @@ class PPU
         uint8_t windowPixelsToDrop = 0; // Window pixels left of the screen when WX < 7
         int32_t windowStartX = 0;       // WX - 7 when the window started on this line
         uint32_t objectStall = 0;       // Dots the output still waits for an object fetch
+        uint8_t fetchingObject = 0;     // The OAM index of the object being fetched
 
         // Pixels on their way to the LCD
         struct LCDPixel { FifoPixel bg; FifoPixel object; uint8_t x; uint8_t dotsLeft; };
@@ -257,6 +261,11 @@ class PPU
         ByteRegister *glitchedPalette = nullptr;
         uint8_t glitchedPaletteValue = 0;
         uint8_t paletteGlitchDots = 0;
+
+        // LCDC as the LCD sees it: on the DMG, writes reach it a dot late
+        uint8_t outputControl = 0;
+        uint8_t pendingOutputControl = 0;
+        uint8_t outputControlDots = 0;
 
         std::array<uint8_t, ppu::MAX_SPRITES_PER_LINE> lineObjects{}; // OAM indexes, by X then index
         uint8_t lineObjectCount = 0;
@@ -307,7 +316,8 @@ class PPU
         bool startWindowIfReached();
         bool fetchObjectIfReached();
         uint32_t objectFetchDots(uint8_t oamX);
-        void mixObjectIntoFifo(uint8_t oamIndex);
+        uint8_t readObjectRow(uint8_t oamIndex, bool highByte);
+        void mixObjectIntoFifo(uint8_t oamIndex, uint8_t low, uint8_t high);
         void popPixel();
         void advanceLCD(uint32_t dots);
         void drawPixel(const LCDPixel &pixel);

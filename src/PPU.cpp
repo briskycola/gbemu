@@ -194,6 +194,7 @@ void PPU::startMode3(uint32_t length, uint32_t start)
     fetchStepDots = 0;
     firstFetch = true;
     fetchingWindow = false;
+    fetcherStarting = true;
     fetcherX = 0;
 
     mode3Dots = 0;
@@ -234,26 +235,33 @@ void PPU::runMode3()
     }
 }
 
-// One dot of mode 3: a pixel may be sent to the LCD, then the fetcher runs.
+// One dot of mode 3.
 // Returns true once the line's last pixel has been sent.
 bool PPU::stepMode3()
 {
     ++mode3Dots;
     advanceLCD(1);
-    bool lineDone = false;
 
     if (objectStall > 0)
     {
-        --objectStall;
-    }
-    else if (!startWindowIfReached() && bgFifoSize > 0 && !fetchObjectIfReached())
-    {
-        popPixel();
-        lineDone = pixelX == common::GAMEBOY_WIDTH;
+        // The object's row is read on the fetch's last dot, with the object
+        // size LCDC.2 has then (Mealybug Tearoom's captures)
+        if (--objectStall == 0)
+            mixObjectIntoFifo(fetchingObject, readObjectRow(fetchingObject, false), readObjectRow(fetchingObject, true));
+        stepFetcher();
+        return false;
     }
 
-    stepFetcher();
-    return lineDone;
+    // The fetcher runs first, then a pixel may be sent to the LCD. On the dot
+    // the fetcher (re)starts, at the start of the line or of the window, it
+    // doesn't run yet.
+    const bool windowStarted = startWindowIfReached();
+    if (fetcherStarting) fetcherStarting = false;
+    else stepFetcher();
+
+    if (windowStarted || bgFifoSize == 0 || fetchObjectIfReached()) return false;
+    popPixel();
+    return pixelX == common::GAMEBOY_WIDTH;
 }
 
 // The window starts when the pixel counter, which runs 7 ahead of the pixels
@@ -288,6 +296,7 @@ bool PPU::startWindowIfReached()
     fetchStep = FetchStep::Tile;
     fetchStepDots = 0;
     firstFetch = false;
+    fetcherStarting = true;
     fetcherX = 0;
     return true;
 }
@@ -305,36 +314,62 @@ void PPU::stepFetcher()
         return;
     }
 
+    // Each step takes 2 dots, and does its work on the second
     if (++fetchStepDots < ppu::FETCH_STEP_DOTS) return;
     fetchStepDots = 0;
 
+    // The VRAM address, from the registers as they are now
+    {
+        switch (fetchStep)
+        {
+            case FetchStep::Tile:
+            {
+                // Clearing LCDC.5 sends the fetcher back to the background
+                if (fetchingWindow && !windowEnabled()) fetchingWindow = false;
+
+                // The window uses the LCDC.6 tile map and its own row and
+                // column. The background uses the LCDC.3 tile map, at the
+                // column of the next pixel to be pushed (Pan Docs'
+                // ((SCX / 8) + fetcher X) & 31 while SCX doesn't change) and
+                // row (LY + SCY) & 255.
+                // https://gbdev.io/pandocs/pixel_fifo.html#get-tile
+                const bool highMap = fetchingWindow ? usesWindowTileMap() : usesBackgroundTileMap();
+                const uint16_t mapBase = (highMap ? ppu::TILE_MAP_ONE_ADDRESS : ppu::TILE_MAP_ZERO_ADDRESS).getValue() - mmu::VRAM_ADDRESS_START;
+                const int32_t nextPixel = static_cast<int32_t>(pixelX) + bgFifoSize - pixelsToDiscard;
+                const uint8_t tileX = fetchingWindow
+                    ? static_cast<uint8_t>(fetcherX & (ppu::TILES_PER_LINE - 1))
+                    : static_cast<uint8_t>(((scrollX.getValue() + nextPixel) / static_cast<int32_t>(ppu::TILE_WIDTH_PX)) & (ppu::TILES_PER_LINE - 1));
+                const uint8_t y = fetchingWindow ? windowRow : static_cast<uint8_t>(line.getValue() + scrollY.getValue());
+                fetchAddress = static_cast<uint16_t>(mapBase + (y / ppu::TILE_HEIGHT_PX) * ppu::TILES_PER_LINE + tileX);
+                break;
+            }
+            case FetchStep::DataLow:
+                fetchAddress = tileDataAddress(fetchedTile, fetchedAttributes, false);
+                break;
+            case FetchStep::DataHigh:
+                fetchAddress = tileDataAddress(fetchedTile, fetchedAttributes, true);
+                break;
+            case FetchStep::Push:
+                break;
+        }
+    }
+
+    const uint8_t bank = getBitValue(fetchedAttributes, ppu::ATTRIBUTE_VRAM_BANK_BIT);
     switch (fetchStep)
     {
         case FetchStep::Tile:
-        {
-            // The window uses the LCDC.6 tile map and its own row and column.
-            // The background uses the LCDC.3 tile map, at
-            // ((SCX / 8) + fetcher X) & 31 and (LY + SCY) & 255.
-            // https://gbdev.io/pandocs/pixel_fifo.html#get-tile
-            const bool highMap = fetchingWindow ? usesWindowTileMap() : usesBackgroundTileMap();
-            const uint16_t mapBase = (highMap ? ppu::TILE_MAP_ONE_ADDRESS : ppu::TILE_MAP_ZERO_ADDRESS).getValue() - mmu::VRAM_ADDRESS_START;
-            const uint8_t tileX = fetchingWindow
-                ? static_cast<uint8_t>(fetcherX & (ppu::TILES_PER_LINE - 1))
-                : static_cast<uint8_t>(((scrollX.getValue() / ppu::TILE_WIDTH_PX) + fetcherX) & (ppu::TILES_PER_LINE - 1));
-            const uint8_t y = fetchingWindow ? windowRow : static_cast<uint8_t>(line.getValue() + scrollY.getValue());
-            const uint16_t mapAddress = static_cast<uint16_t>(mapBase + (y / ppu::TILE_HEIGHT_PX) * ppu::TILES_PER_LINE + tileX);
-            // Tile numbers live in VRAM bank 0 and attributes in bank 1
-            fetchedTile = readVRAMBank(mapAddress, 0);
-            fetchedAttributes = emulator.cgbMode ? readVRAMBank(mapAddress, 1) : 0;
+            // Tile numbers live in VRAM bank 0 and attributes in bank 1, and
+            // the CGB reads both at once
+            fetchedTile = readVRAMBank(fetchAddress, 0);
+            fetchedAttributes = emulator.cgbMode ? readVRAMBank(fetchAddress, 1) : 0;
             fetchStep = FetchStep::DataLow;
             break;
-        }
         case FetchStep::DataLow:
-            fetchedLow = readVRAMBank(tileDataAddress(fetchedTile, fetchedAttributes, false), getBitValue(fetchedAttributes, ppu::ATTRIBUTE_VRAM_BANK_BIT));
+            fetchedLow = readVRAMBank(fetchAddress, bank);
             fetchStep = FetchStep::DataHigh;
             break;
         case FetchStep::DataHigh:
-            fetchedHigh = readVRAMBank(tileDataAddress(fetchedTile, fetchedAttributes, true), getBitValue(fetchedAttributes, ppu::ATTRIBUTE_VRAM_BANK_BIT));
+            fetchedHigh = readVRAMBank(fetchAddress, bank);
             fetchStep = FetchStep::Push;
             pushTileRow();
             break;
@@ -410,8 +445,8 @@ bool PPU::fetchObjectIfReached()
         ++nextLineObject;
         if (!spritesEnabled() && !emulator.cgbMode) continue;
 
-        mixObjectIntoFifo(index);
         // This dot is the first of the fetch
+        fetchingObject = index;
         objectStall = objectFetchDots(oamX) - 1;
         return true;
     }
@@ -455,11 +490,11 @@ uint32_t PPU::objectFetchDots(uint8_t oamX)
 // which win.) On the CGB the tile can come from VRAM bank 1 and be flipped.
 // https://gbdev.io/pandocs/pixel_fifo.html#sprites
 // https://gbdev.io/pandocs/OAM.html#drawing-priority
-void PPU::mixObjectIntoFifo(uint8_t oamIndex)
+// Reads one byte of an object's row, with the object size LCDC.2 has now
+uint8_t PPU::readObjectRow(uint8_t oamIndex, bool highByte)
 {
     const uint16_t oamBase = mmu::OAM_ADDRESS_START + oamIndex * ppu::SPRITE_BYTES;
     const uint8_t oamY = emulator.mmu.read(Address(oamBase + ppu::OAM_SPRITE_Y_BYTE), true);
-    const uint8_t oamX = emulator.mmu.read(Address(oamBase + ppu::OAM_SPRITE_X_BYTE), true);
     uint8_t tile = emulator.mmu.read(Address(oamBase + ppu::OAM_SPRITE_TILE_BYTE), true);
     const uint8_t attributes = emulator.mmu.read(Address(oamBase + ppu::OAM_SPRITE_ATTRIBUTE_BYTE), true);
 
@@ -473,8 +508,14 @@ void PPU::mixObjectIntoFifo(uint8_t oamIndex)
 
     const uint8_t bank = emulator.cgbMode ? getBitValue(attributes, ppu::ATTRIBUTE_VRAM_BANK_BIT) : 0;
     const uint16_t address = static_cast<uint16_t>(tile * ppu::TILE_BYTES + row * ppu::TILE_BYTES_PER_ROW);
-    const uint8_t low = readVRAMBank(address, bank);
-    const uint8_t high = readVRAMBank(static_cast<uint16_t>(address + 1), bank);
+    return readVRAMBank(static_cast<uint16_t>(address + (highByte ? 1 : 0)), bank);
+}
+
+void PPU::mixObjectIntoFifo(uint8_t oamIndex, uint8_t low, uint8_t high)
+{
+    const uint16_t oamBase = mmu::OAM_ADDRESS_START + oamIndex * ppu::SPRITE_BYTES;
+    const uint8_t oamX = emulator.mmu.read(Address(oamBase + ppu::OAM_SPRITE_X_BYTE), true);
+    const uint8_t attributes = emulator.mmu.read(Address(oamBase + ppu::OAM_SPRITE_ATTRIBUTE_BYTE), true);
 
     while (objFifoSize < ppu::OBJ_FIFO_PIXELS) objFifo[objFifoSize++] = FifoPixel{};
 
@@ -537,7 +578,7 @@ void PPU::popPixel()
 // that arrive. Each dot also ends a DMG palette write's glitch dot.
 void PPU::advanceLCD(uint32_t dots)
 {
-    for (uint32_t dot = 0; dot < dots && (lcdPipelineSize > 0 || paletteGlitchDots > 0); ++dot)
+    for (uint32_t dot = 0; dot < dots && (lcdPipelineSize > 0 || paletteGlitchDots > 0 || outputControlDots > 0); ++dot)
     {
         for (uint8_t i = 0; i < lcdPipelineSize; ++i) --lcdPipeline[(lcdPipelineHead + i) % ppu::LCD_PIPELINE_CAPACITY].dotsLeft;
         while (lcdPipelineSize > 0 && lcdPipeline[lcdPipelineHead].dotsLeft == 0)
@@ -547,6 +588,7 @@ void PPU::advanceLCD(uint32_t dots)
             --lcdPipelineSize;
         }
         if (paletteGlitchDots > 0 && --paletteGlitchDots == 0) finishPaletteWrite();
+        if (outputControlDots > 0 && --outputControlDots == 0) outputControl = pendingOutputControl;
     }
 }
 
@@ -561,17 +603,18 @@ void PPU::drawPixel(const LCDPixel &pixel)
     // On the DMG, LCDC.0 clear makes the background and window white. On the
     // CGB it instead takes away their priority over objects.
     // https://gbdev.io/pandocs/LCDC.html#lcdc0--bg-and-window-enablepriority
-    const bool bgShown = emulator.cgbMode || bgEnabled();
+    const bool bgOn = checkBit(outputControl, ppu::LCDC_BG_ENABLE_BIT);
+    const bool bgShown = emulator.cgbMode || bgOn;
     const uint8_t bgColor = bgShown ? bg.color : 0;
 
     // An object pixel is drawn unless it is transparent, objects are off, or
     // the background pixel is not color 0 and has priority: through the
     // object's OBJ-to-BG bit, or on the CGB the tile's own priority bit.
     // https://gbdev.io/pandocs/Tile_Maps.html#bg-to-obj-priority-in-cgb-mode
-    bool objectWins = object.color != 0 && spritesEnabled();
+    bool objectWins = object.color != 0 && checkBit(outputControl, ppu::LCDC_SPRITES_ENABLE_BIT);
     if (objectWins && bgColor != 0)
     {
-        const bool bgPriority = emulator.cgbMode ? bgEnabled() && (object.bgPriority || bg.bgPriority) : object.bgPriority;
+        const bool bgPriority = emulator.cgbMode ? bgOn && (object.bgPriority || bg.bgPriority) : object.bgPriority;
         if (bgPriority) objectWins = false;
     }
 
@@ -850,6 +893,23 @@ void PPU::setControlByte(uint8_t value)
     if (emulator.cgbMode && windowEnabled() && !checkBit(value, ppu::LCDC_WINDOW_ENABLE_BIT)) windowYTriggered = false;
 
     controlByte = value;
+
+    // LCDC bits 0 and 1 reach the LCD a dot later on the DMG, except that
+    // clearing bit 1 before the LCD has drawn the line's first pixel takes
+    // effect at once (Mealybug Tearoom's captures; SameBoy does the same)
+    if (displayEnabled() && wasEnabled && !emulator.cgbMode)
+    {
+        pendingOutputControl = value;
+        outputControlDots = ppu::LCD_CONTROL_OUTPUT_DELAY;
+        const bool firstPixelNext = currentMode == VideoMode::AccessVRAM && pixelX == lcdPipelineSize;
+        if (firstPixelNext && !checkBit(value, ppu::LCDC_SPRITES_ENABLE_BIT))
+            outputControl = setBitTo(outputControl, ppu::LCDC_SPRITES_ENABLE_BIT, false);
+    }
+    else
+    {
+        outputControl = value;
+        outputControlDots = 0;
+    }
 
     if (wasEnabled && !nowEnabled)
     {
