@@ -44,7 +44,7 @@ void APU::disableIfDacOff(NoiseChannel &channel, uint8_t envelopeReg)
 void APU::triggerSquare(SquareChannel &channel, bool hasSweep, uint8_t sweepReg)
 {
     const uint16_t envelopeRegister = &channel == &square1 ? io::CHANNEL1_ENVELOPE_REGISTER : io::CHANNEL2_ENVELOPE_REGISTER;
-    if (channel.length == 0) channel.length = apu::SQUARE_NOISE_MAX_LENGTH;
+    reloadLengthOnTrigger(channel, apu::SQUARE_NOISE_MAX_LENGTH);
 
     channel.enabled = (reg(envelopeRegister) & apu::DAC_ENABLE_MASK) != 0;
     channel.timer = squarePeriod(channel);
@@ -59,30 +59,22 @@ void APU::triggerSquare(SquareChannel &channel, bool hasSweep, uint8_t sweepReg)
 
     if (hasSweep)
     {
+        // Copy the frequency, reload the timer and enable the sweep if
+        // its period or shift is nonzero. A nonzero shift also runs the
+        // calculation and overflow check right away.
         const uint8_t shift = sweepReg & apu::SWEEP_SHIFT_MASK;
-        const bool negate = checkBit(sweepReg, apu::SWEEP_NEGATE_BIT);
-
+        const uint8_t period = (sweepReg >> apu::SWEEP_PERIOD_SHIFT) & apu::SWEEP_PERIOD_MASK;
         sweepShadowFrequency = channel.frequency;
-        sweepTimer = (sweepReg >> apu::SWEEP_PERIOD_SHIFT) & apu::SWEEP_PERIOD_MASK;
-
-        if (sweepTimer == 0) sweepTimer = apu::ZERO_PERIOD_VALUE;
-        sweepEnabled = ((sweepReg & apu::SWEEP_PERIOD_BITS_MASK) != 0) || (shift != 0);
+        sweepTimer = period ? period : apu::ZERO_PERIOD_VALUE;
+        sweepEnabled = period != 0 || shift != 0;
         sweepNegateUsed = false;
-        if (shift != 0)
-        {
-            const uint16_t delta = sweepShadowFrequency >> shift;
-            const int calculated = negate
-                ? static_cast<int>(sweepShadowFrequency) - delta
-                : static_cast<int>(sweepShadowFrequency) + delta;
-            if (calculated > apu::MAX_PERIOD) channel.enabled = false;
-            if (negate) sweepNegateUsed = true;
-        }
+        if (shift != 0) calculateSweep(sweepReg);
     }
 }
 
 void APU::triggerWave()
 {
-    if (wave.length == 0) wave.length = apu::WAVE_MAX_LENGTH;
+    reloadLengthOnTrigger(wave, apu::WAVE_MAX_LENGTH);
     wave.enabled = checkBit(reg(io::CHANNEL3_DAC_ENABLE_REGISTER), apu::WAVE_DAC_ENABLE_BIT);
     wave.timer = wavePeriod();
     wave.position = 0;
@@ -90,7 +82,7 @@ void APU::triggerWave()
 
 void APU::triggerNoise()
 {
-    if (noise.length == 0) noise.length = apu::SQUARE_NOISE_MAX_LENGTH;
+    reloadLengthOnTrigger(noise, apu::SQUARE_NOISE_MAX_LENGTH);
     noise.enabled = (reg(io::CHANNEL4_ENVELOPE_REGISTER) & apu::DAC_ENABLE_MASK) != 0;
     noise.timer = noisePeriod();
     noise.lfsr = apu::LFSR_RESET_VALUE;
@@ -101,6 +93,36 @@ void APU::triggerNoise()
     noise.envelopeIncrease = checkBit(envelope, apu::ENVELOPE_INCREASE_BIT);
     noise.envelopePeriod = envelope & apu::ENVELOPE_PERIOD_MASK;
     noise.envelopeTimer = noise.envelopePeriod ? noise.envelopePeriod : apu::ZERO_PERIOD_VALUE;
+}
+
+// Whether the next frame sequencer step is one that doesn't clock the
+// length counters (the odd steps), i.e. we are in the second half of a
+// length period
+bool APU::nextStepSkipsLength() const
+{
+    return (frameSequencerStep & 1) != 0;
+}
+
+// Updates a channel's length enable from an NRx4 write. Enabling it while
+// the next frame sequencer step won't clock length clocks it once now; if
+// that takes it to zero and the write doesn't trigger, the channel stops.
+void APU::writeLengthEnable(LengthChannel &channel, uint8_t value)
+{
+    const bool wasEnabled = channel.lengthEnabled;
+    channel.lengthEnabled = checkBit(value, apu::LENGTH_ENABLE_BIT);
+    if (!wasEnabled && channel.lengthEnabled && nextStepSkipsLength() && channel.length > 0)
+    {
+        if (--channel.length == 0 && !checkBit(value, apu::TRIGGER_BIT)) channel.enabled = false;
+    }
+}
+
+// A trigger reloads a length that reached zero with the maximum. If length
+// is enabled and the next step won't clock it, it is clocked once as well.
+void APU::reloadLengthOnTrigger(LengthChannel &channel, uint16_t maxLength)
+{
+    if (channel.length != 0) return;
+    channel.length = maxLength;
+    if (channel.lengthEnabled && nextStepSkipsLength()) --channel.length;
 }
 
 void APU::clockLength()
@@ -142,41 +164,49 @@ void APU::clockEnvelopes()
     }
 }
 
+// Calculates the next sweep frequency from the shadow copy and runs the
+// overflow check, which disables channel 1 above 2047. Using subtract mode
+// here is remembered, since leaving it afterwards also disables the channel.
+int APU::calculateSweep(uint8_t sweepReg)
+{
+    const uint8_t shift = sweepReg & apu::SWEEP_SHIFT_MASK;
+    const int delta = sweepShadowFrequency >> shift;
+    int calculated = sweepShadowFrequency + delta;
+    if (checkBit(sweepReg, apu::SWEEP_NEGATE_BIT))
+    {
+        calculated = sweepShadowFrequency - delta;
+        sweepNegateUsed = true;
+    }
+    if (calculated > apu::MAX_PERIOD) square1.enabled = false;
+    return calculated;
+}
+
 void APU::clockSweep()
 {
     if (sweepTimer > 0) --sweepTimer;
     if (sweepTimer != 0) return;
 
     const uint8_t sweep = reg(io::CHANNEL1_SWEEP_REGISTER);
-    const bool negate = checkBit(sweep, apu::SWEEP_NEGATE_BIT);
-    sweepTimer = (sweep >> apu::SWEEP_PERIOD_SHIFT) & apu::SWEEP_PERIOD_MASK;
-    if (sweepTimer == 0) sweepTimer = apu::ZERO_PERIOD_VALUE;
+    const uint8_t period = (sweep >> apu::SWEEP_PERIOD_SHIFT) & apu::SWEEP_PERIOD_MASK;
+    sweepTimer = period ? period : apu::ZERO_PERIOD_VALUE;
+
+    // A period of 0 reloads the timer as 8 but never calculates
+    if (!sweepEnabled || period == 0) return;
+
+    // The calculation and overflow check happen even with a shift of 0,
+    // but only a nonzero shift writes the result back
+    const int calculated = calculateSweep(sweep);
     const uint8_t shift = sweep & apu::SWEEP_SHIFT_MASK;
-    if (!sweepEnabled || shift == 0) return;
+    if (calculated > apu::MAX_PERIOD || shift == 0) return;
 
-    const uint16_t delta = sweepShadowFrequency >> shift;
-    const int calculated = negate
-        ? static_cast<int>(sweepShadowFrequency) - delta
-        : static_cast<int>(sweepShadowFrequency) + delta;
-    if (negate) sweepNegateUsed = true;
-    if (calculated > apu::MAX_PERIOD || calculated < 0)
-    {
-        square1.enabled = false;
-        return;
-    }
-
-    // Write the new period back into NR13 and the low bits of NR14
+    // Write the new period back into the shadow copy, NR13 and the low
+    // bits of NR14, then calculate again just for the overflow check
     sweepShadowFrequency = static_cast<uint16_t>(calculated);
     square1.frequency = sweepShadowFrequency;
     setReg(io::CHANNEL1_PERIOD_LOW_REGISTER, static_cast<uint8_t>(calculated));
     setReg(io::CHANNEL1_CONTROL_REGISTER, static_cast<uint8_t>((reg(io::CHANNEL1_CONTROL_REGISTER) & ~apu::PERIOD_HIGH_BITS_MASK) |
                                                          ((calculated >> 8) & apu::PERIOD_HIGH_BITS_MASK)));
-
-    const uint16_t nextDelta = sweepShadowFrequency >> shift;
-    const int next = negate
-        ? static_cast<int>(sweepShadowFrequency) - nextDelta
-        : static_cast<int>(sweepShadowFrequency) + nextDelta;
-    if (next > apu::MAX_PERIOD || next < 0) square1.enabled = false;
+    calculateSweep(sweep);
 }
 
 void APU::clockFrameSequencer()
@@ -445,7 +475,7 @@ void APU::write(uint16_t address, uint8_t value)
         case io::CHANNEL1_PERIOD_LOW_REGISTER: square1.frequency = (square1.frequency & apu::PERIOD_HIGH_MASK) | value; break;
         case io::CHANNEL1_CONTROL_REGISTER:
             square1.frequency = (square1.frequency & 0xFF) | ((value & apu::PERIOD_HIGH_BITS_MASK) << 8);
-            square1.lengthEnabled = checkBit(value, apu::LENGTH_ENABLE_BIT);
+            writeLengthEnable(square1, value);
             if (checkBit(value, apu::TRIGGER_BIT)) triggerSquare(square1, true, reg(io::CHANNEL1_SWEEP_REGISTER));
             break;
         case io::CHANNEL2_LENGTH_DUTY_REGISTER: square2.length = apu::SQUARE_NOISE_MAX_LENGTH - (value & apu::LENGTH_MASK); break;
@@ -453,7 +483,7 @@ void APU::write(uint16_t address, uint8_t value)
         case io::CHANNEL2_PERIOD_LOW_REGISTER: square2.frequency = (square2.frequency & apu::PERIOD_HIGH_MASK) | value; break;
         case io::CHANNEL2_CONTROL_REGISTER:
             square2.frequency = (square2.frequency & 0xFF) | ((value & apu::PERIOD_HIGH_BITS_MASK) << 8);
-            square2.lengthEnabled = checkBit(value, apu::LENGTH_ENABLE_BIT);
+            writeLengthEnable(square2, value);
             if (checkBit(value, apu::TRIGGER_BIT)) triggerSquare(square2, false, 0);
             break;
         case io::CHANNEL3_DAC_ENABLE_REGISTER: if (!checkBit(value, apu::WAVE_DAC_ENABLE_BIT)) wave.enabled = false; break;
@@ -462,14 +492,14 @@ void APU::write(uint16_t address, uint8_t value)
         case io::CHANNEL3_PERIOD_LOW_REGISTER: wave.frequency = (wave.frequency & apu::PERIOD_HIGH_MASK) | value; break;
         case io::CHANNEL3_CONTROL_REGISTER:
             wave.frequency = (wave.frequency & 0xFF) | ((value & apu::PERIOD_HIGH_BITS_MASK) << 8);
-            wave.lengthEnabled = checkBit(value, apu::LENGTH_ENABLE_BIT);
+            writeLengthEnable(wave, value);
             if (checkBit(value, apu::TRIGGER_BIT)) triggerWave();
             break;
         case io::CHANNEL4_LENGTH_REGISTER: noise.length = apu::SQUARE_NOISE_MAX_LENGTH - (value & apu::LENGTH_MASK); break;
         case io::CHANNEL4_ENVELOPE_REGISTER: disableIfDacOff(noise, value); break;
         case io::CHANNEL4_FREQUENCY_REGISTER: break;
         case io::CHANNEL4_CONTROL_REGISTER:
-            noise.lengthEnabled = checkBit(value, apu::LENGTH_ENABLE_BIT);
+            writeLengthEnable(noise, value);
             if (checkBit(value, apu::TRIGGER_BIT)) triggerNoise();
             break;
         default: break;

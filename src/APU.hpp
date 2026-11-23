@@ -116,14 +116,20 @@ namespace apu
 class APU
 {
     private:
-        struct SquareChannel
+        // What every channel has: whether it is playing, and its length timer
+        // https://gbdev.io/pandocs/Audio.html#length-timer
+        struct LengthChannel
         {
             bool enabled = false;
+            uint16_t length = 0;
+            bool lengthEnabled = false;
+        };
+
+        struct SquareChannel : public LengthChannel
+        {
             uint16_t frequency = 0;
             uint32_t timer = 0;
             uint8_t dutyPosition = 0;
-            uint16_t length = 0;
-            bool lengthEnabled = false;
             uint8_t initialVolume = 0;
             uint8_t volume = 0;
             uint8_t envelopePeriod = 0;
@@ -131,23 +137,17 @@ class APU
             bool envelopeIncrease = false;
         };
 
-        struct WaveChannel
+        struct WaveChannel : public LengthChannel
         {
-            bool enabled = false;
             uint16_t frequency = 0;
             uint32_t timer = 0;
             uint8_t position = 0;
-            uint16_t length = 0;
-            bool lengthEnabled = false;
         };
 
-        struct NoiseChannel
+        struct NoiseChannel : public LengthChannel
         {
-            bool enabled = false;
             uint32_t timer = 0;
             uint16_t lfsr = 0x7FFF; // All 15 bits set
-            uint16_t length = 0;
-            bool lengthEnabled = false;
             uint8_t initialVolume = 0;
             uint8_t volume = 0;
             uint8_t envelopePeriod = 0;
@@ -190,6 +190,10 @@ class APU
         void clockLength();
         void clockEnvelopes();
         void clockSweep();
+        int calculateSweep(uint8_t sweepReg);
+        bool nextStepSkipsLength() const;
+        void writeLengthEnable(LengthChannel &channel, uint8_t value);
+        void reloadLengthOnTrigger(LengthChannel &channel, uint16_t maxLength);
         void clockOscillators();
         void accumulateSample();
         void emitSample();
