@@ -77,22 +77,22 @@ void PPU::showModeInSTAT()
 // each interrupt source (HBlank, VBlank, OAM, LYC) is AND-ed with its enable
 // bit, and the results are OR-ed. The CPU receives a pulse only when the
 // combined result transitions from 0 to non-zero.
+// https://gbdev.io/pandocs/Interrupt_Sources.html#int-48--stat-interrupt
 void PPU::refreshStatSignal(bool requestInterrupt)
 {
-    uint8_t signal = 0;
+    // With the PPU off nothing drives the sources, so the line keeps its level
+    if (!displayEnabled()) return;
 
-    if (displayEnabled())
-    {
-        const uint8_t stat = lcdStatus.getValue();
-        if (checkBit(stat, ppu::STAT_HBLANK_INTERRUPT_BIT) && currentMode == VideoMode::HBlank)
-            signal = setBit(signal, ppu::IRQ48_HBLANK_BIT);
-        if (checkBit(stat, ppu::STAT_VBLANK_INTERRUPT_BIT) && currentMode == VideoMode::VBlank)
-            signal = setBit(signal, ppu::IRQ48_VBLANK_BIT);
-        if (checkBit(stat, ppu::STAT_OAM_INTERRUPT_BIT) && currentMode == VideoMode::AccessOAM)
-            signal = setBit(signal, ppu::IRQ48_OAM_BIT);
-        if (checkBit(stat, ppu::STAT_LYC_INTERRUPT_BIT) && checkBit(lcdStatus.getValue(), ppu::STAT_COINCIDENCE_BIT))
-            signal = setBit(signal, ppu::IRQ48_LYC_BIT);
-    }
+    uint8_t signal = 0;
+    const uint8_t stat = lcdStatus.getValue();
+    if (checkBit(stat, ppu::STAT_HBLANK_INTERRUPT_BIT) && currentMode == VideoMode::HBlank)
+        signal = setBit(signal, ppu::IRQ48_HBLANK_BIT);
+    if (checkBit(stat, ppu::STAT_VBLANK_INTERRUPT_BIT) && currentMode == VideoMode::VBlank)
+        signal = setBit(signal, ppu::IRQ48_VBLANK_BIT);
+    if (checkBit(stat, ppu::STAT_OAM_INTERRUPT_BIT) && (currentMode == VideoMode::AccessOAM || line144OAMPulse))
+        signal = setBit(signal, ppu::IRQ48_OAM_BIT);
+    if (checkBit(stat, ppu::STAT_LYC_INTERRUPT_BIT) && checkBit(stat, ppu::STAT_COINCIDENCE_BIT))
+        signal = setBit(signal, ppu::IRQ48_LYC_BIT);
 
     if (requestInterrupt && (irq48Signal == 0) && (signal != 0))
     {
@@ -103,6 +103,40 @@ void PPU::refreshStatSignal(bool requestInterrupt)
 }
 
 // Update LY==LYC flag and fire STAT if needed.
+// Writing STAT sets its interrupt selects, which can raise the STAT line.
+// On the DMG the write first acts as if $FF were written, so it can request
+// a spurious interrupt during OAM scan, HBlank, VBlank or LY=LYC.
+// https://gbdev.io/pandocs/STAT.html#spurious-stat-interrupts
+void PPU::writeSTAT(uint8_t value)
+{
+    const uint8_t readOnly = lcdStatus.getValue() & ppu::STAT_READ_ONLY_MASK;
+    if (!emulator.cgbMode)
+    {
+        lcdStatus.set(readOnly | ppu::STAT_INTERRUPT_ENABLE_MASK | ppu::STAT_UNUSED_BITS);
+        refreshStatSignal(true);
+    }
+    lcdStatus.set(readOnly | (value & ppu::STAT_INTERRUPT_ENABLE_MASK) | ppu::STAT_UNUSED_BITS);
+    refreshStatSignal(true);
+}
+
+// LY=LYC is constantly compared while the PPU runs, so a new LYC takes
+// effect at once
+// https://gbdev.io/pandocs/STAT.html#ff45--lyc-ly-compare
+void PPU::writeLYC(uint8_t value)
+{
+    lyCompare.set(value);
+    compareLYToLYC();
+}
+
+// When LY changes the LY=LYC flag reads 0 at once, and compares the new LY
+// one M-cycle later
+void PPU::startLYCompare()
+{
+    lcdStatus.setBitTo(ppu::STAT_COINCIDENCE_BIT, false);
+    refreshStatSignal(true);
+    lyCompareDelay = ppu::LY_COMPARE_DELAY;
+}
+
 void PPU::compareLYToLYC()
 {
     if (!displayEnabled()) return;
@@ -208,6 +242,13 @@ void PPU::tick(Cycles cycles)
 {
     if (!displayEnabled()) return;
 
+    // The LY=LYC flag compares a new LY one M-cycle after LY changes
+    if (lyCompareDelay > 0)
+    {
+        lyCompareDelay = cycles.cycles >= lyCompareDelay ? 0 : lyCompareDelay - cycles.cycles;
+        if (lyCompareDelay == 0) compareLYToLYC();
+    }
+
     // STAT catches up with a mode change after STAT_MODE_DELAY dots
     if (statModeDelay > 0)
     {
@@ -224,10 +265,12 @@ void PPU::tick(Cycles cycles)
             screenEnableDelay -= elapsed;
             return;
         }
-        // Only the clocks past the end of the delay count toward mode 3
-        elapsed -= screenEnableDelay;
+        // Only the clocks past the end of the delay count toward mode 3. They
+        // go into cycleCounter now, so mode 3 knows it started partway through
+        // this M-cycle.
+        cycleCounter = elapsed - screenEnableDelay;
+        elapsed = 0;
         screenEnableDelay = 0;
-        cycleCounter = 0;
         line.set(0);
         windowLine = 0;
         windowYTriggered = false;
@@ -309,13 +352,19 @@ void PPU::tick(Cycles cycles)
                     windowLine = 0;
                     windowYTriggered = false;
 
-                    compareLYToLYC();
+                    // On the DMG, line 144 starts with a mode 2 pulse, so the
+                    // mode 2 STAT interrupt also fires when VBlank begins.
+                    // (mooneye's vblank_stat_intr-GS; the CGB doesn't do this.)
+                    line144OAMPulse = !emulator.cgbMode;
+                    startLYCompare();
+                    refreshStatSignal(true);
+                    line144OAMPulse = false;
                     refreshStatSignal(true);
                 }
                 else
                 {
                     setMode(VideoMode::AccessOAM);
-                    compareLYToLYC();
+                    startLYCompare();
                     // Check WY trigger for the newly started line
                     checkWindowYTrigger();
                     refreshStatSignal(true);
@@ -358,7 +407,7 @@ void PPU::tick(Cycles cycles)
                     if (!ly153EarlyZero)
                     {
                         line.increment();
-                        compareLYToLYC();
+                        startLYCompare();
                     }
                 }
             }
@@ -383,11 +432,10 @@ void PPU::setControlByte(uint8_t value)
         windowYTriggered = false;
         vblankLine = 0;
         ly153EarlyZero = false;
-        irq48Signal = 0;
-        // On disable, STAT mode bits go to 0 and coincidence flag is cleared.
-        // LYC=0==LY=0 coincidence is set since both are 0 after disable.
+        lyCompareDelay = 0;
+        // STAT reads mode 0 while the PPU is off. The LY=LYC flag and the STAT
+        // line keep their values: nothing updates them until it is back on.
         showModeInSTAT();
-        lcdStatus.setBitTo(ppu::STAT_COINCIDENCE_BIT, lyCompare.getValue() == 0);
         buffer.reset();
         colorCache.fill(0);
     }
@@ -398,24 +446,46 @@ void PPU::setControlByte(uint8_t value)
         setMode(VideoMode::HBlank);
         showModeInSTAT();
         line.set(0);
-        // The coincidence flag and STAT interrupt are set up once the enable
-        // delay expires and the PPU starts (in tick() above).
+
+        // The LY=LYC comparison runs again from now, with LY at 0
+        compareLYToLYC();
     }
 }
 
 bool PPU::displayEnabled() const { return checkBit(controlByte, ppu::LCDC_DISPLAY_ENABLE_BIT); }
+// The CPU can't reach VRAM during mode 3, or OAM during modes 2 and 3. A lock
+// starts as soon as the PPU enters the mode, but ends only once STAT shows
+// the next one (mooneye's lcdon_timing-GS hardware tables).
+// https://gbdev.io/pandocs/Rendering.html#ppu-modes
 bool PPU::cpuCanAccessVRAM() const
 {
-    const uint8_t mode = lcdStatus.getValue() & ppu::STAT_MODE_MASK;
-    return !displayEnabled() || mode != static_cast<uint8_t>(VideoMode::AccessVRAM);
+    if (!displayEnabled()) return true;
+    const auto shownMode = static_cast<VideoMode>(lcdStatus.getValue() & ppu::STAT_MODE_MASK);
+    return currentMode != VideoMode::AccessVRAM && shownMode != VideoMode::AccessVRAM;
 }
 
 bool PPU::cpuCanAccessOAM() const
 {
     if (!displayEnabled()) return true;
-    const uint8_t mode = lcdStatus.getValue() & ppu::STAT_MODE_MASK;
-    return mode != static_cast<uint8_t>(VideoMode::AccessOAM) &&
-           mode != static_cast<uint8_t>(VideoMode::AccessVRAM);
+    const auto blocks = [](VideoMode mode) { return mode == VideoMode::AccessOAM || mode == VideoMode::AccessVRAM; };
+    return !blocks(currentMode) && !blocks(static_cast<VideoMode>(lcdStatus.getValue() & ppu::STAT_MODE_MASK));
+}
+
+// Writes follow the mode STAT shows. One exception: in the M-cycle where the
+// PPU has gone from mode 2 to mode 3 but STAT still shows mode 2, OAM writes
+// go through (mooneye's lcdon_write_timing-GS hardware tables).
+bool PPU::cpuCanWriteVRAM() const
+{
+    if (!displayEnabled()) return true;
+    return static_cast<VideoMode>(lcdStatus.getValue() & ppu::STAT_MODE_MASK) != VideoMode::AccessVRAM;
+}
+
+bool PPU::cpuCanWriteOAM() const
+{
+    if (!displayEnabled()) return true;
+    const auto shownMode = static_cast<VideoMode>(lcdStatus.getValue() & ppu::STAT_MODE_MASK);
+    if (shownMode == VideoMode::AccessVRAM) return false;
+    return shownMode != VideoMode::AccessOAM || currentMode == VideoMode::AccessVRAM;
 }
 
 int PPU::oamScanRow() const

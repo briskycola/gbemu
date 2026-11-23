@@ -243,7 +243,7 @@ void MMU::write(const Address &address, const uint8_t value, bool bypassPPURestr
     // VRAM
     if (address.inRange(mmu::VRAM_ADDRESS_START, mmu::VRAM_ADDRESS_END))
     {
-        if (!bypassPPURestrictions && !emulator.ppu.cpuCanAccessVRAM()) return;
+        if (!bypassPPURestrictions && !emulator.ppu.cpuCanWriteVRAM()) return;
         emulator.ppu.write(address.getValue() - mmu::VRAM_ADDRESS_START, value);
         return;
     }
@@ -278,7 +278,7 @@ void MMU::write(const Address &address, const uint8_t value, bool bypassPPURestr
     // OAM
     if (address.inRange(mmu::OAM_ADDRESS_START, mmu::OAM_ADDRESS_END))
     {
-        if (!bypassPPURestrictions && !emulator.ppu.cpuCanAccessOAM()) return;
+        if (!bypassPPURestrictions && !emulator.ppu.cpuCanWriteOAM()) return;
         oamRAM.at(address.getValue() - mmu::OAM_OFFSET) = value;
         return;
     }
@@ -346,10 +346,7 @@ void MMU::writeIO(const Address &address, const uint8_t value)
         case io::LCD_CONTROL_REGISTER: emulator.ppu.setControlByte(value); return;
 
         // Only the STAT interrupt enable bits are writable
-        case io::LCD_STATUS_REGISTER:
-            emulator.ppu.lcdStatus.set((emulator.ppu.lcdStatus.getValue() & ppu::STAT_READ_ONLY_MASK) |
-                                       (value & ppu::STAT_INTERRUPT_ENABLE_MASK) | ppu::STAT_UNUSED_BITS);
-            return;
+        case io::LCD_STATUS_REGISTER: emulator.ppu.writeSTAT(value); return;
 
         // Vertical Scroll Register
         case io::SCROLL_Y_REGISTER: emulator.ppu.scrollY.set(value); return;
@@ -362,7 +359,7 @@ void MMU::writeIO(const Address &address, const uint8_t value)
         // https://gbdev.io/pandocs/STAT.html#ff44--ly-lcd-y-coordinate-read-only
         case io::LCD_Y_REGISTER: return;
 
-        case io::LCD_Y_COMPARE_REGISTER: emulator.ppu.lyCompare.set(value); return;
+        case io::LCD_Y_COMPARE_REGISTER: emulator.ppu.writeLYC(value); return;
         case io::OAM_DMA_REGISTER: requestOAMDMA(value); return;
         case io::BG_PALETTE_REGISTER: emulator.ppu.bgPalette.set(value); return;
         case io::OBJ_PALETTE0_REGISTER: emulator.ppu.spritePalette0.set(value); return;

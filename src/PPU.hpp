@@ -37,10 +37,11 @@ namespace ppu
     static constexpr uint32_t SCANLINES_PER_FRAME_WITH_VBLANK = 154;
     
     // Line 0 right after the LCD is switched on has no OAM scan (STAT reads
-    // mode 0) and is 4 clocks shorter than a normal line: mode 3 starts this
-    // many clocks after the switch, so LY becomes 1 after 452 clocks
-    // (76 + 172 + 204), as oam_bug/1-lcd_sync expects.
-    static constexpr uint32_t LCD_ENABLE_DELAY = 76;
+    // mode 0) and is 4 clocks shorter than a normal line, so LY becomes 1
+    // after 452 clocks, as oam_bug/1-lcd_sync expects. Mode 3 starts this many
+    // clocks after the switch: the PPU runs 2 clocks late on this line, as
+    // mooneye's lcdon_timing-GS hardware tables show.
+    static constexpr uint32_t LCD_ENABLE_DELAY = 78;
     static constexpr uint32_t LCD_ENABLE_FIRST_LINE_SHORTFALL = 4;
     
     // LCDC (LCD control register) bits
@@ -80,6 +81,11 @@ namespace ppu
     // intr_2_mode3_timing, intr_2_oam_ok_timing and
     // intr_2_mode0_timing_sprites pin it down.
     static constexpr uint32_t STAT_MODE_DELAY = 4;
+
+    // When LY changes, the LY=LYC flag reads 0 for one M-cycle, then compares
+    // the new LY. Pan Docs only says the flag is constantly updated; the
+    // hardware tables in mooneye's lcdon_timing-GS show the step.
+    static constexpr uint32_t LY_COMPARE_DELAY = 4;
 
     // Sprites per scanline limit
     static constexpr uint32_t MAX_SPRITES_PER_LINE = 10;
@@ -149,6 +155,7 @@ class PPU
         uint32_t mode3Length = ppu::CLOCKS_PER_SCANLINE_VRAM;
         uint32_t hblankLength = ppu::CLOCKS_PER_HBLANK;
         uint32_t statModeDelay = 0; // Dots until STAT shows currentMode
+        uint32_t lyCompareDelay = 0; // Dots until the LY=LYC flag compares the new LY
         uint32_t screenEnableDelay = 0;
         uint8_t vramBank = 0;
         uint8_t objectPriorityMode = 0;
@@ -170,6 +177,9 @@ class PPU
         // combined signal goes from 0 to non-zero (level→edge conversion).
         uint8_t irq48Signal = 0;
 
+        // The DMG's brief mode 2 STAT source at the start of line 144
+        bool line144OAMPulse = false;
+
         // LY=153 briefly shows 0 after just 4 T-clocks.
         bool ly153EarlyZero = false;
 
@@ -182,6 +192,7 @@ class PPU
         void showModeInSTAT();
         void refreshStatSignal(bool requestInterrupt);
         void compareLYToLYC();
+        void startLYCompare();
         void checkWindowYTrigger();
         bool windowShownOnLine() const;
         uint32_t calculateMode3Length() const;
@@ -214,6 +225,8 @@ class PPU
 
         void tick(Cycles cycles);
         void setControlByte(uint8_t value);
+        void writeSTAT(uint8_t value);
+        void writeLYC(uint8_t value);
         void registerVBlankCallback(const std::function<void(const FrameBuffer&)> &vblankCallback);
 
         uint8_t read(const Address &address);
@@ -221,6 +234,8 @@ class PPU
         bool displayEnabled() const;
         bool cpuCanAccessVRAM() const;
         bool cpuCanAccessOAM() const;
+        bool cpuCanWriteVRAM() const;
+        bool cpuCanWriteOAM() const;
 
         // The OAM row the PPU is scanning right now, or -1 when the OAM
         // corruption bug cannot happen (CGB, LCD off, not in mode 2)
