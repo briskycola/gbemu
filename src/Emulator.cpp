@@ -31,6 +31,7 @@ Emulator::Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<
             + std::to_string(bootROM.size()) + " bytes");
     }
     mmu.loadBootROM(bootROM);
+    apu.setCGBMode(cgbMode);
 }
 
 const std::vector<uint8_t>& Emulator::getCartridgeRAM()

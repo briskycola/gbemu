@@ -71,6 +71,18 @@ namespace apu
     
     // Wave RAM holds 32 4-bit samples
     constexpr uint8_t WAVE_POSITION_MASK = 0x1F;
+
+    // After a trigger the wave channel waits this many extra clocks
+    // before reading its first sample
+    constexpr uint32_t WAVE_TRIGGER_DELAY = 6;
+
+    // On the DMG the CPU can only reach wave RAM while channel 3 plays if it
+    // accesses it within this many clocks of the channel reading a sample;
+    // otherwise reads return 0xFF and writes are ignored. Retriggering the
+    // channel this close to its next read corrupts the start of wave RAM.
+    constexpr uint32_t WAVE_ACCESS_WINDOW     = 2;
+    constexpr uint32_t WAVE_CORRUPTION_WINDOW = 2;
+    constexpr uint8_t WAVE_CORRUPTION_BLOCK   = 4; // Bytes copied by the corruption
     
     // NR32 bits 5-6 set the wave volume: 0 = mute,
     // 1 = 100%, 2 = 50%, and 3 = 25%
@@ -142,6 +154,7 @@ class APU
             uint16_t frequency = 0;
             uint32_t timer = 0;
             uint8_t position = 0;
+            uint32_t cyclesSinceRead = UINT32_MAX; // Clocks since it last read wave RAM
         };
 
         struct NoiseChannel : public LengthChannel
@@ -165,6 +178,7 @@ class APU
         WaveChannel wave;
         NoiseChannel noise;
         bool powered = false;
+        bool cgbMode = false; // The wave RAM access quirks are DMG only
         uint8_t frameSequencerStep = 0; // The next step to run
         uint8_t sweepTimer = 0;
         uint16_t sweepShadowFrequency = 0;
@@ -205,8 +219,10 @@ class APU
         int noiseOutput() const;
         void disableIfDacOff(SquareChannel &channel, uint8_t envelopeReg);
         void disableIfDacOff(NoiseChannel &channel, uint8_t envelopeReg);
+        bool waveRAMAccessible() const;
 
     public:
+        void setCGBMode(bool enabled) { cgbMode = enabled; }
         void tick(uint32_t tCycles);
 
         // Called by the Timer on each falling edge of its frame sequencer bit

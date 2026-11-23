@@ -31,6 +31,13 @@ uint32_t APU::noisePeriod() const
         << ((reg(io::CHANNEL4_FREQUENCY_REGISTER) >> apu::NOISE_CLOCK_SHIFT) & apu::NOISE_CLOCK_SHIFT_MASK);
 }
 
+// Whether the CPU can reach wave RAM while channel 3 plays: always on the
+// CGB, but on the DMG only just after the channel reads a sample
+bool APU::waveRAMAccessible() const
+{
+    return cgbMode || wave.cyclesSinceRead < apu::WAVE_ACCESS_WINDOW;
+}
+
 void APU::disableIfDacOff(SquareChannel &channel, uint8_t envelopeReg)
 {
     if ((envelopeReg & apu::DAC_ENABLE_MASK) == 0) channel.enabled = false;
@@ -74,9 +81,20 @@ void APU::triggerSquare(SquareChannel &channel, bool hasSweep, uint8_t sweepReg)
 
 void APU::triggerWave()
 {
+    // On the DMG, retriggering while the channel is about to read a byte
+    // overwrites the start of wave RAM: byte 0 with that byte if it is one
+    // of the first four, otherwise bytes 0-3 with its aligned group of four
+    if (!cgbMode && wave.enabled && wave.timer <= apu::WAVE_CORRUPTION_WINDOW)
+    {
+        const uint8_t byte = ((wave.position + 1) & apu::WAVE_POSITION_MASK) >> 1;
+        if (byte < apu::WAVE_CORRUPTION_BLOCK) waveRAM[0] = waveRAM[byte];
+        else std::copy_n(waveRAM.begin() + (byte & ~(apu::WAVE_CORRUPTION_BLOCK - 1)),
+                         apu::WAVE_CORRUPTION_BLOCK, waveRAM.begin());
+    }
+
     reloadLengthOnTrigger(wave, apu::WAVE_MAX_LENGTH);
     wave.enabled = checkBit(reg(io::CHANNEL3_DAC_ENABLE_REGISTER), apu::WAVE_DAC_ENABLE_BIT);
-    wave.timer = wavePeriod();
+    wave.timer = wavePeriod() + apu::WAVE_TRIGGER_DELAY;
     wave.position = 0;
 }
 
@@ -234,11 +252,14 @@ void APU::clockOscillators()
 
     if (wave.enabled)
     {
+        if (wave.cyclesSinceRead < UINT32_MAX) ++wave.cyclesSinceRead;
         if (wave.timer > 0) --wave.timer;
         if (wave.timer == 0)
         {
+            // Move to the next sample, reading its byte from wave RAM
             wave.timer = wavePeriod();
             wave.position = (wave.position + 1) & apu::WAVE_POSITION_MASK;
+            wave.cyclesSinceRead = 0;
         }
     }
 
@@ -381,12 +402,12 @@ void APU::tick(uint32_t tCycles)
 
 uint8_t APU::read(uint16_t address) const
 {
-    // While the wave channel plays, wave RAM reads
-    // return the byte it is currently playing
+    // While the wave channel plays, wave RAM reads return the byte it is
+    // currently playing (on the DMG only right after it reads it)
     if (address >= io::WAVE_RAM_START)
     {
-        const uint8_t index = wave.enabled ? (wave.position >> 1) : (address - io::WAVE_RAM_START);
-        return waveRAM[index];
+        if (!wave.enabled) return waveRAM[address - io::WAVE_RAM_START];
+        return waveRAMAccessible() ? waveRAM[wave.position >> 1] : io::UNMAPPED_READ_VALUE;
     }
     if (address == io::SOUND_CONTROL_REGISTER)
     {
@@ -413,12 +434,12 @@ uint8_t APU::read(uint16_t address) const
 
 void APU::write(uint16_t address, uint8_t value)
 {
-    // While the wave channel plays, wave RAM writes
-    // go to the byte it is currently playing
+    // While the wave channel plays, wave RAM writes go to the byte it is
+    // currently playing (on the DMG only right after it reads it)
     if (address >= io::WAVE_RAM_START)
     {
-        const uint8_t index = wave.enabled ? (wave.position >> 1) : (address - io::WAVE_RAM_START);
-        waveRAM[index] = value;
+        if (!wave.enabled) waveRAM[address - io::WAVE_RAM_START] = value;
+        else if (waveRAMAccessible()) waveRAM[wave.position >> 1] = value;
         return;
     }
     if (address == io::SOUND_CONTROL_REGISTER)
