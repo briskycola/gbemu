@@ -373,12 +373,13 @@ uint8_t APU::read(uint16_t address) const
 
     // Bits that always read as 1 in NR10-NR51: write-only
     // bits (lengths, periods, triggers) and unused bits.
-    // 0xFF15 and 0xFF1F are unused registers.
+    // 0xFF15 and 0xFF1F are unused registers, and NR41 (0xFF20)
+    // only holds the write-only length, so it reads as all 1s.
     static constexpr uint8_t READ_MASKS[io::SOUND_CONTROL_REGISTER - io::AUDIO_ADDRESS_START] =
     {
         0x80, 0x3F, 0x00, 0xFF, 0xBF, 0xFF, 0x3F, 0x00,
         0xFF, 0xBF, 0x7F, 0xFF, 0x9F, 0xFF, 0xBF, 0xFF,
-        0x3F, 0x00, 0x00, 0xBF, 0x00, 0x00
+        0xFF, 0x00, 0x00, 0xBF, 0x00, 0x00
     };
     return reg(address) | READ_MASKS[address - io::AUDIO_ADDRESS_START];
 }
