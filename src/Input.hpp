@@ -5,6 +5,7 @@
 // JOYP (0xFF00) layout. Writing 0 to bit 4 selects the
 // d-pad and writing 0 to bit 5 selects the buttons; bits
 // 0-3 then read 0 for each pressed key. Bits 6-7 are unused.
+// https://gbdev.io/pandocs/Joypad_Input.html#ff00--p1joyp-joypad
 namespace input
 {
     static constexpr uint8_t JOYPAD_SELECT_DIRECTION_BIT = 4;
@@ -32,9 +33,13 @@ enum class GBButton
     Start,
 };
 
+class Emulator;
+
 class Input
 {
     private:
+        Emulator &emulator;
+
         bool up = false;
         bool down = false;
         bool left = false;
@@ -44,11 +49,18 @@ class Input
         bool select = false;
         bool start = false;
 
-        bool buttonSwitch = false;
-        bool directionSwitch = false;
+        // Both groups start selected (JOYP bits 4-5 clear), so JOYP reads
+        // $CF after boot with no keys held
+        bool buttonSwitch = true;
+        bool directionSwitch = true;
 
         void setButton(GBButton button, bool set);
+
+        // Requests the joypad interrupt if any key line went from 1 to 0
+        void checkInterrupt(uint8_t before);
     public:
+        Input(Emulator &emulator);
+
         void buttonPressed(GBButton button);
         void buttonReleased(GBButton button);
         void write(uint8_t set);

@@ -132,7 +132,7 @@ uint8_t MMU::readIO(const Address &address) const
             return input;
         }
         case io::SERIAL_DATA_REGISTER: return emulator.serial.read();
-        case io::SERIAL_CONTROL_REGISTER: return io::UNMAPPED_READ_VALUE;
+        case io::SERIAL_CONTROL_REGISTER: return emulator.serial.readControl();
 
         // Timer. Only the low 3 bits of TAC are used;
         // the rest read as 1.

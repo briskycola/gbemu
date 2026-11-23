@@ -17,7 +17,8 @@ Emulator::Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<
     cpu(*this),
     mmu(*this),
     timer(*this),
-    serial(),
+    serial(*this),
+    input(*this),
     ppu(*this),
     apu()
 {

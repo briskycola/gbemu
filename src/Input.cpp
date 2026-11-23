@@ -1,9 +1,16 @@
 #include "Input.hpp"
 #include "Common.hpp"
+#include "Emulator.hpp"
+
+Input::Input(Emulator &emulator) :
+    emulator(emulator)
+{}
 
 void Input::buttonPressed(GBButton button)
 {
+    const uint8_t before = getInput();
     setButton(button, true);
+    checkInterrupt(before);
 }
 
 void Input::buttonReleased(GBButton button)
@@ -11,10 +18,22 @@ void Input::buttonReleased(GBButton button)
     setButton(button, false);
 }
 
+// Selecting a group while one of its keys is held also pulls a line low
 void Input::write(uint8_t set)
 {
+    const uint8_t before = getInput();
     directionSwitch = !checkBit(set, input::JOYPAD_SELECT_DIRECTION_BIT);
     buttonSwitch = !checkBit(set, input::JOYPAD_SELECT_BUTTONS_BIT);
+    checkInterrupt(before);
+}
+
+// The joypad interrupt is requested when any of JOYP bits 0-3 goes from
+// high to low
+// https://gbdev.io/pandocs/Interrupt_Sources.html#int-60--joypad-interrupt
+void Input::checkInterrupt(uint8_t before)
+{
+    const uint8_t fell = before & static_cast<uint8_t>(~getInput()) & input::JOYPAD_KEYS_MASK;
+    if (fell) emulator.cpu.interruptFlag.setBitTo(cpu::INTERRUPT_JOYPAD_BIT, true);
 }
 
 uint8_t Input::getInput() const

@@ -48,6 +48,7 @@ class Timer
         bool selectedBitHigh() const;
         void tickOnFallingEdge(bool wasHigh, bool enabled);
         bool isFrameSequencerInputHigh() const;
+        bool serialClockHigh() const;
         void incrementTimer();
     public:
         Timer(Emulator &emulator);

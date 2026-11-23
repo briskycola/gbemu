@@ -38,10 +38,12 @@ uint8_t Timer::getTimerControl() const
 void Timer::resetDivider()
 {
     const bool wasHigh = selectedBitHigh();
+    const bool serialWasHigh = serialClockHigh();
     const bool frameSequencerWasHigh = isFrameSequencerInputHigh();
     dividerCounter = 0;
     tickOnFallingEdge(wasHigh, isTimerEnabled());
     if (frameSequencerWasHigh) emulator.apu.clockFrameSequencerFromDivider();
+    if (serialWasHigh) emulator.serial.clock();
 }
 
 // https://gbdev.io/pandocs/Timer_Obscure_Behaviour.html#timer-overflow-behavior
@@ -94,6 +96,13 @@ bool Timer::isFrameSequencerInputHigh() const
     return (dividerCounter & (1u << bit)) != 0;
 }
 
+// The serial port's internal clock is driven by a bit of the system counter too
+// https://gbdev.io/pandocs/Serial_Data_Transfer_(Link_Cable).html#internal-clock
+bool Timer::serialClockHigh() const
+{
+    return (dividerCounter & (1u << emulator.serial.clockCounterBit())) != 0;
+}
+
 bool Timer::isTimerEnabled() const
 {
     return timerControl.checkBit(timer::TIMER_ENABLE_BIT);
@@ -137,9 +146,11 @@ void Timer::incrementTimer()
 void Timer::step()
 {
     const bool wasHigh = selectedBitHigh();
+    const bool serialWasHigh = serialClockHigh();
     const bool frameSequencerWasHigh = isFrameSequencerInputHigh();
     ++dividerCounter;
     if (frameSequencerWasHigh && !isFrameSequencerInputHigh()) emulator.apu.clockFrameSequencerFromDivider();
+    if (serialWasHigh && !serialClockHigh()) emulator.serial.clock();
 
     if (reloadDelay > 0 && --reloadDelay == 0)
     {
