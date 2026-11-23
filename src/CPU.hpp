@@ -27,6 +27,7 @@ namespace cpu
     static constexpr uint16_t INTERRUPT_TIMER_VECTOR      = 0x50;
     static constexpr uint16_t INTERRUPT_SERIAL_VECTOR     = 0x58;
     static constexpr uint16_t INTERRUPT_JOYPAD_VECTOR     = 0x60;
+    static constexpr uint16_t INTERRUPT_VECTOR_SPACING    = 0x08; // Vector of interrupt bit n = $40 + 8n
     
     // Bit of each interrupt in the IF and IE registers.
     // Lower bits have higher priority.
@@ -98,8 +99,8 @@ class CPU
         // Stack Pointer
         WordRegister sp;
 
-        bool handleInterrupts();
-        bool handleInterrupt(uint8_t interruptBit, uint16_t interruptVector, uint8_t firedInterrupts);
+        uint8_t pendingInterrupts() const;
+        void dispatchInterrupt();
 
         void setFlagZero(bool set);
         void setFlagSubtract(bool set);

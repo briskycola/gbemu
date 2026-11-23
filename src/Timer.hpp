@@ -22,6 +22,9 @@ namespace timer
     // After TIMA overflows it reads 0 for 4 clocks
     // before being reloaded from TMA
     static constexpr uint8_t TIMER_RELOAD_DELAY = 4;
+
+    // Clocks into its M-cycle at which a TAC write takes effect
+    static constexpr uint32_t TAC_WRITE_CLOCKS = 2;
 }
 
 class Emulator;
@@ -36,8 +39,14 @@ class Timer
         ByteRegister timerModulo;
         ByteRegister timerControl;
         uint8_t reloadDelay = 0;
+        bool reloadedThisCycle = false; // TMA was copied to TIMA in the current M-cycle
+        uint32_t clocksAhead = 0;       // Clocks of the coming M-cycle already run by tickAhead()
 
-        bool isTimerInputHigh() const;
+        void step();
+
+        bool isTimerEnabled() const;
+        bool selectedBitHigh() const;
+        void tickOnFallingEdge(bool wasHigh, bool enabled);
         bool isFrameSequencerInputHigh() const;
         void incrementTimer();
     public:
@@ -54,4 +63,8 @@ class Timer
         void setTimerControl(uint8_t value);
 
         void tick(uint32_t cycles);
+
+        // Runs the first clocks of the coming M-cycle now, for writes that
+        // take effect partway through it. The next tick() skips them.
+        void tickAhead(uint32_t cycles);
 };

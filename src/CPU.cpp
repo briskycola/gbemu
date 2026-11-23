@@ -4,6 +4,7 @@
 #include "OpcodeCycles.hpp"
 #include "Common.hpp"
 #include "CartridgeMetadata.hpp"
+#include "IORegisters.hpp"
 
 CPU::CPU(Emulator &emulator) :
     emulator(emulator),
@@ -49,13 +50,24 @@ Cycles CPU::tick()
         isStopped = false;
     }
 
-    // Take care of interrupts before next CPU tick
-    if (handleInterrupts()) return Cycles(cpu::INTERRUPT_DISPATCH_CYCLES);
+    // HALT lasts until an interrupt is pending (IE & IF), even with IME clear
+    // https://gbdev.io/pandocs/halt.html
+    if (isHalted)
+    {
+        if (!pendingInterrupts()) return Cycles(1);
+        isHalted = false;
+    }
 
-    if (isHalted) return 1;
+    // Between instructions, a pending interrupt is serviced if IME is set
+    // https://gbdev.io/pandocs/Interrupts.html#interrupt-handling
+    if (isInterruptEnabled && pendingInterrupts())
+    {
+        dispatchInterrupt();
+        return Cycles(cpu::INTERRUPT_DISPATCH_CYCLES);
+    }
 
-    uint16_t opcodePC = pc.getValue();
-    uint8_t opcode = getByteFromPC();
+    const uint16_t opcodePC = pc.getValue();
+    const uint8_t opcode = getByteFromPC();
     Cycles cycles = executeOpcode(opcode, opcodePC);
 
     if (imeEnableDelay > 0)
@@ -70,25 +82,15 @@ Cycles CPU::tick()
     return cycles;
 }
 
-bool CPU::handleInterrupt(uint8_t interruptBit, uint16_t interruptVector, uint8_t firedInterrupts)
+// Interrupts that are both requested (IF) and enabled (IE)
+uint8_t CPU::pendingInterrupts() const
 {
-    if (!checkBit(firedInterrupts, interruptBit)) return false;
-
-    interruptFlag.setBitTo(interruptBit, false);
-    pc.set(interruptVector);
-    isInterruptEnabled = false;
-    return true;
+    return interruptFlag.getValue() & interruptEnabled.getValue() & cpu::INTERRUPT_MASK;
 }
 
 // See https://gbdev.io/pandocs/Interrupts.html#interrupt-handling
-bool CPU::handleInterrupts()
+void CPU::dispatchInterrupt()
 {
-    // A pending interrupt (IE & IF) wakes the CPU from HALT even with IME clear
-    // https://gbdev.io/pandocs/halt.html
-    if (!(interruptFlag.getValue() & interruptEnabled.getValue() & cpu::INTERRUPT_MASK)) return false;
-    isHalted = false;
-    if (!isInterruptEnabled) return false;
-
     // Dispatch takes 5 machine cycles: two wait cycles, pushing PC (high
     // byte, then low byte), then jumping to the handler
     internalCycle();
@@ -106,19 +108,18 @@ bool CPU::handleInterrupts()
     if (!firedInterrupts)
     {
         pc.set(cpu::INTERRUPT_CANCELLED_VECTOR);
-        return true;
+        return;
     }
 
-    // Lower bits have priority
-    if (handleInterrupt(cpu::INTERRUPT_VBLANK_BIT, cpu::INTERRUPT_VBLANK_VECTOR, firedInterrupts)) return true;
-
-    if (handleInterrupt(cpu::INTERRUPT_LCD_STATUS_BIT, cpu::INTERRUPT_LCD_STATUS_VECTOR, firedInterrupts)) return true;
-
-    if (handleInterrupt(cpu::INTERRUPT_TIMER_BIT, cpu::INTERRUPT_TIMER_VECTOR, firedInterrupts)) return true;
-
-    if (handleInterrupt(cpu::INTERRUPT_SERIAL_BIT, cpu::INTERRUPT_SERIAL_VECTOR, firedInterrupts)) return true;
-
-    return handleInterrupt(cpu::INTERRUPT_JOYPAD_BIT, cpu::INTERRUPT_JOYPAD_VECTOR, firedInterrupts);
+    // Lower bits have priority. Servicing one clears its IF bit.
+    // https://gbdev.io/pandocs/Interrupts.html#interrupt-priorities
+    for (uint8_t bit = 0; bit <= cpu::INTERRUPT_JOYPAD_BIT; ++bit)
+    {
+        if (!checkBit(firedInterrupts, bit)) continue;
+        interruptFlag.setBitTo(bit, false);
+        pc.set(static_cast<uint16_t>(cpu::INTERRUPT_VBLANK_VECTOR + bit * cpu::INTERRUPT_VECTOR_SPACING));
+        return;
+    }
 }
 
 uint8_t CPU::busRead(const Address &address, OAMCorruption kind)
@@ -131,6 +132,18 @@ uint8_t CPU::busRead(const Address &address, OAMCorruption kind)
 
 void CPU::busWrite(const Address &address, uint8_t value)
 {
+    // A TAC write takes effect partway through its M-cycle, before the system
+    // counter's next increment in that cycle. This matters when the write
+    // lands on the counter edge that ticks TIMA (mooneye's timer/rapid_toggle).
+    if (address.getValue() == io::TIMER_CONTROL_REGISTER)
+    {
+        emulator.timer.tickAhead(timer::TAC_WRITE_CLOCKS);
+        emulator.mmu.write(address, value);
+        emulator.advance(1);
+        ++busCycles;
+        return;
+    }
+
     emulator.advance(1);
     ++busCycles;
     emulator.mmu.corruptOAM(address.getValue(), OAMCorruption::Write);
