@@ -33,9 +33,12 @@ uint8_t Timer::getTimerControl() const
 
 void Timer::resetDivider()
 {
+    // Resetting the counter can make the TIMA and frame sequencer bits fall
     const bool wasHigh = isTimerInputHigh();
+    const bool frameSequencerWasHigh = isFrameSequencerInputHigh();
     dividerCounter = 0;
     if (wasHigh && !isTimerInputHigh()) incrementTimer();
+    if (frameSequencerWasHigh) emulator.apu.clockFrameSequencerFromDivider();
 }
 
 void Timer::setTimer(uint8_t value)
@@ -54,6 +57,12 @@ void Timer::setTimerControl(uint8_t value)
     const bool wasHigh = isTimerInputHigh();
     timerControl.set(value & timer::TIMER_CONTROL_MASK);
     if (wasHigh && !isTimerInputHigh()) incrementTimer();
+}
+
+bool Timer::isFrameSequencerInputHigh() const
+{
+    const uint8_t bit = emulator.doubleSpeed ? timer::FRAME_SEQUENCER_BIT_DOUBLE_SPEED : timer::FRAME_SEQUENCER_BIT;
+    return (dividerCounter & (1u << bit)) != 0;
 }
 
 bool Timer::isTimerInputHigh() const
@@ -87,7 +96,9 @@ void Timer::tick(uint32_t cycles)
     for (uint32_t cycle = 0; cycle < cycles; ++cycle)
     {
         const bool wasHigh = isTimerInputHigh();
+        const bool frameSequencerWasHigh = isFrameSequencerInputHigh();
         ++dividerCounter;
+        if (frameSequencerWasHigh && !isFrameSequencerInputHigh()) emulator.apu.clockFrameSequencerFromDivider();
 
         if (reloadDelay > 0)
         {

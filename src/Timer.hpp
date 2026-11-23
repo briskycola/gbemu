@@ -13,6 +13,12 @@ namespace timer
     static constexpr uint8_t TIMER_ENABLE_BIT        = 2;
     static constexpr uint8_t TIMER_CLOCK_SELECT_MASK = 0x03;
     
+    // The APU frame sequencer (512 Hz) is clocked when this bit of the
+    // internal counter falls. In double speed the counter runs twice as
+    // fast, so the next bit up keeps it at 512 Hz.
+    static constexpr uint8_t FRAME_SEQUENCER_BIT              = 12;
+    static constexpr uint8_t FRAME_SEQUENCER_BIT_DOUBLE_SPEED = 13;
+
     // After TIMA overflows it reads 0 for 4 clocks
     // before being reloaded from TMA
     static constexpr uint8_t TIMER_RELOAD_DELAY = 4;
@@ -32,6 +38,7 @@ class Timer
         uint8_t reloadDelay = 0;
 
         bool isTimerInputHigh() const;
+        bool isFrameSequencerInputHigh() const;
         void incrementTimer();
     public:
         Timer(Emulator &emulator);

@@ -326,19 +326,16 @@ void APU::emitSample()
     sampleCycleCount = 0;
 }
 
+void APU::clockFrameSequencerFromDivider()
+{
+    if (powered) clockFrameSequencer();
+}
+
 void APU::tick(uint32_t tCycles)
 {
     for (uint32_t cycle = 0; cycle < tCycles; ++cycle)
     {
-        if (powered)
-        {
-            clockOscillators();
-            if (++frameSequencerCycles >= apu::FRAME_SEQUENCER_PERIOD)
-            {
-                frameSequencerCycles = 0;
-                clockFrameSequencer();
-            }
-        }
+        if (powered) clockOscillators();
 
         // Emit an output sample every (clock rate / sample rate)
         // clocks, averaging everything accumulated since the last one
@@ -405,7 +402,6 @@ void APU::write(uint16_t address, uint8_t value)
             square2 = SquareChannel{};
             wave = WaveChannel{};
             noise = NoiseChannel{};
-            frameSequencerCycles = 0;
             frameSequencerStep = 0;
             sweepTimer = 0;
             sweepShadowFrequency = 0;
@@ -415,7 +411,8 @@ void APU::write(uint16_t address, uint8_t value)
         else if (!powered && newPower)
         {
             powered = true;
-            frameSequencerCycles = 0;
+            // The next frame sequencer step is 0 again, but its timing
+            // still comes from the divider, so it is not reset
             frameSequencerStep = 0;
         }
         return;

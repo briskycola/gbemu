@@ -10,11 +10,10 @@ namespace apu
 {
     static constexpr uint32_t AUDIO_SAMPLE_RATE = 48000;
 
-    // The frame sequencer runs at 512 Hz and clocks the length
-    // counters, volume envelopes, and frequency sweep. It has
-    // 8 steps: lengths on even steps, sweep on steps 2 and 6,
-    // and envelopes on step 7.
-    constexpr uint32_t FRAME_SEQUENCER_PERIOD   = 8192;
+    // The frame sequencer runs at 512 Hz, clocked by the timer's divider
+    // (see Timer), and clocks the length counters, volume envelopes, and
+    // frequency sweep. It has 8 steps: lengths on even steps, sweep on
+    // steps 2 and 6, and envelopes on step 7.
     constexpr uint8_t FRAME_SEQUENCER_STEP_MASK = 0x07;
     constexpr uint8_t SWEEP_STEP_A              = 2;
     constexpr uint8_t SWEEP_STEP_B              = 6;
@@ -166,8 +165,7 @@ class APU
         WaveChannel wave;
         NoiseChannel noise;
         bool powered = false;
-        uint32_t frameSequencerCycles = 0;
-        uint8_t frameSequencerStep = 0;
+        uint8_t frameSequencerStep = 0; // The next step to run
         uint8_t sweepTimer = 0;
         uint16_t sweepShadowFrequency = 0;
         bool sweepEnabled = false;
@@ -206,6 +204,9 @@ class APU
 
     public:
         void tick(uint32_t tCycles);
+
+        // Called by the Timer on each falling edge of its frame sequencer bit
+        void clockFrameSequencerFromDivider();
         uint8_t read(uint16_t address) const;
         void write(uint16_t address, uint8_t value);
         std::vector<int16_t> takeSamples();
