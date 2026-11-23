@@ -88,9 +88,18 @@ class CartridgeInfo
         bool supportsCGB;
         bool cgbOnly;
         bool supportsSGB;
+
+        // Hardware on the cartridge, from the cartridge type byte
+        // https://gbdev.io/pandocs/The_Cartridge_Header.html#0147--cartridge-type
+        bool hasBattery = false; // RAM (and the clock) keep their contents when off
+        bool hasTimer = false;   // MBC3 real-time clock
+        bool hasRumble = false;  // MBC5 rumble motor
 };
 
 CartridgeType getCartridgeType(uint8_t type);
+bool cartridgeHasBattery(uint8_t type);
+bool cartridgeHasTimer(uint8_t type);
+bool cartridgeHasRumble(uint8_t type);
 std::string describeCartridge(CartridgeType type);
 std::string getTitleFromCartridge(std::vector<uint8_t> &rom);
 

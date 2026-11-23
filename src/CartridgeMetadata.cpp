@@ -37,6 +37,32 @@ CartridgeType getCartridgeType(uint8_t type)
     }
 }
 
+// Cartridge types with a battery: MBC1, MBC2, ROM, MMM01, MBC3 (with or without
+// the timer), MBC5 (with or without rumble), MBC7 and HuC1
+bool cartridgeHasBattery(uint8_t type)
+{
+    switch (type)
+    {
+        case 0x03: case 0x06: case 0x09: case 0x0D: case 0x0F: case 0x10:
+        case 0x13: case 0x1B: case 0x1E: case 0x22: case 0xFF:
+            return true;
+        default:
+            return false;
+    }
+}
+
+// MBC3+TIMER+BATTERY and MBC3+TIMER+RAM+BATTERY
+bool cartridgeHasTimer(uint8_t type)
+{
+    return type == 0x0F || type == 0x10;
+}
+
+// MBC5+RUMBLE, with or without RAM and battery
+bool cartridgeHasRumble(uint8_t type)
+{
+    return type == 0x1C || type == 0x1D || type == 0x1E;
+}
+
 std::string describeCartridge(CartridgeType type)
 {
     switch (type)
@@ -238,7 +264,10 @@ std::unique_ptr<CartridgeInfo> getInfo(const std::vector<uint8_t> &rom)
     info->cgbOnly = rom[cartridge::CGB_FLAG_START_ADDRESS] == cartridge::CGB_ONLY_FLAG;
     info->supportsSGB = rom[cartridge::SGB_FLAG_START_ADDRESS] == cartridge::SGB_SUPPORT_FLAG &&
         rom[cartridge::OLD_LICENSEE_CODE_START_ADDRESS] == cartridge::USE_NEW_LICENSEE_CODE_FLAG;
-    info->version = cartridge::ROM_VERSION_NUMBER_START_ADDRESS;
+    info->version = rom[cartridge::ROM_VERSION_NUMBER_START_ADDRESS];
+    info->hasBattery = cartridgeHasBattery(rom[cartridge::CARTRIDGE_TYPE_START_ADDRESS]);
+    info->hasTimer = cartridgeHasTimer(rom[cartridge::CARTRIDGE_TYPE_START_ADDRESS]);
+    info->hasRumble = cartridgeHasRumble(rom[cartridge::CARTRIDGE_TYPE_START_ADDRESS]);
     info->romSize = getRomSize(rom[cartridge::ROM_SIZE_START_ADDRESS]);
     info->ramSize = getRamSize(rom[cartridge::RAM_SIZE_START_ADDRESS]);
 

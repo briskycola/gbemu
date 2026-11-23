@@ -34,9 +34,9 @@ Emulator::Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<
     apu.setCGBMode(cgbMode);
 }
 
-const std::vector<uint8_t>& Emulator::getCartridgeRAM()
+std::vector<uint8_t> Emulator::getSaveData() const
 {
-    return cartridge->getCartridgeRAM();
+    return cartridge->saveData();
 }
 
 std::vector<int16_t> Emulator::takeAudioSamples()
@@ -69,6 +69,10 @@ void Emulator::advance(const uint32_t mCycles)
     const Cycles t{ m.cycles * common::T_CYCLES_PER_M_CYCLE }; // T-cycles
 
     elapsedCycles += t.cycles;
+
+    // The cartridge's own hardware, like the MBC3 clock, runs in real time,
+    // so it sees half as many clocks per CPU cycle in double speed
+    cartridge->tick(doubleSpeed ? t.cycles / 2 : t.cycles);
 
     // OAM DMA runs at CPU speed, one byte per machine cycle
     mmu.tickOAMDMA(m.cycles);

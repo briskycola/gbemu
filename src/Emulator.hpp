@@ -74,7 +74,9 @@ class Emulator
         // Game Boy Color boot ROM, on the given model
         static bool usesCGBBootROM(const std::vector<uint8_t> &cartridgeData, HardwareModel model);
 
-        const std::vector<uint8_t>& getCartridgeRAM();
+        // What the cartridge's battery keeps (RAM, and the MBC3 clock); empty
+        // for cartridges without a battery
+        std::vector<uint8_t> getSaveData() const;
         std::vector<int16_t> takeAudioSamples();
         void runFrame(const std::function<void(const FrameBuffer&)> &vblankCallback);
 

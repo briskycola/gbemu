@@ -36,11 +36,12 @@ bool MainWindow::fileExists(const std::string &filename)
 void MainWindow::saveBatteryState(Emulator *emulator, const std::string &filename)
 {
     if (!emulator) return;
-    const std::vector<uint8_t> cartridgeRAM = emulator->getCartridgeRAM();
-    if (cartridgeRAM.empty()) return;
-    // ROM files are raw bytes, so always open them in binary mode.
+    // Only cartridges with a battery keep anything when switched off
+    const std::vector<uint8_t> saveData = emulator->getSaveData();
+    if (saveData.empty()) return;
+    // Save files are raw bytes, so always open them in binary mode.
     std::ofstream outputFile(getSaveFilename(filename), std::ios::binary);
-    std::copy(cartridgeRAM.begin(), cartridgeRAM.end(), std::ostreambuf_iterator<char>(outputFile));
+    std::copy(saveData.begin(), saveData.end(), std::ostreambuf_iterator<char>(outputFile));
 }
 
 std::vector<uint8_t> MainWindow::loadState(const std::string &filename)
