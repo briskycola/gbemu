@@ -115,13 +115,17 @@ void PPU::tick(Cycles cycles)
 {
     if (!displayEnabled()) return;
 
+    uint32_t elapsed = cycles.cycles;
+
     if (screenEnableDelay > 0)
     {
-        if (cycles.cycles < screenEnableDelay)
+        if (elapsed < screenEnableDelay)
         {
-            screenEnableDelay -= cycles.cycles;
+            screenEnableDelay -= elapsed;
             return;
         }
+        // Only the clocks past the end of the delay count toward mode 3
+        elapsed -= screenEnableDelay;
         screenEnableDelay = 0;
         cycleCounter = 0;
         line.set(0);
@@ -130,14 +134,15 @@ void PPU::tick(Cycles cycles)
         vblankLine = 0;
         ly153EarlyZero = false;
         colorCache.fill(0);
-        setMode(VideoMode::AccessOAM);
+        // No OAM scan on this first line: go straight to drawing
+        setMode(VideoMode::AccessVRAM);
         // Check WY trigger for line 0 immediately
         checkWindowYTrigger();
         compareLYToLYC();
         refreshStatSignal(true);
     }
 
-    cycleCounter += cycles.cycles;
+    cycleCounter += elapsed;
 
     switch (currentMode)
     {

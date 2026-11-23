@@ -24,9 +24,11 @@ namespace ppu
     // 10 invisible lines that make up VBlank.
     static constexpr uint32_t SCANLINES_PER_FRAME_WITH_VBLANK = 154;
     
-    // Clocks between switching the LCD on and the
-    // first line starting to draw
-    static constexpr uint32_t LCD_ENABLE_DELAY = 244;
+    // Line 0 right after the LCD is switched on has no OAM scan (STAT reads
+    // mode 0) and is 4 clocks shorter than a normal line: mode 3 starts this
+    // many clocks after the switch, so LY becomes 1 after 452 clocks
+    // (76 + 172 + 204), as oam_bug/1-lcd_sync expects.
+    static constexpr uint32_t LCD_ENABLE_DELAY = 76;
     
     // LCDC (LCD control register) bits
     static constexpr uint8_t LCDC_DISPLAY_ENABLE_BIT      = 7;
