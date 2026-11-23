@@ -447,12 +447,22 @@ void APU::write(uint16_t address, uint8_t value)
         const bool newPower = checkBit(value, apu::POWER_BIT);
         if (powered && !newPower)
         {
+            // Powering off clears every register and channel. On the DMG the
+            // length counters are unaffected by power; on the CGB they clear too.
+            const uint16_t lengths[apu::CHANNEL_COUNT] = {square1.length, square2.length, wave.length, noise.length};
             powered = false;
             registers.fill(0);
             square1 = SquareChannel{};
             square2 = SquareChannel{};
             wave = WaveChannel{};
             noise = NoiseChannel{};
+            if (!cgbMode)
+            {
+                square1.length = lengths[0];
+                square2.length = lengths[1];
+                wave.length = lengths[2];
+                noise.length = lengths[3];
+            }
             frameSequencerStep = 0;
             sweepTimer = 0;
             sweepShadowFrequency = 0;
@@ -471,9 +481,11 @@ void APU::write(uint16_t address, uint8_t value)
 
     if (address < io::CHANNEL1_SWEEP_REGISTER || address > io::SOUND_PANNING_REGISTER) return;
 
-    // While powered off, only the length counters can be written
+    // While powered off, writes are ignored, except that the DMG still
+    // lets the length counters be written
     if (!powered)
     {
+        if (cgbMode) return;
         if (address == io::CHANNEL1_LENGTH_DUTY_REGISTER) square1.length = apu::SQUARE_NOISE_MAX_LENGTH - (value & apu::LENGTH_MASK);
         else if (address == io::CHANNEL2_LENGTH_DUTY_REGISTER) square2.length = apu::SQUARE_NOISE_MAX_LENGTH - (value & apu::LENGTH_MASK);
         else if (address == io::CHANNEL3_LENGTH_REGISTER) wave.length = apu::WAVE_MAX_LENGTH - value;
