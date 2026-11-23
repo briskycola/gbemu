@@ -109,6 +109,8 @@ class MMU
         std::vector<uint8_t> oamRAM;
         std::vector<uint8_t> highRAM;
         uint8_t workRAMBank = 1;
+        uint8_t undocumentedRegisters[3] = {}; // CGB FF72-FF74
+        uint8_t undocumentedFF75 = 0;          // CGB FF75, bits 4-6
         std::vector<uint8_t> bootROM; // 256 bytes (Game Boy) or 2304 bytes (Game Boy Color)
         uint16_t hdmaSource = 0;
         uint16_t hdmaDestination = mmu::VRAM_ADDRESS_START;

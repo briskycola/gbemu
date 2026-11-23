@@ -83,6 +83,18 @@ namespace io
     static constexpr uint16_t OBJ_PALETTE_DATA_REGISTER      = 0xFF6B; // OCPD
     static constexpr uint16_t OBJ_PRIORITY_MODE_REGISTER     = 0xFF6C; // OPRI
     static constexpr uint16_t WRAM_BANK_REGISTER             = 0xFF70; // SVBK
+
+    // Undocumented CGB registers. FF72-FF74 are plain read/write bytes, FF75
+    // has 3 read/write bits, and FF76/FF77 read the channels' digital outputs.
+    // https://gbdev.io/pandocs/CGB_Registers.html#undocumented-registers
+    // https://gbdev.io/pandocs/Audio_details.html#pcm-registers
+    static constexpr uint16_t CGB_UNDOCUMENTED_FF72_REGISTER = 0xFF72;
+    static constexpr uint16_t CGB_UNDOCUMENTED_FF73_REGISTER = 0xFF73;
+    static constexpr uint16_t CGB_UNDOCUMENTED_FF74_REGISTER = 0xFF74;
+    static constexpr uint16_t CGB_UNDOCUMENTED_FF75_REGISTER = 0xFF75;
+    static constexpr uint8_t CGB_FF75_WRITABLE_BITS          = 0x70;
+    static constexpr uint16_t PCM12_REGISTER                 = 0xFF76;
+    static constexpr uint16_t PCM34_REGISTER                 = 0xFF77;
     
     // Reads from unmapped memory and unused
     // registers return all bits set

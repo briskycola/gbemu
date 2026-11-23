@@ -230,4 +230,10 @@ class APU
         uint8_t read(uint16_t address) const;
         void write(uint16_t address, uint8_t value);
         std::vector<int16_t> takeSamples();
+
+        // The current digital output (0-15) of channels 1 and 2 (PCM12) or 3 and
+        // 4 (PCM34): the first in the low nibble, the second in the high nibble
+        // https://gbdev.io/pandocs/Audio_details.html#pcm-registers
+        uint8_t readPCM12() const;
+        uint8_t readPCM34() const;
 };

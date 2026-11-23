@@ -76,11 +76,16 @@ uint8_t MMU::read(const Address &address, bool bypassPPURestrictions) const
         return oamRAM.at(address.getValue() - mmu::OAM_OFFSET);
     }
 
-    // Reading from unsuable memory
+    // The prohibited area after OAM reads $FF while OAM is blocked. Otherwise
+    // the DMG reads $00, and the CGB (revision E) reads the high nibble of
+    // the address's low byte twice, e.g. $FEAx reads $AA.
+    // https://gbdev.io/pandocs/Memory_Map.html#fea0feff-range
     if (address.inRange(mmu::UNUSABLE_ADDRESS_START, mmu::UNUSABLE_ADDRESS_END))
     {
-        std::cerr << "Reading from unusable memory: " << std::hex << address.getValue() << "\n";
-        return io::UNMAPPED_READ_VALUE;
+        if (!bypassPPURestrictions && !emulator.ppu.cpuCanAccessOAM()) return io::UNMAPPED_READ_VALUE;
+        if (!emulator.cgbMode) return 0x00;
+        const uint8_t nibble = (address.getValue() >> 4) & 0x0F;
+        return static_cast<uint8_t>(nibble << 4 | nibble);
     }
 
     // I/O Registers
@@ -95,11 +100,12 @@ uint8_t MMU::read(const Address &address, bool bypassPPURestrictions) const
         return highRAM.at(address.getValue() - mmu::HRAM_OFFSET);
     }
 
-    // Interrupt Enable Register
+    // Interrupt Enable Register. Only bits 0-4 enable interrupts, but all
+    // 8 bits are readable and writable.
+    // https://gbdev.io/pandocs/Interrupts.html#ffff--ie-interrupt-enable
     if (address == mmu::INTERRUPT_ENABLE_REGISTER)
     {
-        // The unused upper bits read as 1
-        return static_cast<uint8_t>(~cpu::INTERRUPT_MASK | (emulator.cpu.interruptEnabled.getValue() & cpu::INTERRUPT_MASK));
+        return emulator.cpu.interruptEnabled.getValue();
     }
     return io::UNMAPPED_READ_VALUE;
 }
@@ -167,8 +173,9 @@ uint8_t MMU::readIO(const Address &address) const
         case io::VRAM_BANK_REGISTER: return emulator.cgbMode
             ? static_cast<uint8_t>(0xFE | emulator.ppu.getVRAMBank()) : io::UNMAPPED_READ_VALUE;
 
-        // Boot ROM
-        case io::BOOT_ROM_DISABLE_REGISTER: return disableBootROMSwitch.getValue();
+        // BANK can only be written, by the boot ROM, so it reads as unmapped
+        // https://gbdev.io/pandocs/Memory_Map.html#io-ranges
+        case io::BOOT_ROM_DISABLE_REGISTER: return io::UNMAPPED_READ_VALUE;
 
         // HDMA. Bits 0-4 of HDMA3 hold the destination's
         // offset into VRAM; the upper bits read as 1.
@@ -202,6 +209,19 @@ uint8_t MMU::readIO(const Address &address) const
 
         // SVBK: only bits 0-2 are used; the rest read as 1
         case io::WRAM_BANK_REGISTER: return emulator.cgbMode ? static_cast<uint8_t>(0xF8 | workRAMBank) : io::UNMAPPED_READ_VALUE;
+
+        // Undocumented CGB registers
+        // https://gbdev.io/pandocs/CGB_Registers.html#undocumented-registers
+        case io::CGB_UNDOCUMENTED_FF72_REGISTER:
+        case io::CGB_UNDOCUMENTED_FF73_REGISTER:
+        case io::CGB_UNDOCUMENTED_FF74_REGISTER:
+            return emulator.cgbMode ? undocumentedRegisters[address.getValue() - io::CGB_UNDOCUMENTED_FF72_REGISTER]
+                                    : io::UNMAPPED_READ_VALUE;
+        case io::CGB_UNDOCUMENTED_FF75_REGISTER:
+            return emulator.cgbMode ? static_cast<uint8_t>(~io::CGB_FF75_WRITABLE_BITS | undocumentedFF75)
+                                    : io::UNMAPPED_READ_VALUE;
+        case io::PCM12_REGISTER: return emulator.cgbMode ? emulator.apu.readPCM12() : io::UNMAPPED_READ_VALUE;
+        case io::PCM34_REGISTER: return emulator.cgbMode ? emulator.apu.readPCM34() : io::UNMAPPED_READ_VALUE;
 
         // Unused and undocumented registers
         default: return io::UNMAPPED_READ_VALUE;
@@ -287,7 +307,7 @@ void MMU::write(const Address &address, const uint8_t value, bool bypassPPURestr
     // Interrupt Enable Register
     if (address == mmu::INTERRUPT_ENABLE_REGISTER)
     {
-        emulator.cpu.interruptEnabled.set(value & cpu::INTERRUPT_MASK);
+        emulator.cpu.interruptEnabled.set(value);
     }
     return;
 }
@@ -338,10 +358,9 @@ void MMU::writeIO(const Address &address, const uint8_t value)
         case io::SCROLL_X_REGISTER: emulator.ppu.scrollX.set(value); return;
 
         // LY - Line Y coordinate
-        case io::LCD_Y_REGISTER:
-            /* Writing will reset the counter */
-            emulator.ppu.line.set(0x0);
-            return;
+        // LY is read-only
+        // https://gbdev.io/pandocs/STAT.html#ff44--ly-lcd-y-coordinate-read-only
+        case io::LCD_Y_REGISTER: return;
 
         case io::LCD_Y_COMPARE_REGISTER: emulator.ppu.lyCompare.set(value); return;
         case io::OAM_DMA_REGISTER: requestOAMDMA(value); return;
@@ -359,8 +378,9 @@ void MMU::writeIO(const Address &address, const uint8_t value)
             if (emulator.cgbMode) emulator.ppu.setVRAMBank(value);
             return;
 
-        // Boot ROM
-        case io::BOOT_ROM_DISABLE_REGISTER: disableBootROMSwitch.set(value); return;
+        // Writing a nonzero value unmaps the boot ROM for good: it can't be
+        // mapped back in without a reset
+        case io::BOOT_ROM_DISABLE_REGISTER: if (value != 0) disableBootROMSwitch.set(1); return;
 
         // HDMA source and destination
         case io::HDMA_SOURCE_HIGH_REGISTER:
@@ -411,7 +431,16 @@ void MMU::writeIO(const Address &address, const uint8_t value)
             if (emulator.cgbMode) { workRAMBank = value & mmu::WRAM_BANK_MASK; if (workRAMBank == 0) workRAMBank = 1; }
             return;
 
-        // Unused and undocumented registers ignore writes
+        case io::CGB_UNDOCUMENTED_FF72_REGISTER:
+        case io::CGB_UNDOCUMENTED_FF73_REGISTER:
+        case io::CGB_UNDOCUMENTED_FF74_REGISTER:
+            if (emulator.cgbMode) undocumentedRegisters[address.getValue() - io::CGB_UNDOCUMENTED_FF72_REGISTER] = value;
+            return;
+        case io::CGB_UNDOCUMENTED_FF75_REGISTER:
+            if (emulator.cgbMode) undocumentedFF75 = value & io::CGB_FF75_WRITABLE_BITS;
+            return;
+
+        // Unused registers, and the read-only PCM12/PCM34, ignore writes
         default: return;
     }
 }

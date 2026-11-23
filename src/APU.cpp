@@ -545,3 +545,15 @@ std::vector<int16_t> APU::takeSamples()
     result.swap(samples);
     return result;
 }
+
+uint8_t APU::readPCM12() const
+{
+    const uint8_t first = static_cast<uint8_t>(squareOutput(square1, reg(io::CHANNEL1_LENGTH_DUTY_REGISTER)));
+    const uint8_t second = static_cast<uint8_t>(squareOutput(square2, reg(io::CHANNEL2_LENGTH_DUTY_REGISTER)));
+    return static_cast<uint8_t>(second << 4 | first);
+}
+
+uint8_t APU::readPCM34() const
+{
+    return static_cast<uint8_t>(noiseOutput() << 4 | waveOutput());
+}
