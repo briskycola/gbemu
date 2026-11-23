@@ -225,7 +225,9 @@ void MBC1::write(const Address &address, uint8_t value)
 
     if (address.inRange(mmu::CARTRIDGE_RAM_ADDRESS_START, mmu::CARTRIDGE_RAM_ADDRESS_END))
     {
-        if (!ramEnabled)
+        // Writes go nowhere when RAM is disabled or the cartridge has none
+        // (e.g. a header of MBC1+RAM with a RAM size of 0)
+        if (!ramEnabled || ram.empty())
         {
             return;
         }

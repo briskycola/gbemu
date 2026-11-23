@@ -392,27 +392,39 @@ void CPU::opcodeJr(Condition condition)
 }
 
 // HALT
+// See https://gbdev.io/pandocs/halt.html
 void CPU::opcodeHalt()
 {
     const uint8_t pendingInterrupts =
         emulator.mmu.read(Address(io::INTERRUPT_FLAG_REGISTER)) &
         emulator.mmu.read(Address(mmu::INTERRUPT_ENABLE_REGISTER)) & cpu::INTERRUPT_MASK;
 
-    if (!isInterruptEnabled && pendingInterrupts != 0)
+    // IME set, or nothing pending: halt normally. The CPU wakes once
+    // [IE] & [IF] != 0 and, if IME is set, the interrupt is handled first.
+    // An EI right before this HALT still takes effect afterwards as usual.
+    if (isInterruptEnabled || pendingInterrupts == 0)
     {
-        if (imeEnableDelay > 0)
-        {
-            isInterruptEnabled = true;
-            imeEnableDelay = 0;
-        }
-        else
-        {
-            haltBug = true;
-        }
+        isHalted = true;
+        return;
+    }
+
+    // HALT bug: IME = 0 and an interrupt is pending. HALT ends immediately
+    // and PC fails to be incremented.
+    if (imeEnableDelay > 0)
+    {
+        // EI immediately before HALT: the interrupt is serviced, but it
+        // returns to the HALT, which runs again and waits for another
+        // interrupt. Pointing PC back at the HALT makes the dispatch on the
+        // next tick push the HALT's own address. This wins over a following RST.
+        isInterruptEnabled = true;
+        imeEnableDelay = 0;
+        pc.decrement();
     }
     else
     {
-        isHalted = true;
+        // The byte after HALT is read twice. If it is an RST, its pushed
+        // return address points at the RST itself.
+        haltBug = true;
     }
 }
 
