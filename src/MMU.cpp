@@ -5,7 +5,6 @@
 #include "Timer.hpp"
 #include "Serial.hpp"
 #include "Input.hpp"
-#include "BootROM.hpp"
 #include "IORegisters.hpp"
 #include "Common.hpp"
 #include <algorithm>
@@ -30,12 +29,13 @@ uint8_t MMU::read(const Address &address, bool bypassPPURestrictions) const
     // Cartridge ROM
     if (address.inRange(mmu::CARTRIDGE_ROM_ADDRESS_START, mmu::CARTRIDGE_ROM_ADDRESS_END))
     {
+        // Until it is unmapped, the boot ROM covers 0x0000-0x00FF and, for the
+        // larger Game Boy Color one, 0x0200-0x08FF. The cartridge header at
+        // 0x0100-0x01FF stays visible either way.
         const uint16_t value = address.getValue();
-        const bool inCGBBootROM = value < mmu::DMG_BOOT_ROM_SIZE ||
-            (value >= mmu::CGB_BOOT_ROM_SECOND_PART_START && value < mmu::CGB_BOOT_ROM_SIZE);
-        if (emulator.cgbMode && !cgbBootROM.empty() && inCGBBootROM && isBootROMActive())
-            return cgbBootROM[value];
-        if (value < mmu::DMG_BOOT_ROM_SIZE && isBootROMActive()) return mmu::BOOT_ROM[value];
+        const bool inBootROM = value < mmu::DMG_BOOT_ROM_SIZE ||
+            (value >= mmu::CGB_BOOT_ROM_SECOND_PART_START && value < bootROM.size());
+        if (inBootROM && isBootROMActive()) return bootROM[value];
         return emulator.cartridge->read(address);
     }
 
@@ -528,15 +528,10 @@ bool MMU::isBootROMActive() const
     return disableBootROMSwitch.getValue() == 0;
 }
 
-bool MMU::loadCGBBootROM(const std::vector<uint8_t> &rom)
+// The Emulator checks the size before loading it
+void MMU::loadBootROM(const std::vector<uint8_t> &rom)
 {
-    if (rom.size() != mmu::CGB_BOOT_ROM_SIZE)
-    {
-        std::cerr << "CGB boot ROM must be exactly 0x900 bytes\n";
-        return false;
-    }
-    cgbBootROM = rom;
-    return true;
+    bootROM = rom;
 }
 
 // OAM corruption bug

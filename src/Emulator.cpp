@@ -1,11 +1,18 @@
 #include "Emulator.hpp"
 #include "IORegisters.hpp"
+#include "CartridgeMetadata.hpp"
+#include <stdexcept>
+#include <string>
 
+bool Emulator::usesCGBBootROM(const std::vector<uint8_t> &cartridgeData, HardwareModel model)
+{
+    return model == HardwareModel::Automatic && getInfo(cartridgeData)->supportsCGB;
+}
 
 Emulator::Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<uint8_t> &saveData,
-                   const std::vector<uint8_t> &cgbBootROM) :
+                   const std::vector<uint8_t> &bootROM, HardwareModel model) :
     cartridge(getCartridge(cartridgeData, saveData)),
-    cgbMode(cartridge->supportsCGB()),
+    cgbMode(model == HardwareModel::Automatic && cartridge->supportsCGB()),
     sgbMode(!cgbMode && cartridge->supportsSGB()),
     cpu(*this),
     mmu(*this),
@@ -14,26 +21,16 @@ Emulator::Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<
     ppu(*this),
     apu()
 {
-    const bool cgbBootLoaded = !cgbBootROM.empty() && mmu.loadCGBBootROM(cgbBootROM);
-    if (cgbMode)
+    // Every start runs a real boot ROM from address 0, which sets up the
+    // hardware and then hands control to the cartridge at $0100
+    const size_t expectedSize = cgbMode ? mmu::CGB_BOOT_ROM_SIZE : mmu::DMG_BOOT_ROM_SIZE;
+    if (bootROM.size() != expectedSize)
     {
-        if (!cgbBootLoaded)
-        {
-            // Without a BIOS image, start from the documented CGB
-            // post-boot state rather than running the DMG boot ROM.
-            cpu.initializeCGBPostBoot();
-            mmu.write(Address(io::BOOT_ROM_DISABLE_REGISTER), 1);
-            mmu.write(Address(io::INTERRUPT_FLAG_REGISTER), 1 << cpu::INTERRUPT_VBLANK_BIT);
-
-            // LCD and background on, background tiles from 0x8000
-            mmu.write(Address(io::LCD_CONTROL_REGISTER), 0x91);
-
-            // Background shades 3, 3, 3, 0 and both sprite palettes all black
-            mmu.write(Address(io::BG_PALETTE_REGISTER), 0xFC);
-            mmu.write(Address(io::OBJ_PALETTE0_REGISTER), 0xFF);
-            mmu.write(Address(io::OBJ_PALETTE1_REGISTER), 0xFF);
-        }
+        throw std::runtime_error(std::string(cgbMode ? "The Game Boy Color" : "The Game Boy")
+            + " boot ROM must be exactly " + std::to_string(expectedSize) + " bytes, but it is "
+            + std::to_string(bootROM.size()) + " bytes");
     }
+    mmu.loadBootROM(bootROM);
 }
 
 const std::vector<uint8_t>& Emulator::getCartridgeRAM()

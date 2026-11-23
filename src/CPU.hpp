@@ -389,7 +389,6 @@ class CPU
         void opcodeCBF0(); void opcodeCBF1(); void opcodeCBF2(); void opcodeCBF3(); void opcodeCBF4(); void opcodeCBF5(); void opcodeCBF6(); void opcodeCBF7(); void opcodeCBF8(); void opcodeCBF9(); void opcodeCBFA(); void opcodeCBFB(); void opcodeCBFC(); void opcodeCBFD(); void opcodeCBFE(); void opcodeCBFF();
     public:
         CPU(Emulator &emulator);
-        void initializeCGBPostBoot();
         Cycles tick();
 
         // Returns how many cycles of the last tick() were already advanced

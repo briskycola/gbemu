@@ -49,8 +49,39 @@ std::vector<uint8_t> MainWindow::loadState(const std::string &filename)
     return fileExists(saveFile) ? readFile(saveFile) : std::vector<uint8_t>{};
 }
 
-MainWindow::MainWindow(std::vector<uint8_t> bootROM, QWidget *parent)
-    : QMainWindow(parent), cgbBootROM(std::move(bootROM))
+void MainWindow::openSettings(SettingsDialog::Page page)
+{
+    SettingsDialog dialog(settings, [this](const Settings &newSettings) { return applySettings(newSettings); },
+                          this);
+    dialog.showPage(page);
+    dialog.exec();
+}
+
+bool MainWindow::applySettings(const Settings &newSettings)
+{
+    if (newSettings == settings) return true;
+    if (!newSettings.save())
+    {
+        showError(tr("Could not save the settings to %1")
+            .arg(QDir::toNativeSeparators(Settings::filePath())));
+        return false;
+    }
+    settings = newSettings;
+    if (offerRestartOnApply) offerRestart();
+    return true;
+}
+
+// Settings only take effect when a game starts, so offer to restart the running one
+void MainWindow::offerRestart()
+{
+    if (!emulator) return;
+    const QMessageBox::StandardButton answer = QMessageBox::question(
+        this, tr("gbemu"), tr("Restart the current game to use the new settings?"));
+    if (answer == QMessageBox::Yes) openROM(QString::fromStdString(currentROMPath));
+}
+
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent), settings(Settings::load())
 {
     setWindowTitle("gbemu");
     resize(display::DEFAULT_WIDTH, display::DEFAULT_HEIGHT);
@@ -70,6 +101,11 @@ MainWindow::MainWindow(std::vector<uint8_t> bootROM, QWidget *parent)
     QAction *exitAction = fileMenu->addAction(tr("E&xit"));
     exitAction->setShortcut(QKeySequence::Quit);
     connect(exitAction, &QAction::triggered, qApp, &QApplication::quit);
+
+    QMenu *settingsMenu = menuBar()->addMenu(tr("&Settings"));
+    QAction *settingsAction = settingsMenu->addAction(tr("&Settings..."));
+    settingsAction->setShortcut(QKeySequence::Preferences);
+    connect(settingsAction, &QAction::triggered, this, [this] { openSettings(SettingsDialog::Page::BIOS); });
 
     setUpAudioOutput();
     // Follow the system default output, e.g. when headphones are plugged in.
@@ -165,7 +201,27 @@ bool MainWindow::openROM(const QString &filename)
     std::unique_ptr<Emulator> newEmulator;
     try
     {
-        newEmulator = std::make_unique<Emulator>(romData, loadState(path), cgbBootROM);
+        // Run the boot ROM of the console this game will be emulated on,
+        // asking for it the first time it is needed
+        const HardwareModel model = settings.hardwareModel;
+        const bool gameBoyColor = Emulator::usesCGBBootROM(romData, model);
+        if (!QFileInfo(settings.bootROM(gameBoyColor)).isFile())
+        {
+            const QString name = gameBoyColor ? tr("Game Boy Color") : tr("Game Boy");
+            const QMessageBox::StandardButton answer = QMessageBox::question(
+                this, tr("gbemu"),
+                tr("This game needs the %1 BIOS, and none has been chosen yet "
+                   "(or the chosen file is missing).\n\nOpen Settings to choose it now?").arg(name));
+            if (answer != QMessageBox::Yes) return false;
+
+            // The game is about to start, so don't offer to restart the old one
+            offerRestartOnApply = false;
+            openSettings(SettingsDialog::Page::BIOS);
+            offerRestartOnApply = true;
+            if (!QFileInfo(settings.bootROM(gameBoyColor)).isFile()) return false;
+        }
+        newEmulator = std::make_unique<Emulator>(romData, loadState(path),
+                                                 readFile(settings.bootROM(gameBoyColor).toStdString()), model);
     }
     catch (const std::exception &error)
     {

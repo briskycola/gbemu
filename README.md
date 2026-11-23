@@ -12,7 +12,8 @@ and Super Game Boy components.
 - Qt menu bar with a native file dialog for opening and closing ROMs
 - Stereo audio output through Qt Multimedia
 - Battery-backed cartridge RAM saved beside the ROM
-- Optional Game Boy Color boot ROM
+- Settings window (saved as JSON) for your own Game Boy and Game Boy Color BIOS files (not included)
+- Hardware setting to run every game on the original Game Boy (DMG)
 
 Emulation coverage is still evolving, so compatibility varies by game.
 
@@ -75,10 +76,25 @@ a folder to enter it, or type a path into the bar at the top of the browser and 
 Double-click a ROM or select it and click **Open** to start it. The game pauses while
 the browser is open. **File > Close ROM** saves battery-backed RAM and stops the game.
 
-A ROM and an optional Game Boy Color boot ROM can still be passed on the command line:
+### BIOS (boot ROMs)
+
+gbemu does not include any BIOS. Every game starts by running a real boot ROM, which you
+supply yourself: a 256-byte Game Boy (DMG) BIOS and, for Game Boy Color games, a 2304-byte
+Game Boy Color BIOS. Open **Settings > Settings...** and, on the
+**BIOS** page, use **Browse** to choose the **GB BIOS file** and **GBC BIOS file**. If a game needs
+a BIOS that hasn't been chosen, gbemu offers to open Settings when the game is opened.
+
+The **Game Boy** page picks the hardware. **Automatic** runs Game Boy Color games as a Game Boy
+Color and everything else as a Game Boy. **Game Boy (DMG) for every game** runs every game on the
+original Game Boy, which some test ROMs (such as the OAM corruption tests) need.
+
+Settings are saved as JSON in `settings.json` in your user configuration folder
+(`%LOCALAPPDATA%\gbemu` on Windows, `~/.config/gbemu` on Linux).
+
+A ROM can also be passed on the command line:
 
 ```sh
-./build/gbemu path/to/game.gbc path/to/cgb_boot.bin
+./build/gbemu path/to/game.gbc
 ```
 
 ### Keyboard controls

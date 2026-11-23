@@ -109,7 +109,7 @@ class MMU
         std::vector<uint8_t> oamRAM;
         std::vector<uint8_t> highRAM;
         uint8_t workRAMBank = 1;
-        std::vector<uint8_t> cgbBootROM;
+        std::vector<uint8_t> bootROM; // 256 bytes (Game Boy) or 2304 bytes (Game Boy Color)
         uint16_t hdmaSource = 0;
         uint16_t hdmaDestination = mmu::VRAM_ADDRESS_START;
         uint8_t hdmaBlocksRemaining = 0;
@@ -147,6 +147,5 @@ class MMU
         void write(const Address &address, const uint8_t value, bool bypassPPURestrictions = false);
         void tickOAMDMA(uint32_t mCycles);
         uint32_t hblankDMA(); // Returns CPU M-cycles consumed by the DMA transfer
-        bool loadCGBBootROM(const std::vector<uint8_t> &rom);
-        bool hasCGBBootROM() const { return !cgbBootROM.empty(); }
+        void loadBootROM(const std::vector<uint8_t> &rom);
 };

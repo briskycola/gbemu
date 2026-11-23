@@ -2,7 +2,10 @@
 
 #include "APU.hpp"
 #include "Common.hpp"
+#include "Emulator.hpp"
 #include "PPU.hpp"
+#include "Settings.hpp"
+#include "SettingsDialog.hpp"
 #include <QByteArray>
 #include <QElapsedTimer>
 #include <QMainWindow>
@@ -13,7 +16,6 @@
 #include <string>
 #include <vector>
 
-class Emulator;
 class ScreenWidget;
 class QAudioSink;
 class QIODevice;
@@ -42,7 +44,8 @@ class MainWindow final : public QMainWindow
         bool audioStarted = false;
         std::unique_ptr<Emulator> emulator;
         std::string currentROMPath;
-        std::vector<uint8_t> cgbBootROM;
+        Settings settings;
+        bool offerRestartOnApply = true;
         QElapsedTimer frameClock;
         qint64 nextFrameDeadline = 0;
         std::vector<int16_t> pendingAudio;
@@ -59,8 +62,14 @@ class MainWindow final : public QMainWindow
         void openROMDialog();
         void runFrame();
 
+        // Opens the Settings window on the given page
+        void openSettings(SettingsDialog::Page page);
+        // Saves new settings; returns whether that worked
+        bool applySettings(const Settings &newSettings);
+        void offerRestart();
+
     public:
-        explicit MainWindow(std::vector<uint8_t> bootROM, QWidget *parent = nullptr);
+        explicit MainWindow(QWidget *parent = nullptr);
         ~MainWindow() override;
 
         void loadInitialROM(const QString &filename);
