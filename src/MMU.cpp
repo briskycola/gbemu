@@ -8,6 +8,7 @@
 #include "BootROM.hpp"
 #include "IORegisters.hpp"
 #include "Common.hpp"
+#include <algorithm>
 #include <iostream>
 
 
@@ -536,4 +537,68 @@ bool MMU::loadCGBBootROM(const std::vector<uint8_t> &rom)
     }
     cgbBootROM = rom;
     return true;
+}
+
+// OAM corruption bug
+// See https://gbdev.io/pandocs/OAM_Corruption_Bug.html
+//
+// OAM is treated as 20 rows of four 16-bit little-endian words.
+
+uint16_t MMU::oamWord(int row, int word) const
+{
+    const size_t index = static_cast<size_t>(row * mmu::OAM_ROW_SIZE + word * 2);
+    return static_cast<uint16_t>(oamRAM[index] | (oamRAM[index + 1] << 8));
+}
+
+void MMU::setOAMWord(int row, int word, uint16_t value)
+{
+    const size_t index = static_cast<size_t>(row * mmu::OAM_ROW_SIZE + word * 2);
+    oamRAM[index]     = static_cast<uint8_t>(value & 0xFF);
+    oamRAM[index + 1] = static_cast<uint8_t>(value >> 8);
+}
+
+void MMU::copyOAMRow(int from, int to)
+{
+    std::copy_n(oamRAM.begin() + from * mmu::OAM_ROW_SIZE, mmu::OAM_ROW_SIZE,
+                oamRAM.begin() + to * mmu::OAM_ROW_SIZE);
+}
+
+void MMU::corruptOAM(uint16_t address, OAMCorruption kind)
+{
+    if (address < mmu::OAM_ADDRESS_START || address > mmu::UNUSABLE_ADDRESS_END) return;
+
+    const int row = emulator.ppu.oamScanRow();
+
+    // The first row is never corrupted: every pattern uses the row before it
+    if (row <= 0) return;
+
+    if (kind == OAMCorruption::ReadIncrease)
+    {
+        // Except within the first four rows and on the last row, the row
+        // before the preceding one is involved too
+        if (row >= 4 && row < mmu::OAM_ROW_COUNT - 1)
+        {
+            const uint16_t a = oamWord(row - 2, 0);
+            const uint16_t b = oamWord(row - 1, 0);
+            const uint16_t c = oamWord(row, 0);
+            const uint16_t d = oamWord(row - 1, 2);
+            setOAMWord(row - 1, 0, static_cast<uint16_t>((b & (a | c | d)) | (a & c & d)));
+            copyOAMRow(row - 1, row);
+            copyOAMRow(row - 1, row - 2);
+        }
+        // Followed by a normal read corruption either way
+        kind = OAMCorruption::Read;
+    }
+
+    const uint16_t a = oamWord(row, 0);
+    const uint16_t b = oamWord(row - 1, 0);
+    const uint16_t c = oamWord(row - 1, 2);
+
+    const uint16_t first = kind == OAMCorruption::Write
+        ? static_cast<uint16_t>(((a ^ c) & (b ^ c)) ^ c)
+        : static_cast<uint16_t>(b | (a & c));
+
+    // The rest of the row is copied from the preceding row
+    copyOAMRow(row - 1, row);
+    setOAMWord(row, 0, first);
 }

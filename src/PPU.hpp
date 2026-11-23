@@ -190,6 +190,10 @@ class PPU
         bool displayEnabled() const;
         bool cpuCanAccessVRAM() const;
         bool cpuCanAccessOAM() const;
+
+        // The OAM row the PPU is scanning right now, or -1 when the OAM
+        // corruption bug cannot happen (CGB, LCD off, not in mode 2)
+        int oamScanRow() const;
         void setVRAMBank(uint8_t bank) { vramBank = bank & 1; } // Only bit 0 selects the bank
         uint8_t getVRAMBank() const { return vramBank; }
         void setObjectPriorityMode(uint8_t mode) { objectPriorityMode = mode & 1; } // Only bit 0 is used

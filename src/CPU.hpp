@@ -2,6 +2,7 @@
 
 #include "Address.hpp"
 #include "Register.hpp"
+#include "MMU.hpp"
 #include <cstdint>
 
 // https://gbdev.io/pandocs/CPU_Registers_and_Flags.html
@@ -107,8 +108,12 @@ class CPU
         // rest of the system by that cycle before making the access, so the
         // timer, PPU and so on see each access on the right cycle of the
         // instruction instead of all of them at its start.
-        uint8_t busRead(const Address &address);
+        uint8_t busRead(const Address &address, OAMCorruption kind = OAMCorruption::Read);
         void busWrite(const Address &address, uint8_t value);
+
+        // A cycle where the 16-bit increment/decrement unit works on an
+        // address without a memory access (INC rr, DEC rr, SP before a push)
+        void iduCycle(uint16_t address);
 
         // Machine cycles already advanced by bus accesses during this step
         uint32_t busCycles = 0;

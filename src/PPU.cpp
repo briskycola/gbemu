@@ -316,6 +316,16 @@ bool PPU::cpuCanAccessOAM() const
            mode != static_cast<uint8_t>(VideoMode::AccessVRAM);
 }
 
+int PPU::oamScanRow() const
+{
+    // The bug only exists on the DMG, and line 0 right after the LCD is
+    // switched on has no OAM scan
+    if (emulator.cgbMode || !displayEnabled() || screenEnableDelay > 0) return -1;
+    if (currentMode != VideoMode::AccessOAM) return -1;
+    const int row = static_cast<int>(cycleCounter / mmu::OAM_SCAN_CLOCKS_PER_ROW);
+    return row < mmu::OAM_ROW_COUNT ? row : -1;
+}
+
 bool PPU::usesWindowTileMap() const { return checkBit(controlByte, ppu::LCDC_WINDOW_TILE_MAP_BIT); }
 bool PPU::windowEnabled() const { return checkBit(controlByte, ppu::LCDC_WINDOW_ENABLE_BIT); }
 bool PPU::bgWindowTileData() const { return checkBit(controlByte, ppu::LCDC_BG_WINDOW_TILE_DATA_BIT); }

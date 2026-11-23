@@ -277,11 +277,13 @@ void CPU::opcodeDec(ByteRegister &reg)
 
 void CPU::opcodeDec(RegisterPair &reg)
 {
+    iduCycle(reg.getValue());
     reg.decrement();
 }
 
 void CPU::opcodeDec(WordRegister &reg)
 {
+    iduCycle(reg.getValue());
     reg.decrement();
 }
 
@@ -323,11 +325,13 @@ void CPU::opcodeInc(ByteRegister &reg)
 
 void CPU::opcodeInc(RegisterPair &reg)
 {
+    iduCycle(reg.getValue());
     reg.increment();
 }
 
 void CPU::opcodeInc(WordRegister &reg)
 {
+    iduCycle(reg.getValue());
     reg.increment();
 }
 
@@ -500,7 +504,7 @@ void CPU::opcodeLdFromAddr(ByteRegister &reg)
 
 void CPU::opcodeLdd(ByteRegister &reg, const Address &address)
 {
-    reg.set(busRead(address));
+    reg.set(busRead(address, OAMCorruption::ReadIncrease));
     hl.decrement();
 }
 
@@ -567,7 +571,7 @@ void CPU::opcodeLdhl()
 // LDI
 void CPU::opcodeLdi(ByteRegister &reg, const Address &address)
 {
-    reg.set(busRead(address));
+    reg.set(busRead(address, OAMCorruption::ReadIncrease));
     hl.increment();
 }
 

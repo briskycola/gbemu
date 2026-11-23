@@ -116,10 +116,11 @@ bool CPU::handleInterrupts()
     return handleInterrupt(cpu::INTERRUPT_JOYPAD_BIT, cpu::INTERRUPT_JOYPAD_VECTOR, firedInterrupts);
 }
 
-uint8_t CPU::busRead(const Address &address)
+uint8_t CPU::busRead(const Address &address, OAMCorruption kind)
 {
     emulator.advance(1);
     ++busCycles;
+    emulator.mmu.corruptOAM(address.getValue(), kind);
     return emulator.mmu.read(address);
 }
 
@@ -127,7 +128,16 @@ void CPU::busWrite(const Address &address, uint8_t value)
 {
     emulator.advance(1);
     ++busCycles;
+    emulator.mmu.corruptOAM(address.getValue(), OAMCorruption::Write);
     emulator.mmu.write(address, value);
+}
+
+void CPU::iduCycle(uint16_t address)
+{
+    emulator.advance(1);
+    ++busCycles;
+    // A 16-bit increment or decrement on its own corrupts like a write
+    emulator.mmu.corruptOAM(address, OAMCorruption::Write);
 }
 
 uint32_t CPU::takeBusCycles()
@@ -212,6 +222,9 @@ bool CPU::isConditon(Condition condition)
 
 void CPU::stackPush(const WordValue &reg)
 {
+    // PUSH, CALL, RST and interrupt dispatch spend a cycle decrementing SP
+    // before the first write
+    iduCycle(sp.getValue());
     sp.decrement();
     busWrite(Address(sp), reg.getHighByte());
     sp.decrement();
@@ -220,9 +233,10 @@ void CPU::stackPush(const WordValue &reg)
 
 void CPU::stackPop(WordValue &reg)
 {
-    uint8_t lowByte = busRead(Address(sp));
+    // Each read happens together with incrementing SP
+    uint8_t lowByte = busRead(Address(sp), OAMCorruption::ReadIncrease);
     sp.increment();
-    uint8_t highByte = busRead(Address(sp));
+    uint8_t highByte = busRead(Address(sp), OAMCorruption::ReadIncrease);
     sp.increment();
 
     uint16_t value = composeBytes(highByte, lowByte);

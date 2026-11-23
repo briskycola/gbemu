@@ -78,7 +78,26 @@ namespace mmu
     static constexpr uint8_t HDMA_ADDRESS_LOW_MASK      = 0xF0; // Addresses are 16-byte aligned
     static constexpr uint8_t HDMA_DESTINATION_HIGH_MASK = 0x1F; // Destination stays inside VRAM
     static constexpr uint32_t HDMA_BLOCK_CYCLES         = 8;    // Machine cycles per block at normal speed
+
+    // While scanning OAM (mode 2) the PPU reads it as 20 rows
+    // of 8 bytes, one row per machine cycle
+    static constexpr int OAM_ROW_COUNT           = 20;
+    static constexpr int OAM_ROW_SIZE            = 8;
+    static constexpr int OAM_SCAN_CLOCKS_PER_ROW = 4;
 }
+
+// https://gbdev.io/pandocs/OAM_Corruption_Bug.html
+//
+// On the DMG, putting an address in $FE00-$FEFF on the bus or through the
+// CPU's 16-bit increment/decrement unit while the PPU scans OAM (mode 2)
+// corrupts the OAM row the PPU is reading. The pattern depends on what the
+// CPU did during that machine cycle.
+enum class OAMCorruption : uint8_t
+{
+    Read,          // A read
+    Write,         // A write, or a 16-bit increment/decrement on its own
+    ReadIncrease,  // A read and a 16-bit increment/decrement in the same cycle
+};
 
 class Emulator;
 
@@ -116,7 +135,13 @@ class MMU
         bool oamDMABlocksCPU(uint16_t address) const;
         bool isBootROMActive() const;
         void transferHDMABlock();
+        uint16_t oamWord(int row, int word) const;
+        void setOAMWord(int row, int word, uint16_t value);
+        void copyOAMRow(int from, int to);
     public:
+        // Applies the DMG OAM corruption bug for an address the CPU put on
+        // the bus or through its increment/decrement unit this machine cycle
+        void corruptOAM(uint16_t address, OAMCorruption kind);
         MMU(Emulator &emulator);
         uint8_t read(const Address &address, bool bypassPPURestrictions = false) const;
         void write(const Address &address, const uint8_t value, bool bypassPPURestrictions = false);
