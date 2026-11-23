@@ -145,12 +145,12 @@ void PPU::compareLYToLYC()
     refreshStatSignal(true);
 }
 
-// Check whether the window Y trigger should be set for the current LY.
-// Must be called at the start of every OAM scan (mode 2 entry).
+// At the start of each line the window's Y condition becomes true if WY equals
+// LY, whether or not the window is enabled, and stays true until VBlank
+// https://gbdev.io/pandocs/Window.html#window-rendering-criteria
 void PPU::checkWindowYTrigger()
 {
-    if (!windowYTriggered && windowEnabled() &&
-        line.getValue() == windowY.getValue())
+    if (!windowYTriggered && line.getValue() == windowY.getValue())
     {
         windowYTriggered = true;
     }
@@ -420,6 +420,11 @@ void PPU::setControlByte(uint8_t value)
 {
     const bool wasEnabled = displayEnabled();
     const bool nowEnabled = checkBit(value, ppu::LCDC_DISPLAY_ENABLE_BIT);
+
+    // On the CGB, clearing the window enable bit also clears the Y condition
+    // https://gbdev.io/pandocs/Window.html#window-rendering-criteria
+    if (emulator.cgbMode && windowEnabled() && !checkBit(value, ppu::LCDC_WINDOW_ENABLE_BIT)) windowYTriggered = false;
+
     controlByte = value;
 
     if (wasEnabled && !nowEnabled)
@@ -691,13 +696,15 @@ void PPU::drawSpritesForLine(uint32_t currentLine)
     const bool oamPriority = emulator.cgbMode && (objectPriorityMode == 0);
     if (!oamPriority)
     {
-        // Sort so that lower X (and among equal X, lower OAM index) wins.
-        // We draw in reverse order (last in array drawn first = lowest priority first).
-        std::stable_sort(visible, visible + visibleCount, [this](uint8_t a, uint8_t b)
+        // The object with the lower X wins, and for equal X the one earlier in
+        // OAM. Objects are drawn lowest priority first, so sort by X and then
+        // OAM index, both descending.
+        // https://gbdev.io/pandocs/OAM.html#drawing-priority
+        std::sort(visible, visible + visibleCount, [this](uint8_t a, uint8_t b)
         {
             const uint8_t xA = emulator.mmu.read(Address(mmu::OAM_ADDRESS_START + a * ppu::SPRITE_BYTES + ppu::OAM_SPRITE_X_BYTE), true);
             const uint8_t xB = emulator.mmu.read(Address(mmu::OAM_ADDRESS_START + b * ppu::SPRITE_BYTES + ppu::OAM_SPRITE_X_BYTE), true);
-            return xA > xB; // higher X = lower priority; draw first
+            return xA != xB ? xA > xB : a > b;
         });
     }
     // For CGB OAM priority mode: higher OAM index = lower priority (draw first).
