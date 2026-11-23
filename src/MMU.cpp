@@ -361,9 +361,9 @@ void MMU::writeIO(const Address &address, const uint8_t value)
 
         case io::LCD_Y_COMPARE_REGISTER: emulator.ppu.writeLYC(value); return;
         case io::OAM_DMA_REGISTER: requestOAMDMA(value); return;
-        case io::BG_PALETTE_REGISTER: emulator.ppu.bgPalette.set(value); return;
-        case io::OBJ_PALETTE0_REGISTER: emulator.ppu.spritePalette0.set(value); return;
-        case io::OBJ_PALETTE1_REGISTER: emulator.ppu.spritePalette1.set(value); return;
+        case io::BG_PALETTE_REGISTER: emulator.ppu.writeDMGPalette(emulator.ppu.bgPalette, value); return;
+        case io::OBJ_PALETTE0_REGISTER: emulator.ppu.writeDMGPalette(emulator.ppu.spritePalette0, value); return;
+        case io::OBJ_PALETTE1_REGISTER: emulator.ppu.writeDMGPalette(emulator.ppu.spritePalette1, value); return;
         case io::WINDOW_Y_REGISTER: emulator.ppu.windowY.set(value); return;
         case io::WINDOW_X_REGISTER: emulator.ppu.windowX.set(value); return;
 

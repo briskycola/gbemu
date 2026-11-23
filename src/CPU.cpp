@@ -144,6 +144,19 @@ void CPU::busWrite(const Address &address, uint8_t value)
         return;
     }
 
+    // Writes to the registers the PPU draws with land partway through the
+    // M-cycle (PPU::registerWriteDot). In double speed an M-cycle is only 2
+    // dots long, and these keep the usual timing.
+    const uint32_t ppuDots = emulator.ppu.registerWriteDot(address.getValue(), value);
+    if (ppuDots < common::T_CYCLES_PER_M_CYCLE && !emulator.doubleSpeed)
+    {
+        emulator.ppu.tickAhead(ppuDots);
+        emulator.mmu.write(address, value);
+        emulator.advance(1);
+        ++busCycles;
+        return;
+    }
+
     emulator.advance(1);
     ++busCycles;
     emulator.mmu.corruptOAM(address.getValue(), OAMCorruption::Write);

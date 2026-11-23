@@ -87,9 +87,9 @@ void PPU::refreshStatSignal(bool requestInterrupt)
     const uint8_t stat = lcdStatus.getValue();
     if (checkBit(stat, ppu::STAT_HBLANK_INTERRUPT_BIT) && currentMode == VideoMode::HBlank)
         signal = setBit(signal, ppu::IRQ48_HBLANK_BIT);
-    if (checkBit(stat, ppu::STAT_VBLANK_INTERRUPT_BIT) && currentMode == VideoMode::VBlank)
+    if (checkBit(stat, ppu::STAT_VBLANK_INTERRUPT_BIT) && currentMode == VideoMode::VBlank && lateInterruptDelay == 0)
         signal = setBit(signal, ppu::IRQ48_VBLANK_BIT);
-    if (checkBit(stat, ppu::STAT_OAM_INTERRUPT_BIT) && (currentMode == VideoMode::AccessOAM || line144OAMPulse))
+    if (checkBit(stat, ppu::STAT_OAM_INTERRUPT_BIT) && ((currentMode == VideoMode::AccessOAM && lateInterruptDelay == 0) || line144OAMPulse))
         signal = setBit(signal, ppu::IRQ48_OAM_BIT);
     if (checkBit(stat, ppu::STAT_LYC_INTERRUPT_BIT) && checkBit(stat, ppu::STAT_COINCIDENCE_BIT))
         signal = setBit(signal, ppu::IRQ48_LYC_BIT);
@@ -156,90 +156,529 @@ void PPU::checkWindowYTrigger()
     }
 }
 
-// Whether the window appears on the current line: it is enabled, WY has
-// matched LY this frame, and WX puts it on screen
-bool PPU::windowShownOnLine() const
+// The OAM scan picks the first 10 objects in OAM order that are on this line,
+// whatever their X. They are fetched from left to right, and objects with the
+// same X in OAM order.
+// https://gbdev.io/pandocs/OAM.html#selection-priority
+void PPU::scanOAM()
 {
-    return windowEnabled() && windowYTriggered &&
-        windowX.getValue() < common::GAMEBOY_WIDTH + ppu::WINDOW_X_OFFSET;
-}
-
-// Mode 3 lasts 172 dots plus the penalties Pan Docs lists: SCX % 8 for the
-// discarded pixels, 6 if the window starts, and 6 to 11 for each object drawn
-// https://gbdev.io/pandocs/Rendering.html#mode-3-length
-uint32_t PPU::calculateMode3Length() const
-{
-    const uint8_t scx = scrollX.getValue();
-    uint32_t length = ppu::CLOCKS_PER_SCANLINE_VRAM + scx % ppu::TILE_WIDTH_PX;
-
-    const bool window = windowShownOnLine();
-    const int32_t windowStart = static_cast<int32_t>(windowX.getValue()) - static_cast<int32_t>(ppu::WINDOW_X_OFFSET);
-    if (window) length += ppu::WINDOW_PENALTY;
-
-    if (!spritesEnabled()) return length;
-
-    // The objects the OAM scan found for this line: the first 10 in OAM order
-    const int32_t spriteHeight = usesLargeSprites() ? 16 : 8;
+    const int32_t height = usesLargeSprites() ? 16 : 8;
     const int32_t currentLine = line.getValue();
-    std::vector<std::pair<uint8_t, uint8_t>> objects; // OAM X, OAM index
-    for (uint8_t i = 0; i < ppu::MAX_SPRITES && objects.size() < ppu::MAX_SPRITES_PER_LINE; ++i)
+    lineObjectCount = 0;
+    for (uint8_t i = 0; i < ppu::MAX_SPRITES && lineObjectCount < ppu::MAX_SPRITES_PER_LINE; ++i)
     {
-        const uint16_t oamBase = mmu::OAM_ADDRESS_START + i * ppu::SPRITE_BYTES;
-        const int32_t spriteY = static_cast<int32_t>(emulator.mmu.read(Address(oamBase + ppu::OAM_SPRITE_Y_BYTE), true)) - ppu::SPRITE_Y_OFFSET;
-        if (currentLine >= spriteY && currentLine < spriteY + spriteHeight)
-            objects.emplace_back(emulator.mmu.read(Address(oamBase + ppu::OAM_SPRITE_X_BYTE), true), i);
+        const int32_t top = static_cast<int32_t>(emulator.mmu.read(Address(mmu::OAM_ADDRESS_START + i * ppu::SPRITE_BYTES + ppu::OAM_SPRITE_Y_BYTE), true)) - ppu::SPRITE_Y_OFFSET;
+        if (currentLine >= top && currentLine < top + height) lineObjects[lineObjectCount++] = i;
     }
-
-    // OBJ penalty algorithm: objects are considered from left to right,
-    // ties broken by OAM index
-    // https://gbdev.io/pandocs/Rendering.html#obj-penalty-algorithm
-    std::sort(objects.begin(), objects.end());
-    std::vector<int32_t> tilesConsidered;
-    for (const auto &object : objects)
+    const auto objectX = [this](uint8_t index)
     {
-        const uint8_t oamX = object.first;
-        if (oamX >= common::GAMEBOY_WIDTH + ppu::SPRITE_X_OFFSET) continue; // Entirely off the right edge
-
-        // The background or window tile that the object's leftmost pixel is
-        // in, and how many of that tile's pixels are to its right. An object
-        // at OAM X = 0 is off the left edge, in a tile of its own whatever
-        // SCX is: the first one costs the 11 dots Pan Docs gives, and others
-        // at X = 0 share that tile, as mooneye's intr_2_mode0_timing_sprites
-        // shows.
-        int32_t tile = ppu::OBJ_X0_TILE;
-        int32_t pixelsToTheRight = static_cast<int32_t>(ppu::TILE_WIDTH_PX) - 1;
-        if (oamX != 0)
-        {
-            const int32_t pixel = static_cast<int32_t>(oamX) - ppu::SPRITE_X_OFFSET;
-            const bool inWindow = window && pixel >= windowStart;
-            const int32_t coordinate = inWindow ? pixel - windowStart : (pixel + scx) & (common::BACKGROUND_MAP_SIZE - 1);
-            tile = (inWindow ? ppu::OBJ_WINDOW_TILE_BASE : 0) + coordinate / static_cast<int32_t>(ppu::TILE_WIDTH_PX);
-            pixelsToTheRight = static_cast<int32_t>(ppu::TILE_WIDTH_PX) - 1 - coordinate % static_cast<int32_t>(ppu::TILE_WIDTH_PX);
-        }
-
-        // Waiting for that tile's fetch to finish, once per tile
-        if (std::find(tilesConsidered.begin(), tilesConsidered.end(), tile) == tilesConsidered.end())
-        {
-            tilesConsidered.push_back(tile);
-            length += static_cast<uint32_t>(std::max(0, pixelsToTheRight - static_cast<int32_t>(ppu::OBJ_BG_FETCH_ALLOWANCE)));
-        }
-        length += ppu::OBJ_FETCH_PENALTY;
-    }
-    return length;
+        return emulator.mmu.read(Address(mmu::OAM_ADDRESS_START + index * ppu::SPRITE_BYTES + ppu::OAM_SPRITE_X_BYTE), true);
+    };
+    std::stable_sort(lineObjects.begin(), lineObjects.begin() + lineObjectCount,
+        [&](uint8_t a, uint8_t b) { return objectX(a) < objectX(b); });
 }
 
-// Starts drawing a line: mode 3 gets its length, and mode 0 the rest of the
-// line. lineLength and mode3Start are 456 and 80 except on the first line
-// after the LCD is switched on.
-void PPU::startMode3(uint32_t lineLength, uint32_t mode3Start)
+// Starts drawing a line. At the start of mode 3 both FIFOs are cleared, and
+// the fetcher starts on the first tile of the background.
+// https://gbdev.io/pandocs/pixel_fifo.html#mode-3-operation
+void PPU::startMode3(uint32_t length, uint32_t start)
 {
-    mode3Length = calculateMode3Length();
-    hblankLength = lineLength - mode3Start - mode3Length;
+    lineLength = length;
+    mode3Start = start;
+    scanOAM();
+
+    bgFifoHead = 0;
+    bgFifoSize = 0;
+    objFifoSize = 0;
+    fetchStep = FetchStep::Tile;
+    fetchStepDots = 0;
+    firstFetch = true;
+    fetchingWindow = false;
+    fetcherX = 0;
+
+    mode3Dots = 0;
+    pixelX = 0;
+    // The pixels left of SCX's fine scroll are shifted out and dropped,
+    // a dot each
+    // https://gbdev.io/pandocs/Rendering.html#mode-3-length
+    pixelsToDiscard = scrollX.getValue() % ppu::TILE_WIDTH_PX;
+    windowPixelsToDrop = 0;
+    objectStall = 0;
+    nextLineObject = 0;
+    tilesWaitedForCount = 0;
+
     setMode(VideoMode::AccessVRAM);
 }
 
+// Runs mode 3 up to the current dot. When the 160th pixel has been sent to the
+// LCD, mode 0 starts and gets the rest of the line.
+void PPU::runMode3()
+{
+    while (mode3Dots < cycleCounter)
+    {
+        if (!stepMode3()) continue;
+
+        cycleCounter -= mode3Dots;
+        hblankLength = lineLength - mode3Start - mode3Dots;
+        setMode(VideoMode::HBlank);
+
+        // Copy one HBlank DMA block. Only the CPU stalls while it runs
+        // (through dmaCyclesRemaining); the PPU keeps its own timing.
+        emulator.mmu.hblankDMA();
+
+        // The rest of this tick is mode 0
+        advanceLCD(cycleCounter);
+
+        refreshStatSignal(true);
+        return;
+    }
+}
+
+// One dot of mode 3: a pixel may be sent to the LCD, then the fetcher runs.
+// Returns true once the line's last pixel has been sent.
+bool PPU::stepMode3()
+{
+    ++mode3Dots;
+    advanceLCD(1);
+    bool lineDone = false;
+
+    if (objectStall > 0)
+    {
+        --objectStall;
+    }
+    else if (!startWindowIfReached() && bgFifoSize > 0 && !fetchObjectIfReached())
+    {
+        popPixel();
+        lineDone = pixelX == common::GAMEBOY_WIDTH;
+    }
+
+    stepFetcher();
+    return lineDone;
+}
+
+// The window starts when the pixel counter, which runs 7 ahead of the pixels
+// sent to the LCD, equals WX while the window is enabled and its Y condition
+// is true. The background FIFO is cleared and the fetcher starts again on the
+// window's current row. WX below 7 puts the window's first pixels left of the
+// screen; WX = 0 also starts it before SCX's fine scroll, which then shifts
+// the window too.
+// https://gbdev.io/pandocs/Window.html#window-rendering-criteria
+// https://gbdev.io/pandocs/pixel_fifo.html#the-window
+bool PPU::startWindowIfReached()
+{
+    if (fetchingWindow || !windowEnabled() || !windowYTriggered) return false;
+
+    const uint8_t wx = windowX.getValue();
+    if (wx >= ppu::WINDOW_X_OFFSET)
+    {
+        if (pixelsToDiscard > 0 || pixelX + ppu::WINDOW_X_OFFSET != wx) return false;
+    }
+    else if (pixelX != 0 || (wx > 0 && pixelsToDiscard > 0))
+    {
+        return false;
+    }
+
+    fetchingWindow = true;
+    windowStartX = static_cast<int32_t>(wx) - static_cast<int32_t>(ppu::WINDOW_X_OFFSET);
+    windowPixelsToDrop = wx < ppu::WINDOW_X_OFFSET ? static_cast<uint8_t>(ppu::WINDOW_X_OFFSET - wx) : 0;
+    windowRow = static_cast<uint8_t>(windowLine++);
+
+    bgFifoHead = 0;
+    bgFifoSize = 0;
+    fetchStep = FetchStep::Tile;
+    fetchStepDots = 0;
+    firstFetch = false;
+    fetcherX = 0;
+    return true;
+}
+
+// The fetcher's steps. Get Tile reads the tile number (and on the CGB its
+// attributes) from the tile map, the two Get Tile Data steps read the tile's
+// row, and Push puts the row into the background FIFO once it is empty. Get
+// Tile Data High also tries to push.
+// https://gbdev.io/pandocs/pixel_fifo.html#fifo-pixel-fetcher
+void PPU::stepFetcher()
+{
+    if (fetchStep == FetchStep::Push)
+    {
+        pushTileRow();
+        return;
+    }
+
+    if (++fetchStepDots < ppu::FETCH_STEP_DOTS) return;
+    fetchStepDots = 0;
+
+    switch (fetchStep)
+    {
+        case FetchStep::Tile:
+        {
+            // The window uses the LCDC.6 tile map and its own row and column.
+            // The background uses the LCDC.3 tile map, at
+            // ((SCX / 8) + fetcher X) & 31 and (LY + SCY) & 255.
+            // https://gbdev.io/pandocs/pixel_fifo.html#get-tile
+            const bool highMap = fetchingWindow ? usesWindowTileMap() : usesBackgroundTileMap();
+            const uint16_t mapBase = (highMap ? ppu::TILE_MAP_ONE_ADDRESS : ppu::TILE_MAP_ZERO_ADDRESS).getValue() - mmu::VRAM_ADDRESS_START;
+            const uint8_t tileX = fetchingWindow
+                ? static_cast<uint8_t>(fetcherX & (ppu::TILES_PER_LINE - 1))
+                : static_cast<uint8_t>(((scrollX.getValue() / ppu::TILE_WIDTH_PX) + fetcherX) & (ppu::TILES_PER_LINE - 1));
+            const uint8_t y = fetchingWindow ? windowRow : static_cast<uint8_t>(line.getValue() + scrollY.getValue());
+            const uint16_t mapAddress = static_cast<uint16_t>(mapBase + (y / ppu::TILE_HEIGHT_PX) * ppu::TILES_PER_LINE + tileX);
+            // Tile numbers live in VRAM bank 0 and attributes in bank 1
+            fetchedTile = readVRAMBank(mapAddress, 0);
+            fetchedAttributes = emulator.cgbMode ? readVRAMBank(mapAddress, 1) : 0;
+            fetchStep = FetchStep::DataLow;
+            break;
+        }
+        case FetchStep::DataLow:
+            fetchedLow = readVRAMBank(tileDataAddress(fetchedTile, fetchedAttributes, false), getBitValue(fetchedAttributes, ppu::ATTRIBUTE_VRAM_BANK_BIT));
+            fetchStep = FetchStep::DataHigh;
+            break;
+        case FetchStep::DataHigh:
+            fetchedHigh = readVRAMBank(tileDataAddress(fetchedTile, fetchedAttributes, true), getBitValue(fetchedAttributes, ppu::ATTRIBUTE_VRAM_BANK_BIT));
+            fetchStep = FetchStep::Push;
+            pushTileRow();
+            break;
+        case FetchStep::Push:
+            break;
+    }
+}
+
+// LCDC.4 picks the tile data area: $8000 with unsigned tile numbers, or $8800
+// with signed ones based at $9000. The row is (LY + SCY) % 8 for the
+// background, read again at each step, or the window row; on the CGB it can
+// be flipped vertically.
+// https://gbdev.io/pandocs/pixel_fifo.html#get-tile-data-low
+// https://gbdev.io/pandocs/Tile_Data.html
+uint16_t PPU::tileDataAddress(uint8_t tile, uint8_t attributes, bool highByte) const
+{
+    uint8_t row = static_cast<uint8_t>((fetchingWindow ? windowRow : line.getValue() + scrollY.getValue()) % ppu::TILE_HEIGHT_PX);
+    if (checkBit(attributes, ppu::ATTRIBUTE_Y_FLIP_BIT)) row = static_cast<uint8_t>(ppu::TILE_HEIGHT_PX - 1 - row);
+    const uint16_t tileBase = bgWindowTileData()
+        ? static_cast<uint16_t>(tile * ppu::TILE_BYTES)
+        : static_cast<uint16_t>(ppu::SIGNED_TILE_DATA_BASE + static_cast<int8_t>(tile) * static_cast<int32_t>(ppu::TILE_BYTES));
+    return static_cast<uint16_t>(tileBase + row * ppu::TILE_BYTES_PER_ROW + (highByte ? 1 : 0));
+}
+
+// Pixels are only pushed when the background FIFO is empty: the row's 8
+// pixels, leftmost first, or rightmost first when the tile is flipped
+// horizontally. The line's first fetch is thrown away and the first tile
+// fetched again, which is part of mode 3's 172 dots.
+// https://gbdev.io/pandocs/pixel_fifo.html#push
+bool PPU::pushTileRow()
+{
+    if (bgFifoSize > 0) return false;
+    fetchStep = FetchStep::Tile;
+    fetchStepDots = 0;
+
+    if (firstFetch)
+    {
+        firstFetch = false;
+        return false;
+    }
+
+    const bool flipX = checkBit(fetchedAttributes, ppu::ATTRIBUTE_X_FLIP_BIT);
+    for (uint8_t i = 0; i < ppu::TILE_WIDTH_PX; ++i)
+    {
+        // A window starting left of the screen loses its leftmost pixels
+        if (windowPixelsToDrop > 0) { --windowPixelsToDrop; continue; }
+
+        const uint8_t bit = static_cast<uint8_t>(flipX ? i : ppu::TILE_WIDTH_PX - 1 - i);
+        FifoPixel &pixel = bgFifo[(bgFifoHead + bgFifoSize++) % ppu::FIFO_CAPACITY];
+        pixel.color = static_cast<uint8_t>(getBitValue(fetchedHigh, bit) << 1 | getBitValue(fetchedLow, bit));
+        pixel.palette = fetchedAttributes & ppu::ATTRIBUTE_CGB_PALETTE_MASK;
+        pixel.bgPriority = checkBit(fetchedAttributes, ppu::ATTRIBUTE_PRIORITY_BIT);
+    }
+    ++fetcherX;
+    return true;
+}
+
+// When the next pixel has an object on it, the object is fetched before the
+// pixel is sent. Objects are fetched only while LCDC.1 is set, except on the
+// CGB. Objects partly left of the screen are fetched at the first pixel, and
+// objects at OAM X 168 or more never are.
+// https://gbdev.io/pandocs/pixel_fifo.html#sprites
+bool PPU::fetchObjectIfReached()
+{
+    if (pixelsToDiscard > 0) return false;
+
+    while (nextLineObject < lineObjectCount)
+    {
+        const uint8_t index = lineObjects[nextLineObject];
+        const uint8_t oamX = emulator.mmu.read(Address(mmu::OAM_ADDRESS_START + index * ppu::SPRITE_BYTES + ppu::OAM_SPRITE_X_BYTE), true);
+        if (oamX >= common::GAMEBOY_WIDTH + ppu::SPRITE_X_OFFSET || oamX > pixelX + ppu::SPRITE_X_OFFSET) return false;
+
+        ++nextLineObject;
+        if (!spritesEnabled() && !emulator.cgbMode) continue;
+
+        mixObjectIntoFifo(index);
+        // This dot is the first of the fetch
+        objectStall = objectFetchDots(oamX) - 1;
+        return true;
+    }
+    return false;
+}
+
+// How long an object fetch holds back the pixel output, by Pan Docs' OBJ
+// penalty algorithm: 6 dots, plus, for the first object starting in a given
+// background or window tile, the pixels of that tile to the right of the
+// object minus 2. An object at OAM X = 0 is left of the screen in a tile of
+// its own whatever SCX is, which costs 11 dots for the first; others at X = 0
+// share that tile, as mooneye's intr_2_mode0_timing_sprites shows.
+// https://gbdev.io/pandocs/Rendering.html#obj-penalty-algorithm
+uint32_t PPU::objectFetchDots(uint8_t oamX)
+{
+    int32_t tile = ppu::OBJ_X0_TILE;
+    int32_t pixelsToTheRight = static_cast<int32_t>(ppu::TILE_WIDTH_PX) - 1;
+    if (oamX != 0)
+    {
+        const int32_t pixel = static_cast<int32_t>(oamX) - ppu::SPRITE_X_OFFSET;
+        const bool inWindow = fetchingWindow && pixel >= windowStartX;
+        const int32_t coordinate = inWindow ? pixel - windowStartX : (pixel + scrollX.getValue()) & (common::BACKGROUND_MAP_SIZE - 1);
+        tile = (inWindow ? ppu::OBJ_WINDOW_TILE_BASE : 0) + coordinate / static_cast<int32_t>(ppu::TILE_WIDTH_PX);
+        pixelsToTheRight = static_cast<int32_t>(ppu::TILE_WIDTH_PX) - 1 - coordinate % static_cast<int32_t>(ppu::TILE_WIDTH_PX);
+    }
+
+    uint32_t dots = ppu::OBJ_FETCH_PENALTY;
+    if (std::find(tilesWaitedFor.begin(), tilesWaitedFor.begin() + tilesWaitedForCount, tile) == tilesWaitedFor.begin() + tilesWaitedForCount)
+    {
+        tilesWaitedFor[tilesWaitedForCount++] = tile;
+        dots += static_cast<uint32_t>(std::max(0, pixelsToTheRight - static_cast<int32_t>(ppu::OBJ_BG_FETCH_ALLOWANCE)));
+    }
+    return dots;
+}
+
+// Fetches an object's row and mixes it into the object FIFO, which is first
+// filled up to 8 pixels with transparent ones. A pixel already in the FIFO
+// is replaced only if it is transparent, or on the CGB in OAM priority mode
+// if it belongs to an object later in OAM. (On the DMG the pixels already
+// there are from objects with a lower X, or an equal X and earlier in OAM,
+// which win.) On the CGB the tile can come from VRAM bank 1 and be flipped.
+// https://gbdev.io/pandocs/pixel_fifo.html#sprites
+// https://gbdev.io/pandocs/OAM.html#drawing-priority
+void PPU::mixObjectIntoFifo(uint8_t oamIndex)
+{
+    const uint16_t oamBase = mmu::OAM_ADDRESS_START + oamIndex * ppu::SPRITE_BYTES;
+    const uint8_t oamY = emulator.mmu.read(Address(oamBase + ppu::OAM_SPRITE_Y_BYTE), true);
+    const uint8_t oamX = emulator.mmu.read(Address(oamBase + ppu::OAM_SPRITE_X_BYTE), true);
+    uint8_t tile = emulator.mmu.read(Address(oamBase + ppu::OAM_SPRITE_TILE_BYTE), true);
+    const uint8_t attributes = emulator.mmu.read(Address(oamBase + ppu::OAM_SPRITE_ATTRIBUTE_BYTE), true);
+
+    // In 8x16 mode bit 0 of the tile number is ignored
+    // https://gbdev.io/pandocs/OAM.html#byte-2--tile-index
+    const bool tall = usesLargeSprites();
+    const uint8_t heightMask = tall ? 15 : 7;
+    if (tall) tile &= 0xFE;
+    uint8_t row = static_cast<uint8_t>((line.getValue() + ppu::SPRITE_Y_OFFSET - oamY) & heightMask);
+    if (checkBit(attributes, ppu::ATTRIBUTE_Y_FLIP_BIT)) row = static_cast<uint8_t>(heightMask - row);
+
+    const uint8_t bank = emulator.cgbMode ? getBitValue(attributes, ppu::ATTRIBUTE_VRAM_BANK_BIT) : 0;
+    const uint16_t address = static_cast<uint16_t>(tile * ppu::TILE_BYTES + row * ppu::TILE_BYTES_PER_ROW);
+    const uint8_t low = readVRAMBank(address, bank);
+    const uint8_t high = readVRAMBank(static_cast<uint16_t>(address + 1), bank);
+
+    while (objFifoSize < ppu::OBJ_FIFO_PIXELS) objFifo[objFifoSize++] = FifoPixel{};
+
+    const bool flipX = checkBit(attributes, ppu::ATTRIBUTE_X_FLIP_BIT);
+    const bool oamOrder = emulator.cgbMode && objectPriorityMode == 0;
+    const int32_t left = static_cast<int32_t>(oamX) - ppu::SPRITE_X_OFFSET;
+    for (int32_t column = 0; column < static_cast<int32_t>(ppu::TILE_WIDTH_PX); ++column)
+    {
+        const int32_t slot = left + column - pixelX;
+        if (slot < 0 || slot >= ppu::OBJ_FIFO_PIXELS) continue;
+
+        const uint8_t bit = static_cast<uint8_t>(flipX ? column : ppu::TILE_WIDTH_PX - 1 - column);
+        const uint8_t color = static_cast<uint8_t>(getBitValue(high, bit) << 1 | getBitValue(low, bit));
+        FifoPixel &existing = objFifo[slot];
+        if (color == 0) continue;
+        if (existing.color != 0 && !(oamOrder && existing.oamIndex > oamIndex)) continue;
+
+        existing.color = color;
+        existing.palette = emulator.cgbMode
+            ? attributes & ppu::ATTRIBUTE_CGB_PALETTE_MASK
+            : getBitValue(attributes, ppu::ATTRIBUTE_DMG_PALETTE_BIT);
+        existing.bgPriority = checkBit(attributes, ppu::ATTRIBUTE_PRIORITY_BIT);
+        existing.oamIndex = oamIndex;
+    }
+}
+
+// Pops a pixel off each FIFO and sends the pair towards the LCD
+// https://gbdev.io/pandocs/pixel_fifo.html#pixel-rendering
+void PPU::popPixel()
+{
+    const FifoPixel bg = bgFifo[bgFifoHead];
+    bgFifoHead = static_cast<uint8_t>((bgFifoHead + 1) % ppu::FIFO_CAPACITY);
+    --bgFifoSize;
+
+    // SCX's fine scroll: these pixels are dropped, not drawn
+    if (pixelsToDiscard > 0)
+    {
+        --pixelsToDiscard;
+        return;
+    }
+
+    FifoPixel object;
+    if (objFifoSize > 0)
+    {
+        object = objFifo[0];
+        std::copy(objFifo.begin() + 1, objFifo.begin() + objFifoSize, objFifo.begin());
+        --objFifoSize;
+    }
+
+    const LCDPixel pixel{bg, object, pixelX++, ppu::LCD_OUTPUT_LATENCY};
+    if (pixel.dotsLeft == 0)
+    {
+        drawPixel(pixel);
+        return;
+    }
+    lcdPipeline[(lcdPipelineHead + lcdPipelineSize++) % ppu::LCD_PIPELINE_CAPACITY] = pixel;
+}
+
+// Moves the pixels on their way to the LCD along by some dots, drawing those
+// that arrive. Each dot also ends a DMG palette write's glitch dot.
+void PPU::advanceLCD(uint32_t dots)
+{
+    for (uint32_t dot = 0; dot < dots && (lcdPipelineSize > 0 || paletteGlitchDots > 0); ++dot)
+    {
+        for (uint8_t i = 0; i < lcdPipelineSize; ++i) --lcdPipeline[(lcdPipelineHead + i) % ppu::LCD_PIPELINE_CAPACITY].dotsLeft;
+        while (lcdPipelineSize > 0 && lcdPipeline[lcdPipelineHead].dotsLeft == 0)
+        {
+            drawPixel(lcdPipeline[lcdPipelineHead]);
+            lcdPipelineHead = static_cast<uint8_t>((lcdPipelineHead + 1) % ppu::LCD_PIPELINE_CAPACITY);
+            --lcdPipelineSize;
+        }
+        if (paletteGlitchDots > 0 && --paletteGlitchDots == 0) finishPaletteWrite();
+    }
+}
+
+// Mixes a background and an object pixel and draws the result. The palettes
+// and LCDC bits 0 and 1 are read now, as the pixel reaches the LCD.
+// https://gbdev.io/pandocs/pixel_fifo.html#pixel-rendering
+void PPU::drawPixel(const LCDPixel &pixel)
+{
+    const FifoPixel &bg = pixel.bg;
+    const FifoPixel &object = pixel.object;
+
+    // On the DMG, LCDC.0 clear makes the background and window white. On the
+    // CGB it instead takes away their priority over objects.
+    // https://gbdev.io/pandocs/LCDC.html#lcdc0--bg-and-window-enablepriority
+    const bool bgShown = emulator.cgbMode || bgEnabled();
+    const uint8_t bgColor = bgShown ? bg.color : 0;
+
+    // An object pixel is drawn unless it is transparent, objects are off, or
+    // the background pixel is not color 0 and has priority: through the
+    // object's OBJ-to-BG bit, or on the CGB the tile's own priority bit.
+    // https://gbdev.io/pandocs/Tile_Maps.html#bg-to-obj-priority-in-cgb-mode
+    bool objectWins = object.color != 0 && spritesEnabled();
+    if (objectWins && bgColor != 0)
+    {
+        const bool bgPriority = emulator.cgbMode ? bgEnabled() && (object.bgPriority || bg.bgPriority) : object.bgPriority;
+        if (bgPriority) objectWins = false;
+    }
+
+    const uint32_t x = pixel.x;
+    const uint32_t y = line.getValue();
+    if (emulator.cgbMode)
+    {
+        const uint32_t rgb = objectWins ? objColorPalettes.getColor(object.palette, object.color) : bgColorPalettes.getColor(bg.palette, bgColor);
+        buffer.setPixelRGB(x, y, rgb, objectWins ? object.color : bgColor);
+        return;
+    }
+
+    const ColorPalette palette = objectWins
+        ? loadPalette(object.palette ? spritePalette1 : spritePalette0)
+        : loadPalette(bgPalette);
+    const Color shade = !objectWins && !bgShown ? Color::White : getColorFromPalette(getColor(objectWins ? object.color : bgColor), palette);
+    if (emulator.sgbMode)
+    {
+        const uint8_t mappedShade = static_cast<uint8_t>(shade);
+        buffer.setPixelRGB(x, y, emulator.sgb.getColor(emulator.sgb.getAttribute(x, y), mappedShade, x, y), mappedShade);
+    }
+    else
+    {
+        buffer.setPixel(x, y, shade);
+    }
+}
+
+// BGP, OBP0 and OBP1. On the DMG (not the SGB or CGB) the LCD sees the old
+// value ORed with the new one for a dot before the new one.
+void PPU::writeDMGPalette(ByteRegister &palette, uint8_t value)
+{
+    if (paletteGlitchDots > 0) finishPaletteWrite();
+    if (emulator.cgbMode || emulator.sgbMode || !displayEnabled())
+    {
+        palette.set(value);
+        return;
+    }
+    glitchedPalette = &palette;
+    glitchedPaletteValue = value;
+    paletteGlitchDots = ppu::PALETTE_GLITCH_DOTS;
+    palette.set(palette.getValue() | value);
+}
+
+void PPU::finishPaletteWrite()
+{
+    paletteGlitchDots = 0;
+    if (glitchedPalette) glitchedPalette->set(glitchedPaletteValue);
+    glitchedPalette = nullptr;
+}
+
+
+// At line 144 the VBlank interrupt is requested and the mode 1 STAT source
+// rises. On the DMG, line 144 also briefly raises the mode 2 STAT source, so
+// the mode 2 STAT interrupt fires too (mooneye's vblank_stat_intr-GS; the CGB
+// doesn't). At line 0 the mode 2 STAT source rises.
+// https://gbdev.io/pandocs/Interrupt_Sources.html#int-40--vblank-interrupt
+void PPU::raiseLateInterrupts()
+{
+    if (currentMode != VideoMode::VBlank)
+    {
+        refreshStatSignal(true);
+        return;
+    }
+    emulator.cpu.interruptFlag.setBitTo(cpu::INTERRUPT_VBLANK_BIT, true);
+    line144OAMPulse = !emulator.cgbMode;
+    refreshStatSignal(true);
+    line144OAMPulse = false;
+    refreshStatSignal(true);
+}
+
+void PPU::tickAhead(uint32_t dots)
+{
+    tick(Cycles(dots));
+    dotsAhead += dots;
+}
+
+uint32_t PPU::registerWriteDot(uint16_t address, uint8_t value) const
+{
+    switch (address)
+    {
+        // Switching the LCD on or off keeps the usual timing
+        case io::LCD_CONTROL_REGISTER:
+            if (checkBit(value, ppu::LCDC_DISPLAY_ENABLE_BIT) != displayEnabled()) break;
+            return ppu::RENDER_REGISTER_WRITE_DOT;
+        case io::SCROLL_Y_REGISTER:
+        case io::SCROLL_X_REGISTER:
+        case io::BG_PALETTE_REGISTER:
+        case io::OBJ_PALETTE0_REGISTER:
+        case io::OBJ_PALETTE1_REGISTER:
+        case io::WINDOW_X_REGISTER:
+            return ppu::RENDER_REGISTER_WRITE_DOT;
+        default:
+            break;
+    }
+    return common::T_CYCLES_PER_M_CYCLE;
+}
 void PPU::tick(Cycles cycles)
 {
+    // Skip the dots tickAhead() already ran
+    if (dotsAhead > 0)
+    {
+        const uint32_t skipped = std::min(dotsAhead, cycles.cycles);
+        dotsAhead -= skipped;
+        if (cycles.cycles > skipped) tick(Cycles(cycles.cycles - skipped));
+        return;
+    }
+
     if (!displayEnabled()) return;
 
     // The LY=LYC flag compares a new LY one M-cycle after LY changes
@@ -247,6 +686,14 @@ void PPU::tick(Cycles cycles)
     {
         lyCompareDelay = cycles.cycles >= lyCompareDelay ? 0 : lyCompareDelay - cycles.cycles;
         if (lyCompareDelay == 0) compareLYToLYC();
+    }
+
+    // VBlank's interrupts, and line 0's mode 2 STAT source, rise a few dots
+    // into their line
+    if (lateInterruptDelay > 0)
+    {
+        lateInterruptDelay = cycles.cycles >= lateInterruptDelay ? 0 : lateInterruptDelay - cycles.cycles;
+        if (lateInterruptDelay == 0) raiseLateInterrupts();
     }
 
     // STAT catches up with a mode change after STAT_MODE_DELAY dots
@@ -276,7 +723,6 @@ void PPU::tick(Cycles cycles)
         windowYTriggered = false;
         vblankLine = 0;
         ly153EarlyZero = false;
-        colorCache.fill(0);
         // No OAM scan on this first line: go straight to drawing. The line is
         // 4 dots short, and drawing starts LCD_ENABLE_DELAY dots in.
         checkWindowYTrigger();
@@ -287,6 +733,9 @@ void PPU::tick(Cycles cycles)
 
     cycleCounter += elapsed;
 
+    // Outside mode 3, pixels still on their way to the LCD keep moving
+    if (currentMode != VideoMode::AccessVRAM) advanceLCD(elapsed);
+
     switch (currentMode)
     {
         case VideoMode::AccessOAM:
@@ -296,33 +745,15 @@ void PPU::tick(Cycles cycles)
                 cycleCounter -= ppu::CLOCKS_PER_SCANLINE_OAM;
                 startMode3(ppu::CLOCKS_PER_SCANLINE, ppu::CLOCKS_PER_SCANLINE_OAM);
                 refreshStatSignal(true);
+                // Draw the dots of mode 3 already in this tick
+                runMode3();
             }
             break;
         }
 
         case VideoMode::AccessVRAM:
         {
-            if (cycleCounter >= mode3Length)
-            {
-                cycleCounter -= mode3Length;
-                setMode(VideoMode::HBlank);
-
-                // Render this scanline at the transition to HBlank.
-                // Clear the current line's color-cache strip first so stale
-                // pixels from earlier in the frame can't affect sprite priority.
-                const uint32_t lineBase = static_cast<uint32_t>(line.getValue()) * common::GAMEBOY_WIDTH;
-                for (uint32_t i = 0; i < common::GAMEBOY_WIDTH; ++i)
-                    colorCache[lineBase + i] = 0;
-
-                writeScanline(line.getValue());
-
-                // Copy one HBlank DMA block. Only the CPU stalls while it
-                // runs (through dmaCyclesRemaining); the PPU keeps its own
-                // timing, so HBlank is neither lengthened nor shortened.
-                emulator.mmu.hblankDMA();
-
-                refreshStatSignal(true);
-            }
+            runMode3();
             break;
         }
 
@@ -340,25 +771,17 @@ void PPU::tick(Cycles cycles)
                     setMode(VideoMode::VBlank);
                     vblankLine = 0;
 
-                    // Fire VBlank interrupt
-                    emulator.cpu.interruptFlag.setBitTo(cpu::INTERRUPT_VBLANK_BIT, true);
-
                     // Render the finished frame before resetting anything
                     draw();
                     buffer.reset();
-                    colorCache.fill(0);
 
                     // Window state resets for the next frame
                     windowLine = 0;
                     windowYTriggered = false;
 
-                    // On the DMG, line 144 starts with a mode 2 pulse, so the
-                    // mode 2 STAT interrupt also fires when VBlank begins.
-                    // (mooneye's vblank_stat_intr-GS; the CGB doesn't do this.)
-                    line144OAMPulse = !emulator.cgbMode;
+                    // The VBlank interrupts come a little later
+                    lateInterruptDelay = ppu::LATE_VBLANK_DOTS;
                     startLYCompare();
-                    refreshStatSignal(true);
-                    line144OAMPulse = false;
                     refreshStatSignal(true);
                 }
                 else
@@ -391,13 +814,14 @@ void PPU::tick(Cycles cycles)
                 cycleCounter -= ppu::CLOCKS_PER_SCANLINE;
                 vblankLine++;
 
-                if (vblankLine >= 10)
+                if (vblankLine >= static_cast<int32_t>(ppu::VBLANK_LINES))
                 {
                     // End of VBlank: restart rendering at line 0
                     ly153EarlyZero = false;
                     vblankLine = 0;
                     line.set(0);
                     setMode(VideoMode::AccessOAM);
+                    lateInterruptDelay = ppu::LATE_VBLANK_DOTS;
                     checkWindowYTrigger();
                     compareLYToLYC();
                     refreshStatSignal(true);
@@ -437,12 +861,14 @@ void PPU::setControlByte(uint8_t value)
         windowYTriggered = false;
         vblankLine = 0;
         ly153EarlyZero = false;
+        lateInterruptDelay = 0;
         lyCompareDelay = 0;
+        lcdPipelineSize = 0;
+        if (paletteGlitchDots > 0) finishPaletteWrite();
         // STAT reads mode 0 while the PPU is off. The LY=LYC flag and the STAT
         // line keep their values: nothing updates them until it is back on.
         showModeInSTAT();
         buffer.reset();
-        colorCache.fill(0);
     }
     else if (!wasEnabled && nowEnabled)
     {
@@ -510,328 +936,6 @@ bool PPU::usesBackgroundTileMap() const { return checkBit(controlByte, ppu::LCDC
 bool PPU::usesLargeSprites() const { return checkBit(controlByte, ppu::LCDC_SPRITE_SIZE_BIT); }
 bool PPU::spritesEnabled() const { return checkBit(controlByte, ppu::LCDC_SPRITES_ENABLE_BIT); }
 bool PPU::bgEnabled() const { return checkBit(controlByte, ppu::LCDC_BG_ENABLE_BIT); }
-
-void PPU::writeScanline(uint8_t currentLine)
-{
-    if (!displayEnabled()) return;
-
-    if (bgEnabled() || emulator.cgbMode)
-    {
-        drawBGLine(currentLine);
-    }
-
-    if (windowEnabled() && windowYTriggered)
-    {
-        drawWindowLine(currentLine);
-    }
-
-    drawSpritesForLine(currentLine);
-}
-
-void PPU::drawBGLine(uint32_t currentLine)
-{
-    bool useTileSetZero = bgWindowTileData();
-    bool useTileMapZero = !usesBackgroundTileMap();
-
-    ColorPalette palette = loadPalette(bgPalette);
-
-    Address tileSetAddress = useTileSetZero ? ppu::TILE_SET_ZERO_ADDRESS : ppu::TILE_SET_ONE_ADDRESS;
-    Address tileMapAddress = useTileMapZero ? ppu::TILE_MAP_ZERO_ADDRESS : ppu::TILE_MAP_ONE_ADDRESS;
-
-    uint32_t screenY = currentLine;
-
-    for (uint32_t screenX = 0; screenX < common::GAMEBOY_WIDTH; screenX++)
-    {
-        uint32_t scrolledX = screenX + scrollX.getValue();
-        uint32_t scrolledY = screenY + scrollY.getValue();
-
-        uint32_t bgMapX = scrolledX % common::BACKGROUND_MAP_SIZE;
-        uint32_t bgMapY = scrolledY % common::BACKGROUND_MAP_SIZE;
-
-        uint32_t tileX = bgMapX / ppu::TILE_WIDTH_PX;
-        uint32_t tileY = bgMapY / ppu::TILE_HEIGHT_PX;
-
-        uint32_t tilePixelX = bgMapX % ppu::TILE_WIDTH_PX;
-        uint32_t tilePixelY = bgMapY % ppu::TILE_HEIGHT_PX;
-
-        uint32_t tileIndex = tileY * ppu::TILES_PER_LINE + tileX;
-        Address tileIDAddress = tileMapAddress + tileIndex;
-
-        // Tile numbers always live in VRAM bank 0 and attributes in bank 1,
-        // whichever bank the CPU currently has selected through VBK
-        uint8_t tileID = readVRAMBank(tileIDAddress.getValue() - mmu::VRAM_ADDRESS_START, 0);
-        uint8_t tileAttributes = emulator.cgbMode
-            ? readVRAMBank(tileIDAddress.getValue() - mmu::VRAM_ADDRESS_START, 1) : 0;
-
-        uint32_t tileDataMemoryOffset = useTileSetZero
-            ? tileID * ppu::TILE_BYTES
-            : (static_cast<int8_t>(tileID) + 128) * ppu::TILE_BYTES;
-
-        uint32_t row    = checkBit(tileAttributes, ppu::ATTRIBUTE_Y_FLIP_BIT) ? (ppu::TILE_HEIGHT_PX - 1) - tilePixelY : tilePixelY;
-        uint32_t column = checkBit(tileAttributes, ppu::ATTRIBUTE_X_FLIP_BIT) ? (ppu::TILE_WIDTH_PX  - 1) - tilePixelX : tilePixelX;
-        uint32_t tileDataOffset = tileSetAddress.getValue() - mmu::VRAM_ADDRESS_START + tileDataMemoryOffset + row * ppu::TILE_BYTES_PER_ROW;
-        const uint8_t tileBank = getBitValue(tileAttributes, ppu::ATTRIBUTE_VRAM_BANK_BIT);
-        uint8_t pixelsOne = readVRAMBank(tileDataOffset, tileBank);
-        uint8_t pixelsTwo = readVRAMBank(tileDataOffset + 1, tileBank);
-        GBColor pixelColor = getPixelFromLine(pixelsOne, pixelsTwo, column);
-        const uint8_t shade = static_cast<uint8_t>(pixelColor);
-
-        // Store color cache for sprite priority resolution
-        // bits 1-0: shade, bit 2: BG priority flag (CGB only)
-        uint8_t cache = shade & 0x03;
-        if (emulator.cgbMode && checkBit(tileAttributes, ppu::ATTRIBUTE_PRIORITY_BIT) && bgEnabled())
-            cache = setBit(cache, 2);
-        colorCache[screenY * common::GAMEBOY_WIDTH + screenX] = cache;
-
-        if (emulator.cgbMode)
-            buffer.setPixelRGB(screenX, screenY, bgColorPalettes.getColor(tileAttributes & ppu::ATTRIBUTE_CGB_PALETTE_MASK, shade), shade);
-        else if (emulator.sgbMode)
-        {
-            const uint8_t mappedShade = static_cast<uint8_t>(getColorFromPalette(pixelColor, palette));
-            const uint8_t paletteIndex = emulator.sgb.getAttribute(screenX, screenY);
-            buffer.setPixelRGB(screenX, screenY, emulator.sgb.getColor(paletteIndex, mappedShade, screenX, screenY), mappedShade);
-        }
-        else
-            buffer.setPixel(screenX, screenY, getColorFromPalette(pixelColor, palette));
-    }
-}
-
-void PPU::drawWindowLine(uint32_t currentLine)
-{
-    // WX<7 clips the window to screen left edge
-    int32_t wx = static_cast<int32_t>(windowX.getValue()) - static_cast<int32_t>(ppu::WINDOW_X_OFFSET);
-    if (wx > static_cast<int32_t>(common::GAMEBOY_WIDTH) - 1) return;
-
-    bool useTileSetZero = bgWindowTileData();
-    bool useTileMapZero = !usesWindowTileMap();
-
-    ColorPalette palette = loadPalette(bgPalette);
-
-    Address tileSetAddress = useTileSetZero ? ppu::TILE_SET_ZERO_ADDRESS : ppu::TILE_SET_ONE_ADDRESS;
-    Address tileMapAddress = useTileMapZero ? ppu::TILE_MAP_ZERO_ADDRESS : ppu::TILE_MAP_ONE_ADDRESS;
-
-    uint32_t screenY = currentLine;
-    uint32_t lineAdjusted = static_cast<uint32_t>(windowLine);
-
-    uint32_t tileY      = lineAdjusted / ppu::TILE_HEIGHT_PX;
-    uint32_t tilePixelY = lineAdjusted % ppu::TILE_HEIGHT_PX;
-
-    // Iterate tile by tile across the screen
-    int32_t lastTileX = (static_cast<int32_t>(common::GAMEBOY_WIDTH) - 1 - wx) / static_cast<int32_t>(ppu::TILE_WIDTH_PX);
-
-    for (int32_t tileX = 0; tileX <= lastTileX; tileX++)
-    {
-        uint32_t tileIndex = tileY * ppu::TILES_PER_LINE + static_cast<uint32_t>(tileX);
-        Address tileIDAddress = tileMapAddress + tileIndex;
-
-        uint8_t tileID = readVRAMBank(tileIDAddress.getValue() - mmu::VRAM_ADDRESS_START, 0);
-        uint8_t tileAttributes = emulator.cgbMode
-            ? readVRAMBank(tileIDAddress.getValue() - mmu::VRAM_ADDRESS_START, 1) : 0;
-
-        uint32_t tileDataMemoryOffset = useTileSetZero
-            ? tileID * ppu::TILE_BYTES
-            : (static_cast<int8_t>(tileID) + 128) * ppu::TILE_BYTES;
-
-        uint32_t row =checkBit(tileAttributes, ppu::ATTRIBUTE_Y_FLIP_BIT)
-            ? (ppu::TILE_HEIGHT_PX - 1) - tilePixelY : tilePixelY;
-        uint32_t tileDataOffset = tileSetAddress.getValue() - mmu::VRAM_ADDRESS_START + tileDataMemoryOffset + row * ppu::TILE_BYTES_PER_ROW;
-        const uint8_t tileBank = getBitValue(tileAttributes, ppu::ATTRIBUTE_VRAM_BANK_BIT);
-        uint8_t pixelsOne = readVRAMBank(tileDataOffset, tileBank);
-        uint8_t pixelsTwo = readVRAMBank(tileDataOffset + 1, tileBank);
-
-        for (uint32_t pixelX = 0; pixelX < ppu::TILE_WIDTH_PX; pixelX++)
-        {
-            int32_t screenX = wx + tileX * static_cast<int32_t>(ppu::TILE_WIDTH_PX) + static_cast<int32_t>(pixelX);
-            if (screenX < 0 || screenX >= static_cast<int32_t>(common::GAMEBOY_WIDTH)) continue;
-
-            uint32_t column = checkBit(tileAttributes, ppu::ATTRIBUTE_X_FLIP_BIT)
-                ? (ppu::TILE_WIDTH_PX - 1) - pixelX : pixelX;
-
-            GBColor pixelColor = getPixelFromLine(pixelsOne, pixelsTwo, column);
-            const uint8_t shade = static_cast<uint8_t>(pixelColor);
-
-            uint8_t cache = shade & 0x03;
-            if (emulator.cgbMode && checkBit(tileAttributes, ppu::ATTRIBUTE_PRIORITY_BIT) && bgEnabled())
-                cache = setBit(cache, 2);
-            colorCache[screenY * common::GAMEBOY_WIDTH + static_cast<uint32_t>(screenX)] = cache;
-
-            if (emulator.cgbMode)
-                buffer.setPixelRGB(static_cast<uint32_t>(screenX), screenY, bgColorPalettes.getColor(tileAttributes & ppu::ATTRIBUTE_CGB_PALETTE_MASK, shade), shade);
-            else if (emulator.sgbMode)
-            {
-                const uint8_t mappedShade = static_cast<uint8_t>(getColorFromPalette(pixelColor, palette));
-                const uint8_t paletteIndex = emulator.sgb.getAttribute(static_cast<uint32_t>(screenX), screenY);
-                buffer.setPixelRGB(static_cast<uint32_t>(screenX), screenY, emulator.sgb.getColor(paletteIndex, mappedShade, static_cast<uint32_t>(screenX), screenY), mappedShade);
-            }
-            else
-                buffer.setPixel(static_cast<uint32_t>(screenX), screenY, getColorFromPalette(pixelColor, palette));
-        }
-    }
-
-    windowLine++;
-}
-
-// Collect up to 10 sprites visible on this line, then render them back-to-front.
-void PPU::drawSpritesForLine(uint32_t currentLine)
-{
-    if (!spritesEnabled()) return;
-
-    const int32_t spriteHeight = usesLargeSprites() ? 16 : 8;
-    const int32_t line = static_cast<int32_t>(currentLine);
-
-    // Collect up to 10 sprites visible on this line (OAM order = priority)
-    uint8_t visible[ppu::MAX_SPRITES_PER_LINE];
-    uint32_t visibleCount = 0;
-
-    for (uint8_t i = 0; i < ppu::MAX_SPRITES && visibleCount < ppu::MAX_SPRITES_PER_LINE; i++)
-    {
-        const uint16_t oamBase = mmu::OAM_ADDRESS_START + i * ppu::SPRITE_BYTES;
-        const int32_t spriteY = static_cast<int32_t>(emulator.mmu.read(Address(oamBase + ppu::OAM_SPRITE_Y_BYTE), true)) - ppu::SPRITE_Y_OFFSET;
-        if (line >= spriteY && line < spriteY + spriteHeight)
-            visible[visibleCount++] = i;
-    }
-
-    // On DMG: sort by X then OAM index; on CGB with OAM priority: OAM index only.
-    // Draw lowest-priority first so highest-priority overwrites them.
-    const bool oamPriority = emulator.cgbMode && (objectPriorityMode == 0);
-    if (!oamPriority)
-    {
-        // The object with the lower X wins, and for equal X the one earlier in
-        // OAM. Objects are drawn lowest priority first, so sort by X and then
-        // OAM index, both descending.
-        // https://gbdev.io/pandocs/OAM.html#drawing-priority
-        std::sort(visible, visible + visibleCount, [this](uint8_t a, uint8_t b)
-        {
-            const uint8_t xA = emulator.mmu.read(Address(mmu::OAM_ADDRESS_START + a * ppu::SPRITE_BYTES + ppu::OAM_SPRITE_X_BYTE), true);
-            const uint8_t xB = emulator.mmu.read(Address(mmu::OAM_ADDRESS_START + b * ppu::SPRITE_BYTES + ppu::OAM_SPRITE_X_BYTE), true);
-            return xA != xB ? xA > xB : a > b;
-        });
-    }
-    // For CGB OAM priority mode: higher OAM index = lower priority (draw first).
-    // visible[] is already in OAM order (ascending), so reversing gives descending = lower priority first.
-    else
-    {
-        std::reverse(visible, visible + visibleCount);
-    }
-
-    for (uint32_t i = 0; i < visibleCount; i++)
-        drawSprite(line, visible[i], spriteHeight);
-}
-
-void PPU::drawSprite(int32_t line, uint8_t spriteIndex, int32_t spriteHeight)
-{
-    const uint16_t oamBase = mmu::OAM_ADDRESS_START + spriteIndex * ppu::SPRITE_BYTES;
-    const int32_t spriteY = static_cast<int32_t>(emulator.mmu.read(Address(oamBase + ppu::OAM_SPRITE_Y_BYTE), true)) - ppu::SPRITE_Y_OFFSET;
-    const int32_t spriteX = static_cast<int32_t>(emulator.mmu.read(Address(oamBase + ppu::OAM_SPRITE_X_BYTE), true)) - ppu::SPRITE_X_OFFSET;
-
-    if (spriteX <= -8 || spriteX >= static_cast<int32_t>(common::GAMEBOY_WIDTH)) return;
-
-    uint8_t pattern = emulator.mmu.read(Address(oamBase + ppu::OAM_SPRITE_TILE_BYTE), true);
-    const uint8_t spriteAttributes = emulator.mmu.read(Address(oamBase + ppu::OAM_SPRITE_ATTRIBUTE_BYTE), true);
-
-    // For 8x16 sprites bit 0 of the tile number is ignored
-    if (spriteHeight == 16) pattern &= 0xFE;
-
-    const bool flipX = checkBit(spriteAttributes, ppu::ATTRIBUTE_X_FLIP_BIT);
-    const bool flipY = checkBit(spriteAttributes, ppu::ATTRIBUTE_Y_FLIP_BIT);
-    const bool objectBehindBG = checkBit(spriteAttributes, ppu::ATTRIBUTE_PRIORITY_BIT);
-
-    // Which row of the sprite is visible on this scanline?
-    int32_t pixelY = line - spriteY;
-    if (flipY) pixelY = (spriteHeight - 1) - pixelY;
-
-    // For 8x16, the second tile follows immediately (tile number + 1)
-    int32_t tileOffset = 0;
-    int32_t rowInTile  = pixelY;
-    if (spriteHeight == 16 && pixelY >= 8)
-    {
-        tileOffset = 16; // second tile bytes
-        rowInTile  = pixelY - 8;
-    }
-
-    const uint8_t tileBank = emulator.cgbMode ? getBitValue(spriteAttributes, ppu::ATTRIBUTE_VRAM_BANK_BIT) : 0;
-    const uint16_t tileAddr = static_cast<uint16_t>(
-        (ppu::TILE_SET_ZERO_ADDRESS.getValue() - mmu::VRAM_ADDRESS_START) +
-        static_cast<uint16_t>(pattern) * ppu::TILE_BYTES +
-        static_cast<uint16_t>(tileOffset) +
-        static_cast<uint16_t>(rowInTile) * ppu::TILE_BYTES_PER_ROW);
-
-    const uint8_t byte1 = readVRAMBank(tileAddr,     tileBank);
-    const uint8_t byte2 = readVRAMBank(tileAddr + 1, tileBank);
-
-    // Load DMG palette
-    const bool usePaletteOne = checkBit(spriteAttributes, ppu::ATTRIBUTE_DMG_PALETTE_BIT);
-    const ColorPalette palette = usePaletteOne ? loadPalette(spritePalette1) : loadPalette(spritePalette0);
-    const uint8_t cgbPal = spriteAttributes & ppu::ATTRIBUTE_CGB_PALETTE_MASK;
-
-    for (int32_t px = 0; px < static_cast<int32_t>(ppu::TILE_WIDTH_PX); px++)
-    {
-        const int32_t screenX = spriteX + px;
-        if (screenX < 0 || screenX >= static_cast<int32_t>(common::GAMEBOY_WIDTH)) continue;
-
-        // getPixelFromLine takes a pixel index (0 = leftmost) and handles the
-        // bit order itself, so only X-flipped sprites reverse the column
-        const uint32_t col = static_cast<uint32_t>(flipX ? (ppu::TILE_WIDTH_PX - 1 - px) : px);
-        const GBColor gbColor = getPixelFromLine(byte1, byte2, col);
-        if (gbColor == GBColor::Color0) continue; // transparent
-
-        const uint32_t idx = static_cast<uint32_t>(line) * common::GAMEBOY_WIDTH + static_cast<uint32_t>(screenX);
-        const uint8_t cache = colorCache[idx];
-        const bool bgColorNonzero = (cache & 0x03) != 0;
-        const uint8_t shade = static_cast<uint8_t>(gbColor);
-
-        if (emulator.cgbMode)
-        {
-            // CGB priority: BG tile priority bit (bit 2 of cache) blocks sprites
-            // when LCDC bit 0 is set (bgEnabled). When LCDC bit 0 is clear,
-            // sprites always render above BG/Window regardless.
-            const bool bgHasPriority = checkBit(cache, 2); // set by drawBGLine/drawWindowLine
-            if (bgEnabled() && (objectBehindBG || bgHasPriority) && bgColorNonzero) continue;
-            buffer.setPixelRGB(static_cast<uint32_t>(screenX), static_cast<uint32_t>(line),
-                objColorPalettes.getColor(cgbPal, shade), shade);
-        }
-        else
-        {
-            if (objectBehindBG && bgColorNonzero) continue;
-            if (emulator.sgbMode)
-            {
-                const uint8_t mappedShade = static_cast<uint8_t>(getColorFromPalette(gbColor, palette));
-                const uint8_t paletteIdx  = emulator.sgb.getAttribute(static_cast<uint32_t>(screenX), static_cast<uint32_t>(line));
-                buffer.setPixelRGB(static_cast<uint32_t>(screenX), static_cast<uint32_t>(line),
-                    emulator.sgb.getColor(paletteIdx, mappedShade, static_cast<uint32_t>(screenX), static_cast<uint32_t>(line)), mappedShade);
-            }
-            else
-                buffer.setPixel(static_cast<uint32_t>(screenX), static_cast<uint32_t>(line), getColorFromPalette(gbColor, palette));
-        }
-
-        // Mark that a sprite pixel was placed here (bit 3)
-        colorCache[idx] = setBit(cache, 3);
-    }
-}
-
-GBColor PPU::getPixelFromLine(uint8_t byteOne, uint8_t byteTwo, uint8_t pixelIndex)
-{
-    // Bit 7 holds the leftmost pixel. The second byte
-    // supplies the high bit of each pixel's color number.
-    const uint8_t bit = static_cast<uint8_t>((ppu::TILE_WIDTH_PX - 1) - pixelIndex);
-    uint8_t color = composeBits(getBitValue(byteTwo, bit), getBitValue(byteOne, bit));
-    return getColor(color);
-}
-
-bool PPU::isOnScreenX(int32_t x)
-{
-    return (x >= 0) && (x < common::GAMEBOY_WIDTH);
-}
-
-bool PPU::isOnScreenY(int32_t y)
-{
-    return (y >= 0) && (y < common::GAMEBOY_HEIGHT);
-}
-
-bool PPU::isOnScreen(int32_t x, int32_t y)
-{
-    return isOnScreenX(x) && isOnScreenY(y);
-}
 
 ColorPalette PPU::loadPalette(ByteRegister &paletteRegister)
 {
