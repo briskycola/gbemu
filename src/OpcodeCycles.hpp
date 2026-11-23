@@ -5,8 +5,12 @@
 // Credit: jgilchrist
 // https://raw.githubusercontent.com/jgilchrist/gbemu/refs/heads/master/src/cpu/opcode_cycles.h
 //
-// Game Boy opcode reference
-// https://www.pastraiser.com/cpu/gameboy/gameboy_opcodes.html
+// Machine cycles per instruction, as listed in Pan Docs and its opcode table:
+// https://gbdev.io/pandocs/CPU_Instruction_Set.html
+// https://gbdev.io/gb-opcodes/optables/
+//
+// OPCODE_CYCLES_BRANCHED is used when a conditional jump, call or return is
+// taken. The 0 entries are the unused opcodes.
 
 namespace cpu
 {

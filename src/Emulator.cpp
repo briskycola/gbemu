@@ -49,6 +49,16 @@ void Emulator::tick()
     // Bus accesses already advanced the system by one machine cycle each
     // while the instruction ran; advance the rest (internal cycles) now.
     const Cycles m = cpu.tick();
+
+    // In STOP mode the system clock is halted, so nothing else runs. Time
+    // still passes for the frame budget so the frontend stays responsive.
+    // https://gbdev.io/pandocs/Reducing_Power_Consumption.html#using-the-stop-instruction
+    if (cpu.stopped())
+    {
+        elapsedCycles += m.cycles * common::T_CYCLES_PER_M_CYCLE;
+        return;
+    }
+
     const uint32_t alreadyAdvanced = cpu.takeBusCycles();
     if (m.cycles > alreadyAdvanced) advance(m.cycles - alreadyAdvanced);
 }

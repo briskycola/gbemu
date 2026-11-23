@@ -40,8 +40,11 @@ namespace cpu
     // upper 3 bits always read back as 1
     static constexpr uint8_t INTERRUPT_MASK = 0x1F;
     
-    // Servicing an interrupt takes 5 machine cycles
-    static constexpr uint32_t INTERRUPT_DISPATCH_CYCLES = 5;
+    // Servicing an interrupt takes 5 machine cycles. If the interrupt is
+    // cancelled during the dispatch, execution continues at $0000.
+    // https://gbdev.io/pandocs/Interrupts.html#interrupt-handling
+    static constexpr uint32_t INTERRUPT_DISPATCH_CYCLES  = 5;
+    static constexpr uint16_t INTERRUPT_CANCELLED_VECTOR = 0x0000;
     
     // EI enables interrupts only after the instruction
     // following it, so the enable is delayed by 2 steps
@@ -67,6 +70,7 @@ class CPU
         bool isInterruptEnabled = false;
         bool isHalted = false;
         bool haltBug = false;
+        bool isStopped = false; // In STOP mode until a button is pressed
         uint8_t imeEnableDelay = 0;
         bool branchTaken = false;
 
@@ -114,6 +118,9 @@ class CPU
         // A cycle where the 16-bit increment/decrement unit works on an
         // address without a memory access (INC rr, DEC rr, SP before a push)
         void iduCycle(uint16_t address);
+
+        // A cycle where the CPU does nothing on the bus
+        void internalCycle();
 
         // Machine cycles already advanced by bus accesses during this step
         uint32_t busCycles = 0;
@@ -390,6 +397,7 @@ class CPU
     public:
         CPU(Emulator &emulator);
         Cycles tick();
+        bool stopped() const { return isStopped; }
 
         // Returns how many cycles of the last tick() were already advanced
         // by bus accesses, and resets the count

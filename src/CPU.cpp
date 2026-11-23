@@ -40,6 +40,15 @@ Cycles CPU::tick()
         return Cycles(1);
     }
 
+    // STOP mode lasts until one of the selected joypad lines goes low,
+    // i.e. a button is pressed
+    // https://gbdev.io/pandocs/Reducing_Power_Consumption.html#using-the-stop-instruction
+    if (isStopped)
+    {
+        if ((emulator.input.getInput() & input::JOYPAD_KEYS_MASK) == input::JOYPAD_KEYS_MASK) return Cycles(1);
+        isStopped = false;
+    }
+
     // Take care of interrupts before next CPU tick
     if (handleInterrupts()) return Cycles(cpu::INTERRUPT_DISPATCH_CYCLES);
 
@@ -71,24 +80,36 @@ bool CPU::handleInterrupt(uint8_t interruptBit, uint16_t interruptVector, uint8_
     return true;
 }
 
+// See https://gbdev.io/pandocs/Interrupts.html#interrupt-handling
 bool CPU::handleInterrupts()
 {
+    // A pending interrupt (IE & IF) wakes the CPU from HALT even with IME clear
+    // https://gbdev.io/pandocs/halt.html
+    if (!(interruptFlag.getValue() & interruptEnabled.getValue() & cpu::INTERRUPT_MASK)) return false;
+    isHalted = false;
+    if (!isInterruptEnabled) return false;
+
+    // Dispatch takes 5 machine cycles: two wait cycles, pushing PC (high
+    // byte, then low byte), then jumping to the handler
+    internalCycle();
+    iduCycle(sp.getValue());
+    sp.decrement();
+    busWrite(Address(sp), pc.getHighByte());
+
+    // Which interrupt to service is decided only after the high byte is
+    // pushed. If that push overwrote IE ($FFFF) so nothing is pending any
+    // more, the dispatch is cancelled and execution continues at $0000.
     const uint8_t firedInterrupts = interruptFlag.getValue() & interruptEnabled.getValue() & cpu::INTERRUPT_MASK;
-    if (!firedInterrupts) return false;
-
-    if (isHalted && firedInterrupts != 0x0)
+    sp.decrement();
+    busWrite(Address(sp), pc.getLowByte());
+    isInterruptEnabled = false;
+    if (!firedInterrupts)
     {
-        isHalted = false;
+        pc.set(cpu::INTERRUPT_CANCELLED_VECTOR);
+        return true;
     }
 
-    if (!isInterruptEnabled)
-    {
-        return false;
-    }
-
-    stackPush(pc);
-
-    // Handle all possible interrupts.
+    // Lower bits have priority
     if (handleInterrupt(cpu::INTERRUPT_VBLANK_BIT, cpu::INTERRUPT_VBLANK_VECTOR, firedInterrupts)) return true;
 
     if (handleInterrupt(cpu::INTERRUPT_LCD_STATUS_BIT, cpu::INTERRUPT_LCD_STATUS_VECTOR, firedInterrupts)) return true;
@@ -114,6 +135,12 @@ void CPU::busWrite(const Address &address, uint8_t value)
     ++busCycles;
     emulator.mmu.corruptOAM(address.getValue(), OAMCorruption::Write);
     emulator.mmu.write(address, value);
+}
+
+void CPU::internalCycle()
+{
+    emulator.advance(1);
+    ++busCycles;
 }
 
 void CPU::iduCycle(uint16_t address)

@@ -5,6 +5,12 @@
 #include "IORegisters.hpp"
 #include "MMU.hpp"
 
+// The CPU instructions. Results and flags follow Pan Docs:
+// https://gbdev.io/pandocs/CPU_Instruction_Set.html
+// https://gbdev.io/pandocs/CPU_Registers_and_Flags.html
+//
+// Every memory access goes through busRead/busWrite, which take one machine
+// cycle each, so the order of the accesses here is their real order on the bus.
 
 // ADC
 void CPU::opcodeAdcImpl(uint8_t value)
@@ -299,7 +305,8 @@ void CPU::opcodeDec(Address &&addr)
     setFlagHalfCarry((result & 0x0F) == 0x0F);
 }
 
-// DI
+// DI clears IME immediately and cancels a pending EI
+// https://gbdev.io/pandocs/Interrupts.html#ime-interrupt-master-enable-flag-write-only
 void CPU::opcodeDi()
 {
     isInterruptEnabled = false;
@@ -307,9 +314,12 @@ void CPU::opcodeDi()
 }
 
 // EI
+// IME is set only after the instruction following EI. Another EI in the
+// meantime doesn't restart that delay.
+// https://gbdev.io/pandocs/Interrupts.html#ime-interrupt-master-enable-flag-write-only
 void CPU::opcodeEi()
 {
-    imeEnableDelay = cpu::EI_ENABLE_DELAY;
+    if (!isInterruptEnabled && imeEnableDelay == 0) imeEnableDelay = cpu::EI_ENABLE_DELAY;
 }
 
 // INC
@@ -649,15 +659,19 @@ void CPU::opcodeRet()
     stackPop(pc);
 }
 
+// RET cc spends a cycle checking the condition before it pops the address
+// https://gbdev.io/pandocs/CPU_Instruction_Set.html
 void CPU::opcodeRet(Condition condition)
 {
+    internalCycle();
     if (isConditon(condition))
     {
         opcodeRet();
     }
 }
 
-// RETI
+// RETI returns and sets IME immediately, without EI's delay
+// https://gbdev.io/pandocs/Interrupts.html#ime-interrupt-master-enable-flag-write-only
 void CPU::opcodeReti()
 {
     opcodeRet();
@@ -949,17 +963,25 @@ void CPU::opcodeSrl(Address &&address)
 }
 
 // STOP
+// https://gbdev.io/pandocs/Reducing_Power_Consumption.html#using-the-stop-instruction
+// https://gbdev.io/pandocs/CGB_Registers.html#ff4d--key1spd-cgb-mode-only-prepare-speed-switch
 void CPU::opcodeStop()
 {
     getByteFromPC(); // STOP is followed by a padding byte.
+
+    // STOP resets DIV
+    emulator.timer.resetDivider();
+
+    // On the CGB, STOP after preparing it through KEY1 switches speed
     if (emulator.cgbMode && emulator.speedSwitchPrepared)
     {
         emulator.doubleSpeed = !emulator.doubleSpeed;
         emulator.speedSwitchPrepared = false;
-        emulator.timer.resetDivider();
         return;
     }
-    isHalted = true;
+
+    // Otherwise the system clock stops until a button is pressed
+    isStopped = true;
 }
 
 // SUB
