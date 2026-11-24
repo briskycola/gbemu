@@ -28,6 +28,7 @@ namespace ppu
     static constexpr uint8_t FIFO_CAPACITY   = 16;
     static constexpr uint8_t OBJ_FIFO_PIXELS = 8;
     static constexpr uint8_t FETCH_STEP_DOTS = 2;
+    static constexpr uint8_t TILE_FETCH_DOTS = 3 * FETCH_STEP_DOTS; // Get Tile, Data Low and Data High
 
     // Tile data with LCDC.4 clear: signed tile numbers based at $9000
     // https://gbdev.io/pandocs/Tile_Data.html
@@ -235,6 +236,7 @@ class PPU
         uint8_t fetchStepDots = 0;      // Dots spent in the current step
         bool firstFetch = false;        // The line's first fetch, which is thrown away
         bool fetcherStarting = false;   // The fetcher was just reset and waits a dot
+        uint8_t fetcherIdleDots = 0;    // Dots the fetcher spends on a wasted fetch
         bool fetchingWindow = false;
         uint8_t fetcherX = 0;           // Tiles fetched since the line or the window started
         uint16_t fetchAddress = 0;      // The VRAM address the current step reads
@@ -245,7 +247,9 @@ class PPU
 
         uint32_t mode3Dots = 0;         // Dots mode 3 has run so far
         uint8_t pixelX = 0;             // The next pixel to send to the LCD
-        uint8_t pixelsToDiscard = 0;    // SCX % 8 pixels dropped at the start of the line
+        uint8_t fineScrollShifted = 0;  // Pixels shifted out so far for SCX % 8
+        bool fineScrollDone = false;
+        uint8_t windowPixelsToShift = 0; // Window pixels left of the screen still to shift out
         uint8_t windowPixelsToDrop = 0; // Window pixels left of the screen when WX < 7
         int32_t windowStartX = 0;       // WX - 7 when the window started on this line
         uint32_t objectStall = 0;       // Dots the output still waits for an object fetch
@@ -313,6 +317,7 @@ class PPU
         void stepFetcher();
         uint16_t tileDataAddress(uint8_t tile, uint8_t attributes, bool highByte) const;
         bool pushTileRow();
+        uint8_t pixelsStillToDrop() const;
         bool startWindowIfReached();
         bool fetchObjectIfReached();
         uint32_t objectFetchDots(uint8_t oamX);

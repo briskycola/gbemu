@@ -194,6 +194,7 @@ void PPU::startMode3(uint32_t length, uint32_t start)
     fetchStepDots = 0;
     firstFetch = true;
     fetchingWindow = false;
+    fetcherIdleDots = 0;
     fetcherStarting = true;
     fetcherX = 0;
 
@@ -202,7 +203,9 @@ void PPU::startMode3(uint32_t length, uint32_t start)
     // The pixels left of SCX's fine scroll are shifted out and dropped,
     // a dot each
     // https://gbdev.io/pandocs/Rendering.html#mode-3-length
-    pixelsToDiscard = scrollX.getValue() % ppu::TILE_WIDTH_PX;
+    fineScrollShifted = 0;
+    fineScrollDone = false;
+    windowPixelsToShift = 0;
     windowPixelsToDrop = 0;
     objectStall = 0;
     nextLineObject = 0;
@@ -264,6 +267,14 @@ bool PPU::stepMode3()
     return pixelX == common::GAMEBOY_WIDTH;
 }
 
+
+// Pixels still to be shifted out before the line's first pixel is drawn
+uint8_t PPU::pixelsStillToDrop() const
+{
+    const uint8_t fineScroll = scrollX.getValue() % ppu::TILE_WIDTH_PX;
+    const uint8_t scrollLeft = fineScrollDone || fineScrollShifted >= fineScroll ? 0 : static_cast<uint8_t>(fineScroll - fineScrollShifted);
+    return static_cast<uint8_t>(windowPixelsToShift + scrollLeft);
+}
 // The window starts when the pixel counter, which runs 7 ahead of the pixels
 // sent to the LCD, equals WX while the window is enabled and its Y condition
 // is true. The background FIFO is cleared and the fetcher starts again on the
@@ -279,9 +290,9 @@ bool PPU::startWindowIfReached()
     const uint8_t wx = windowX.getValue();
     if (wx >= ppu::WINDOW_X_OFFSET)
     {
-        if (pixelsToDiscard > 0 || pixelX + ppu::WINDOW_X_OFFSET != wx) return false;
+        if (pixelsStillToDrop() > 0 || pixelX + ppu::WINDOW_X_OFFSET != wx) return false;
     }
-    else if (pixelX != 0 || (wx > 0 && pixelsToDiscard > 0))
+    else if (pixelX != 0 || (wx > 0 && pixelsStillToDrop() > 0))
     {
         return false;
     }
@@ -290,6 +301,32 @@ bool PPU::startWindowIfReached()
     windowStartX = static_cast<int32_t>(wx) - static_cast<int32_t>(ppu::WINDOW_X_OFFSET);
     windowPixelsToDrop = wx < ppu::WINDOW_X_OFFSET ? static_cast<uint8_t>(ppu::WINDOW_X_OFFSET - wx) : 0;
     windowRow = static_cast<uint8_t>(windowLine++);
+
+    // At the start of the line the window is decided on at once, but the
+    // line's first fetch still runs, and so does the fetch of the first
+    // background tile, which is wasted. So the window's first pixel comes 6
+    // dots later than the background's would have, as anywhere else. (Pan
+    // Docs gives the 6 dots; when the window is decided on follows Mealybug
+    // Tearoom's m2_win_en_toggle and m3_window_timing captures.)
+    // With WX below 7 the window's pixels left of the screen are shifted
+    // out a dot each, and the window starts that much sooner, so its first
+    // pixel on screen still comes at the same time.
+    if (pixelX == 0 && bgFifoSize == 0)
+    {
+        // At WX = 0 that is 7 pixels, a dot more than the wasted fetch, so
+        // the line's first fetch ends a dot sooner instead
+        const int32_t idle = static_cast<int32_t>(ppu::TILE_FETCH_DOTS) - windowPixelsToDrop;
+        fetchStep = FetchStep::Tile;
+        fetchStepDots = idle < 0 ? 1 : 0;
+        fetcherIdleDots = static_cast<uint8_t>(std::max(0, idle));
+        windowPixelsToShift = windowPixelsToDrop;
+        windowPixelsToDrop = 0;
+        // On the DMG, WX = 0 with a fine scroll costs a dot more (Mealybug
+        // Tearoom's m3_window_timing_wx_0 captures, and SameBoy; Pan Docs
+        // instead has mode 3 a dot shorter in this case)
+        if (wx == 0 && scrollX.getValue() % ppu::TILE_WIDTH_PX != 0 && !emulator.cgbMode) ++fetcherIdleDots;
+        return true;
+    }
 
     bgFifoHead = 0;
     bgFifoSize = 0;
@@ -308,6 +345,12 @@ bool PPU::startWindowIfReached()
 // https://gbdev.io/pandocs/pixel_fifo.html#fifo-pixel-fetcher
 void PPU::stepFetcher()
 {
+    if (fetcherIdleDots > 0)
+    {
+        --fetcherIdleDots;
+        return;
+    }
+
     if (fetchStep == FetchStep::Push)
     {
         pushTileRow();
@@ -335,7 +378,7 @@ void PPU::stepFetcher()
                 // https://gbdev.io/pandocs/pixel_fifo.html#get-tile
                 const bool highMap = fetchingWindow ? usesWindowTileMap() : usesBackgroundTileMap();
                 const uint16_t mapBase = (highMap ? ppu::TILE_MAP_ONE_ADDRESS : ppu::TILE_MAP_ZERO_ADDRESS).getValue() - mmu::VRAM_ADDRESS_START;
-                const int32_t nextPixel = static_cast<int32_t>(pixelX) + bgFifoSize - pixelsToDiscard;
+                const int32_t nextPixel = static_cast<int32_t>(pixelX) + bgFifoSize - pixelsStillToDrop();
                 const uint8_t tileX = fetchingWindow
                     ? static_cast<uint8_t>(fetcherX & (ppu::TILES_PER_LINE - 1))
                     : static_cast<uint8_t>(((scrollX.getValue() + nextPixel) / static_cast<int32_t>(ppu::TILE_WIDTH_PX)) & (ppu::TILES_PER_LINE - 1));
@@ -434,7 +477,7 @@ bool PPU::pushTileRow()
 // https://gbdev.io/pandocs/pixel_fifo.html#sprites
 bool PPU::fetchObjectIfReached()
 {
-    if (pixelsToDiscard > 0) return false;
+    if (pixelsStillToDrop() > 0) return false;
 
     while (nextLineObject < lineObjectCount)
     {
@@ -550,11 +593,22 @@ void PPU::popPixel()
     bgFifoHead = static_cast<uint8_t>((bgFifoHead + 1) % ppu::FIFO_CAPACITY);
     --bgFifoSize;
 
-    // SCX's fine scroll: these pixels are dropped, not drawn
-    if (pixelsToDiscard > 0)
+    // Window pixels left of the screen, then SCX's fine scroll, are shifted
+    // out without being drawn. The fine scroll ends once SCX % 8 pixels have
+    // gone, with SCX as it is while they go (Mealybug Tearoom's captures).
+    if (windowPixelsToShift > 0)
     {
-        --pixelsToDiscard;
+        --windowPixelsToShift;
         return;
+    }
+    if (!fineScrollDone)
+    {
+        if (fineScrollShifted < scrollX.getValue() % ppu::TILE_WIDTH_PX)
+        {
+            ++fineScrollShifted;
+            return;
+        }
+        fineScrollDone = true;
     }
 
     FifoPixel object;
