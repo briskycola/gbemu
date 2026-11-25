@@ -1,4 +1,5 @@
 build/
+build-*/
 
 # Boot ROM disassemblies and their built images are Nintendo's code: keep them out of the repo
 gb-bootroms/
