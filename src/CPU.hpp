@@ -12,6 +12,11 @@
 // RST
 namespace cpu
 {
+    // After a STOP that switches speed, the CPU waits this many machine cycles,
+    // during which DIV doesn't tick
+    // https://gbdev.io/pandocs/CGB_Registers.html#ff4d--key1spd-cgb-mode-only-prepare-speed-switch
+    static constexpr uint32_t SPEED_SWITCH_PAUSE_CYCLES = 2050;
+
     static constexpr uint16_t RST1 = 0x00;
     static constexpr uint16_t RST2 = 0x08;
     static constexpr uint16_t RST3 = 0x10;

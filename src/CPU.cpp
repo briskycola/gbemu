@@ -41,6 +41,10 @@ Cycles CPU::tick()
         return Cycles(1);
     }
 
+    // After a speed switch the CPU waits a while (the cycles are counted
+    // down in Emulator::advance, which also holds DIV)
+    if (emulator.speedSwitchPause > 0) return Cycles(1);
+
     // STOP mode lasts until one of the selected joypad lines goes low,
     // i.e. a button is pressed
     // https://gbdev.io/pandocs/Reducing_Power_Consumption.html#using-the-stop-instruction

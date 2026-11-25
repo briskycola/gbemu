@@ -41,6 +41,7 @@ class Emulator
         bool cgbMode = false;
         bool doubleSpeed = false;
         bool speedSwitchPrepared = false;
+        uint32_t speedSwitchPause = 0; // Machine cycles the CPU still waits after a speed switch
         bool sgbMode = false;
         SGB sgb;
 

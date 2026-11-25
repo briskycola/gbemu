@@ -1,6 +1,7 @@
 #include "Emulator.hpp"
 #include "IORegisters.hpp"
 #include "CartridgeMetadata.hpp"
+#include <algorithm>
 #include <stdexcept>
 #include <string>
 
@@ -86,7 +87,12 @@ void Emulator::advance(const uint32_t mCycles)
     // In double speed mode the CPU and timer run twice as fast,
     // but the PPU and APU keep their normal speed.
     ppu.tick(Cycles(doubleSpeed ? t.cycles / 2 : t.cycles));
-    timer.tick(t.cycles);
+
+    // While the CPU waits after a speed switch, DIV doesn't tick (and so
+    // neither do the things it clocks)
+    // https://gbdev.io/pandocs/CGB_Registers.html#ff4d--key1spd-cgb-mode-only-prepare-speed-switch
+    if (speedSwitchPause > 0) speedSwitchPause -= std::min(speedSwitchPause, m.cycles);
+    else timer.tick(t.cycles);
     apu.tick(doubleSpeed ? t.cycles / 2 : t.cycles);
 }
 

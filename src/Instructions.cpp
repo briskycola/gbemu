@@ -977,6 +977,7 @@ void CPU::opcodeStop()
     {
         emulator.doubleSpeed = !emulator.doubleSpeed;
         emulator.speedSwitchPrepared = false;
+        emulator.speedSwitchPause = cpu::SPEED_SWITCH_PAUSE_CYCLES;
         return;
     }
 
