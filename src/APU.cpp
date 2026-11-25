@@ -1,6 +1,7 @@
 #include "APU.hpp"
 #include "Common.hpp"
 #include <algorithm>
+#include <cmath>
 #include <limits>
 
 // https://gbdev.io/pandocs/Audio_Registers.html
@@ -330,6 +331,13 @@ int APU::noiseOutput() const
     return noise.volume;
 }
 
+// Each channel's DAC is on while NRx2 & $F8 is nonzero (NR30 bit 7 for CH3).
+// A DAC that is on turns the channel's digital output 0-15 into an analog
+// value from 1 down to -1; a channel that is off outputs digital 0, which
+// still comes out as analog 1. A DAC that is off outputs analog 0. NR51 adds
+// the channels into the left and right outputs.
+// https://gbdev.io/pandocs/Audio_details.html#dacs
+// https://gbdev.io/pandocs/Audio_details.html#mixer
 void APU::accumulateSample()
 {
     const int outputs[apu::CHANNEL_COUNT] =
@@ -339,67 +347,70 @@ void APU::accumulateSample()
         waveOutput(),
         noiseOutput()
     };
+    const bool dacOn[apu::CHANNEL_COUNT] =
+    {
+        (reg(io::CHANNEL1_ENVELOPE_REGISTER) & apu::DAC_ENABLE_MASK) != 0,
+        (reg(io::CHANNEL2_ENVELOPE_REGISTER) & apu::DAC_ENABLE_MASK) != 0,
+        checkBit(reg(io::CHANNEL3_DAC_ENABLE_REGISTER), apu::WAVE_DAC_ENABLE_BIT),
+        (reg(io::CHANNEL4_ENVELOPE_REGISTER) & apu::DAC_ENABLE_MASK) != 0,
+    };
 
-    const bool active[apu::CHANNEL_COUNT] = {square1.enabled, square2.enabled, wave.enabled, noise.enabled};
-    const uint8_t routing = reg(io::SOUND_PANNING_REGISTER);
-
+    const uint8_t panning = reg(io::SOUND_PANNING_REGISTER);
     int left = 0;
     int right = 0;
-    int leftChannels = 0;
-    int rightChannels = 0;
     for (int channel = 0; channel < apu::CHANNEL_COUNT; ++channel)
     {
-        const int output = active[channel] ? outputs[channel] * 2 - apu::CHANNEL_OUTPUT_CENTER : 0;
-        if ((routing & (1 << channel)) && active[channel])
-        {
-            right += output;
-            ++rightChannels;
-        }
-        if ((routing & (1 << (channel + apu::LEFT_PANNING_SHIFT))) && active[channel])
-        {
-            left += output;
-            ++leftChannels;
-        }
+        if (!dacOn[channel]) continue;
+        anyDACOn = true;
+        // Analog 1 - digital / 7.5, in fifteenths
+        const int analog = apu::MAX_VOLUME - 2 * outputs[channel];
+        if (checkBit(panning, static_cast<uint8_t>(channel))) right += analog;
+        if (checkBit(panning, static_cast<uint8_t>(channel + apu::LEFT_PANNING_SHIFT))) left += analog;
     }
-    if (!powered || leftChannels == 0) left = 0;
-    if (!powered || rightChannels == 0) right = 0;
     sampleLeftAccumulator += left;
     sampleRightAccumulator += right;
     ++sampleCycleCount;
 }
 
+// NR50 scales each output by its volume + 1 (never muting it), then each goes
+// through a high-pass filter that pulls it towards 0. With every DAC off the
+// output is 0. The filter's charge factor is 0.999958 per clock on the DMG and
+// 0.998943 on the CGB, raised to the number of clocks per output sample.
+// https://gbdev.io/pandocs/Audio_details.html#mixer
+// https://gbdev.io/pandocs/Audio_details.html#obscure-behavior
 void APU::emitSample()
 {
-    int left = sampleCycleCount ? static_cast<int>(sampleLeftAccumulator / sampleCycleCount) : 0;
-    int right = sampleCycleCount ? static_cast<int>(sampleRightAccumulator / sampleCycleCount) : 0;
+    const double cycles = sampleCycleCount ? static_cast<double>(sampleCycleCount) : 1.0;
     const uint8_t volume = reg(io::MASTER_VOLUME_REGISTER);
-    left *= (((volume >> apu::LEFT_VOLUME_SHIFT) & apu::MASTER_VOLUME_MASK) + 1) * apu::OUTPUT_SCALE;
-    right *= ((volume & apu::MASTER_VOLUME_MASK) + 1) * apu::OUTPUT_SCALE;
+    const double left = static_cast<double>(sampleLeftAccumulator) / cycles
+        * (((volume >> apu::LEFT_VOLUME_SHIFT) & apu::MASTER_VOLUME_MASK) + 1);
+    const double right = static_cast<double>(sampleRightAccumulator) / cycles
+        * ((volume & apu::MASTER_VOLUME_MASK) + 1);
 
-    // Approximate the DMG output coupling capacitors, which remove DC bias
-    // and soften the large offsets produced by pulse-wave duty cycles.
-    constexpr int32_t HIGH_PASS_COEFFICIENT = 65274; // 0.996 in Q16
-    const int32_t filteredLeft = left - previousInputLeft
-        + static_cast<int32_t>((static_cast<int64_t>(previousOutputLeft) * HIGH_PASS_COEFFICIENT) >> 16);
-    const int32_t filteredRight = right - previousInputRight
-        + static_cast<int32_t>((static_cast<int64_t>(previousOutputRight) * HIGH_PASS_COEFFICIENT) >> 16);
+    double filteredLeft = 0.0;
+    double filteredRight = 0.0;
+    if (anyDACOn)
+    {
+        const double charge = std::pow(cgbMode ? apu::HIGH_PASS_CHARGE_CGB : apu::HIGH_PASS_CHARGE_DMG,
+                                       static_cast<double>(common::GAMEBOY_CLOCK_RATE) / sampleRate);
+        filteredLeft = left - capacitorLeft;
+        capacitorLeft = left - filteredLeft * charge;
+        filteredRight = right - capacitorRight;
+        capacitorRight = right - filteredRight * charge;
+    }
 
-    previousInputLeft = left;
-    previousInputRight = right;
-    previousOutputLeft = filteredLeft;
-    previousOutputRight = filteredRight;
-    left = filteredLeft;
-    right = filteredRight;
-
-    constexpr int SAMPLE_MIN = std::numeric_limits<int16_t>::min();
-    constexpr int SAMPLE_MAX = std::numeric_limits<int16_t>::max();
-    left = std::max(SAMPLE_MIN, std::min(SAMPLE_MAX, left));
-    right = std::max(SAMPLE_MIN, std::min(SAMPLE_MAX, right));
-    samples.push_back(static_cast<int16_t>(left));
-    samples.push_back(static_cast<int16_t>(right));
+    const auto toSample = [](double value)
+    {
+        const double scaled = value * apu::OUTPUT_SCALE;
+        return static_cast<int16_t>(std::max<double>(std::numeric_limits<int16_t>::min(),
+                                                     std::min<double>(std::numeric_limits<int16_t>::max(), scaled)));
+    };
+    samples.push_back(toSample(filteredLeft));
+    samples.push_back(toSample(filteredRight));
     sampleLeftAccumulator = 0;
     sampleRightAccumulator = 0;
     sampleCycleCount = 0;
+    anyDACOn = false;
 }
 
 void APU::clockFrameSequencerFromDivider()

@@ -117,10 +117,14 @@ namespace apu
     constexpr uint8_t CHANNEL_COUNT      = 4;
     constexpr uint8_t LEFT_PANNING_SHIFT = 4;
     
-    // Each channel outputs 0-15. Doubling and subtracting 15 centers it
-    // around 0, and the summed result is scaled up to the 16-bit range.
-    constexpr int CHANNEL_OUTPUT_CENTER = 15;
-    constexpr int OUTPUT_SCALE          = 64;
+    // The mixed output ranges over +-480 (4 channels of +-15 fifteenths,
+    // times NR50's 1-8), scaled up to the 16-bit range
+    constexpr double OUTPUT_SCALE = 64.0;
+
+    // The high-pass filter's charge factor per clock
+    // https://gbdev.io/pandocs/Audio_details.html#obscure-behavior
+    constexpr double HIGH_PASS_CHARGE_DMG = 0.999958;
+    constexpr double HIGH_PASS_CHARGE_CGB = 0.998943;
     
     // NR52: bit 7 is the power switch and bits 0-3 report which
     // channels are playing. Bits 4-6 are unused and read as 1.
@@ -185,7 +189,7 @@ class APU
         WaveChannel wave;
         NoiseChannel noise;
         bool powered = false;
-        bool cgbMode = false; // The wave RAM access quirks are DMG only
+        bool cgbMode = false; // CGB hardware: no DMG wave RAM quirks, and its own high-pass filter
         uint8_t frameSequencerStep = 0; // The next step to run
         uint8_t sweepTimer = 0;
         uint16_t sweepShadowFrequency = 0;
@@ -196,10 +200,9 @@ class APU
         int64_t sampleLeftAccumulator = 0;
         int64_t sampleRightAccumulator = 0;
         uint32_t sampleCycleCount = 0;
-        int32_t previousInputLeft = 0;
-        int32_t previousInputRight = 0;
-        int32_t previousOutputLeft = 0;
-        int32_t previousOutputRight = 0;
+        bool anyDACOn = false; // Since the last output sample
+        double capacitorLeft = 0.0; // The high-pass filters' state
+        double capacitorRight = 0.0;
         std::vector<int16_t> samples;
 
         uint8_t reg(uint16_t address) const;
