@@ -1177,7 +1177,16 @@ void PPU::registerVBlankCallback(const std::function<void(const FrameBuffer&)> &
 
 void PPU::draw()
 {
-    // The Super Game Boy reads VRAM transfers from the picture
-    if (emulator.sgbMode) emulator.sgb.frameFinished(buffer);
+    // The Super Game Boy reads VRAM transfers from the picture, and once a
+    // game has sent a border it shows the picture inside it
+    if (emulator.sgbMode)
+    {
+        emulator.sgb.frameFinished(buffer);
+        if (emulator.sgb.hasBorder())
+        {
+            vblankCallback(emulator.sgb.compose(buffer));
+            return;
+        }
+    }
     vblankCallback(buffer);
 }

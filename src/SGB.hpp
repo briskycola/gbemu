@@ -57,6 +57,24 @@ namespace sgb
     static constexpr uint8_t ATTRIBUTE_FILES          = 45;
     static constexpr uint8_t ATTRIBUTE_FILE_BYTES     = 90; // 18 rows of 5 bytes, 2 bits per cell
     static constexpr uint8_t ATTRIBUTE_FILE_ROW_BYTES = 5;
+
+    // The border: a 256x224 SNES picture with the Game Boy screen in the
+    // middle. CHR_TRN loads 128 of its 256 4bpp tiles at a time, PCT_TRN its
+    // 32x28 tile map (plus a 29th row) and palettes 4-6 of 16 colors.
+    // https://gbdev.io/pandocs/SGB_Command_Border.html
+    static constexpr uint16_t BORDER_WIDTH            = 256;
+    static constexpr uint16_t BORDER_HEIGHT           = 224;
+    static constexpr uint16_t GAME_LEFT               = (BORDER_WIDTH - common::GAMEBOY_WIDTH) / 2;
+    static constexpr uint16_t GAME_TOP                = (BORDER_HEIGHT - common::GAMEBOY_HEIGHT) / 2;
+    static constexpr uint16_t BORDER_TILES            = 256;
+    static constexpr uint8_t BORDER_TILE_BYTES        = 32;
+    static constexpr uint8_t BORDER_MAP_COLUMNS       = 32;
+    static constexpr uint8_t BORDER_MAP_ROWS          = 29;
+    static constexpr uint16_t BORDER_PALETTE_DATA     = 0x800;
+    static constexpr uint8_t BORDER_FIRST_PALETTE     = 4;
+    static constexpr uint8_t BORDER_PALETTE_COUNT     = 3;
+    static constexpr uint8_t SNES_PALETTES            = 8;
+    static constexpr uint8_t SNES_COLORS_PER_PALETTE  = 16;
 }
 
 class SGB
@@ -84,11 +102,19 @@ class SGB
         uint8_t transferCommand = 0;
         uint8_t transferFrames = 0;
         bool transferPending = false;
+        bool transferHighTiles = false; // CHR_TRN loads tiles $80-$FF
         std::array<uint8_t, sgb::TRANSFER_BYTES> transferData{};
 
         std::array<uint16_t, sgb::SYSTEM_PALETTES * sgb::SGB_COLORS_PER_PALETTE> systemPalettes{}; // RGB555
         std::array<uint8_t, sgb::ATTRIBUTE_FILES * sgb::ATTRIBUTE_FILE_BYTES> attributeFiles{};
         bool packetsDisabled = false; // ICON_EN bit 2
+
+        // The border's tiles, tile map, palettes, and the picture it makes
+        std::array<uint8_t, sgb::BORDER_TILES * sgb::BORDER_TILE_BYTES> borderTiles{};
+        std::array<uint16_t, sgb::BORDER_MAP_COLUMNS * sgb::BORDER_MAP_ROWS> borderMap{};
+        std::array<uint32_t, sgb::SNES_PALETTES * sgb::SNES_COLORS_PER_PALETTE> borderPalettes{};
+        bool borderLoaded = false;
+        FrameBuffer screen{sgb::BORDER_WIDTH, sgb::BORDER_HEIGHT};
 
         void commandReady();
         void startTransfer(uint8_t op);
@@ -102,6 +128,11 @@ class SGB
         void writeJOYP(uint8_t value);
         // Called with every finished frame, which VRAM transfers read
         void frameFinished(const FrameBuffer &frame);
+
+        // Whether the game has sent a border, and the 256x224 picture of the
+        // border around this frame of the game
+        bool hasBorder() const { return borderLoaded; }
+        const FrameBuffer &compose(const FrameBuffer &game);
         uint32_t getColor(uint8_t palette, uint8_t color, uint8_t x, uint8_t y);
         uint8_t getAttribute(uint8_t x, uint8_t y) const;
         // Player 1 reads as 0xF, player 2 as 0xE, and so on

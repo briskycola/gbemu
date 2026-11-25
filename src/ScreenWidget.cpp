@@ -40,9 +40,13 @@ void ScreenWidget::paintEvent(QPaintEvent *event)
         painter.fillRect(rect(), Qt::black);
         return;
     }
-    // Stretch the 160x144 frame over the whole widget. Smooth scaling
-    // is off by default, so pixels stay sharp (nearest-neighbour).
-    painter.drawImage(rect(), image);
+    // Scale the frame (160x144, or 256x224 with a Super Game Boy border) as
+    // large as fits while keeping its shape, centered on black. Smooth
+    // scaling is off by default, so pixels stay sharp (nearest-neighbor).
+    painter.fillRect(rect(), Qt::black);
+    const QSize size = image.size().scaled(this->size(), Qt::KeepAspectRatio);
+    const QRect target(QPoint((width() - size.width()) / 2, (height() - size.height()) / 2), size);
+    painter.drawImage(target, image);
 }
 
 void ScreenWidget::keyPressEvent(QKeyEvent *event)
@@ -80,12 +84,12 @@ void ScreenWidget::clear()
 
 void ScreenWidget::updateFrame(const FrameBuffer &buffer)
 {
-    if (image.size() != QSize(common::GAMEBOY_WIDTH, common::GAMEBOY_HEIGHT))
-        image = QImage(common::GAMEBOY_WIDTH, common::GAMEBOY_HEIGHT, QImage::Format_RGBA8888);
-    for (uint32_t y = 0; y < common::GAMEBOY_HEIGHT; ++y)
+    const QSize size(static_cast<int>(buffer.getWidth()), static_cast<int>(buffer.getHeight()));
+    if (image.size() != size) image = QImage(size, QImage::Format_RGBA8888);
+    for (uint32_t y = 0; y < buffer.getHeight(); ++y)
     {
         auto *row = image.scanLine(static_cast<int>(y));
-        for (uint32_t x = 0; x < common::GAMEBOY_WIDTH; ++x)
+        for (uint32_t x = 0; x < buffer.getWidth(); ++x)
         {
             const uint32_t rgb = buffer.getPixelRGB(x, y);
             row[4 * x + 0] = static_cast<uchar>((rgb >> 16) & 0xFF); // red

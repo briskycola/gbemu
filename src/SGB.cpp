@@ -21,6 +21,8 @@ constexpr uint8_t COMMAND_PAL_SET   = 0x0A; // Set palettes 0-3 from system pale
 constexpr uint8_t COMMAND_PAL_TRN   = 0x0B; // Transfer the 512 system palettes
 constexpr uint8_t COMMAND_ICON_EN   = 0x0E; // Enable or disable SGB functions
 constexpr uint8_t COMMAND_MLT_REQ   = 0x11; // Request multiplayer mode
+constexpr uint8_t COMMAND_CHR_TRN   = 0x13; // Transfer border tiles
+constexpr uint8_t COMMAND_PCT_TRN   = 0x14; // Transfer the border's tile map and palettes
 constexpr uint8_t COMMAND_ATTR_TRN  = 0x15; // Transfer the 45 attribute files
 constexpr uint8_t COMMAND_ATTR_SET  = 0x16; // Apply an attribute file
 constexpr uint8_t COMMAND_MASK_EN   = 0x17; // Freeze or blank the screen
@@ -38,6 +40,17 @@ constexpr uint8_t PAL_SET_FLAGS          = 9;
 constexpr uint8_t PAL_SET_APPLY_FILE_BIT = 7;
 constexpr uint8_t CANCEL_MASK_BIT        = 6;
 constexpr uint8_t ATTRIBUTE_FILE_MASK    = 0x3F;
+
+// CHR_TRN bit 0 picks tiles $80-$FF instead of $00-$7F
+constexpr uint8_t CHR_TRN_HIGH_TILES_BIT = 0;
+
+// Border tile map entries: bits 0-7 the tile (of the 10 bits, only 256 tiles
+// exist), bits 10-12 the palette, bit 14 X flip and bit 15 Y flip
+constexpr uint16_t BORDER_TILE_MASK      = 0xFF;
+constexpr uint8_t BORDER_PALETTE_SHIFT   = 10;
+constexpr uint8_t BORDER_PALETTE_MASK    = 0x07;
+constexpr uint8_t BORDER_X_FLIP_BIT      = 14;
+constexpr uint8_t BORDER_Y_FLIP_BIT      = 15;
 
 // ICON_EN bit 2 stops the SGB taking any more packets
 constexpr uint8_t ICON_EN_DISABLE_PACKETS_BIT = 2;
@@ -168,10 +181,12 @@ void SGB::commandReady()
         return;
     }
 
-    // PAL_TRN and ATTR_TRN send their data through a VRAM transfer
-    if (op == COMMAND_PAL_TRN || op == COMMAND_ATTR_TRN)
+    // PAL_TRN, ATTR_TRN, CHR_TRN and PCT_TRN send their data through a VRAM
+    // transfer. CHR_TRN's byte 1 says which half of the tiles it loads.
+    if (op == COMMAND_PAL_TRN || op == COMMAND_ATTR_TRN || op == COMMAND_CHR_TRN || op == COMMAND_PCT_TRN)
     {
         startTransfer(op);
+        transferHighTiles = checkBit(command[1], CHR_TRN_HIGH_TILES_BIT);
         return;
     }
 
@@ -413,6 +428,73 @@ void SGB::finishTransfer()
     {
         std::copy_n(transferData.begin(), attributeFiles.size(), attributeFiles.begin());
     }
+    // CHR_TRN: 128 border tiles, each 32 bytes: bit planes 0 and 1 interleaved
+    // by row, then planes 2 and 3
+    // https://gbdev.io/pandocs/SGB_Command_Border.html#sgb-command-13--chr_trn
+    else if (transferCommand == COMMAND_CHR_TRN)
+    {
+        const size_t half = borderTiles.size() / 2;
+        std::copy_n(transferData.begin(), half, borderTiles.begin() + (transferHighTiles ? half : 0));
+    }
+    // PCT_TRN: the tile map (28 rows and a 29th), then palettes 4-6
+    // https://gbdev.io/pandocs/SGB_Command_Border.html#sgb-command-14--pct_trn
+    else if (transferCommand == COMMAND_PCT_TRN)
+    {
+        for (size_t i = 0; i < borderMap.size(); ++i)
+            borderMap[i] = static_cast<uint16_t>(transferData[i * 2] | (transferData[i * 2 + 1] << 8));
+        for (uint8_t i = 0; i < sgb::BORDER_PALETTE_COUNT * sgb::SNES_COLORS_PER_PALETTE; ++i)
+        {
+            const uint16_t offset = sgb::BORDER_PALETTE_DATA + i * 2;
+            borderPalettes[sgb::BORDER_FIRST_PALETTE * sgb::SNES_COLORS_PER_PALETTE + i] =
+                rgb555ToRGB888(transferData[offset] | (transferData[offset + 1] << 8));
+        }
+        borderLoaded = true;
+    }
+}
+
+// The 256x224 SNES picture: the border drawn over the Game Boy screen in the
+// middle. Border color 0 is transparent, showing the Game Boy screen, or
+// outside it the backdrop (the shared color 0). The SNES shows lines 1-224 of
+// the border's tile map, so its top line is hidden and one line of the 29th
+// row shows at the bottom.
+// https://gbdev.io/pandocs/SGB_Command_Border.html#sgb-command-14--pct_trn
+const FrameBuffer &SGB::compose(const FrameBuffer &game)
+{
+    for (uint32_t y = 0; y < sgb::BORDER_HEIGHT; ++y)
+    {
+        const uint32_t mapY = y + 1;
+        for (uint32_t x = 0; x < sgb::BORDER_WIDTH; ++x)
+        {
+            const uint16_t entry = borderMap[(mapY / ATTRIBUTE_CELL_SIZE) * sgb::BORDER_MAP_COLUMNS + x / ATTRIBUTE_CELL_SIZE];
+            const uint8_t *tile = &borderTiles[(entry & BORDER_TILE_MASK) * sgb::BORDER_TILE_BYTES];
+            uint8_t row = mapY % ATTRIBUTE_CELL_SIZE;
+            uint8_t column = x % ATTRIBUTE_CELL_SIZE;
+            if ((entry >> BORDER_Y_FLIP_BIT) & 1) row = static_cast<uint8_t>(ATTRIBUTE_CELL_SIZE - 1 - row);
+            if ((entry >> BORDER_X_FLIP_BIT) & 1) column = static_cast<uint8_t>(ATTRIBUTE_CELL_SIZE - 1 - column);
+            const uint8_t bit = static_cast<uint8_t>(ATTRIBUTE_CELL_SIZE - 1 - column);
+            const uint8_t color = static_cast<uint8_t>(
+                getBitValue(tile[row * 2], bit) | getBitValue(tile[row * 2 + 1], bit) << 1 |
+                getBitValue(tile[16 + row * 2], bit) << 2 | getBitValue(tile[16 + row * 2 + 1], bit) << 3);
+
+            const bool inGame = x >= sgb::GAME_LEFT && x < sgb::GAME_LEFT + common::GAMEBOY_WIDTH &&
+                                y >= sgb::GAME_TOP && y < sgb::GAME_TOP + common::GAMEBOY_HEIGHT;
+            if (color != 0)
+            {
+                const uint8_t palette = (entry >> BORDER_PALETTE_SHIFT) & BORDER_PALETTE_MASK;
+                screen.setPixelRGB(x, y, borderPalettes[palette * sgb::SNES_COLORS_PER_PALETTE + color], 0);
+            }
+            else if (inGame)
+            {
+                const uint32_t gameX = x - sgb::GAME_LEFT, gameY = y - sgb::GAME_TOP;
+                screen.setPixelRGB(x, y, game.getPixelRGB(gameX, gameY), static_cast<uint8_t>(game.getPixel(gameX, gameY)));
+            }
+            else
+            {
+                screen.setPixelRGB(x, y, palettes[0], 0);
+            }
+        }
+    }
+    return screen;
 }
 uint32_t SGB::getColor(uint8_t palette, uint8_t color, uint8_t x, uint8_t y)
 {

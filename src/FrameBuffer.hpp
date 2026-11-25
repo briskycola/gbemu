@@ -14,6 +14,8 @@ class FrameBuffer
         uint32_t pixelIndex(uint32_t x, uint32_t y) const;
     public:
         FrameBuffer(uint32_t width, uint32_t height);
+        uint32_t getWidth() const { return width; }
+        uint32_t getHeight() const { return height; }
         void setPixel(uint32_t x, uint32_t y, Color color);
         Color getPixel(uint32_t x, uint32_t y) const;
         uint32_t getPixelRGB(uint32_t x, uint32_t y) const;
