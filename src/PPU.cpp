@@ -43,9 +43,9 @@ void PPU::writeCGBPaletteRegister(uint16_t address, uint8_t value)
     switch (address)
     {
         case io::BG_PALETTE_INDEX_REGISTER:  bgColorPalettes.writeIndex(value); break;
-        case io::BG_PALETTE_DATA_REGISTER:   bgColorPalettes.writeData(value); break;
+        case io::BG_PALETTE_DATA_REGISTER:   bgColorPalettes.writeData(value, cpuCanAccessVRAM()); break;
         case io::OBJ_PALETTE_INDEX_REGISTER: objColorPalettes.writeIndex(value); break;
-        default:     objColorPalettes.writeData(value); break;
+        default:     objColorPalettes.writeData(value, cpuCanAccessVRAM()); break;
     }
 }
 

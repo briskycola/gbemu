@@ -29,13 +29,10 @@ class Emulator
     private:
         std::shared_ptr<Cartridge> cartridge;
         uint32_t elapsedCycles = 0;
+        // VRAM DMA (both general-purpose and HBlank blocks) stalls the CPU for
+        // this many machine cycles; the PPU and everything else keep running
+        // https://gbdev.io/pandocs/VDMA.html#transfer-timings
         uint16_t dmaCyclesRemaining = 0;
-        // General-purpose DMA (GDMA) freezes both the CPU and the PPU for
-        // the entire transfer duration.  HDMA blocks freeze only the CPU
-        // (through dmaCyclesRemaining); OAM DMA freezes neither.
-        // We track the two stalls separately so tick() can suppress PPU
-        // advancement during a GDMA.
-        uint32_t gdmaCyclesRemaining = 0;
         // Running on Game Boy Color hardware, and whether its CGB features are
         // unlocked (CGB Mode). A Game Boy game on the Game Boy Color runs in
         // DMG compatibility mode, with cgbHardware set and cgbMode clear.

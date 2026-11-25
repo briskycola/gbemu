@@ -179,14 +179,20 @@ uint8_t MMU::readIO(const Address &address) const
         // https://gbdev.io/pandocs/Memory_Map.html#io-ranges
         case io::BOOT_ROM_DISABLE_REGISTER: return io::UNMAPPED_READ_VALUE;
 
-        // HDMA. Bits 0-4 of HDMA3 hold the destination's
-        // offset into VRAM; the upper bits read as 1.
-        case io::HDMA_SOURCE_HIGH_REGISTER: return emulator.cgbMode ? static_cast<uint8_t>(hdmaSource >> 8) : io::UNMAPPED_READ_VALUE;
-        case io::HDMA_SOURCE_LOW_REGISTER: return emulator.cgbMode ? static_cast<uint8_t>(hdmaSource & mmu::HDMA_ADDRESS_LOW_MASK) : io::UNMAPPED_READ_VALUE;
-        case io::HDMA_DESTINATION_HIGH_REGISTER: return emulator.cgbMode
-            ? static_cast<uint8_t>(0xE0 | ((hdmaDestination >> 8) & mmu::HDMA_DESTINATION_HIGH_MASK)) : io::UNMAPPED_READ_VALUE;
-        case io::HDMA_DESTINATION_LOW_REGISTER: return emulator.cgbMode
-            ? static_cast<uint8_t>(hdmaDestination & mmu::HDMA_ADDRESS_LOW_MASK) : io::UNMAPPED_READ_VALUE;
+        // RP. There is no other Game Boy to send an infrared signal, so bit 1
+        // always reads 1 (no signal).
+        // https://gbdev.io/pandocs/CGB_Registers.html#ff56--rp-cgb-mode-only-infrared-communications-port
+        case io::INFRARED_PORT_REGISTER: return emulator.cgbMode
+            ? static_cast<uint8_t>(io::RP_UNUSED_BITS | io::RP_NO_SIGNAL_BIT | (infraredPort & io::RP_WRITABLE_BITS))
+            : io::UNMAPPED_READ_VALUE;
+
+        // The VRAM DMA source and destination registers are write-only
+        // https://gbdev.io/pandocs/VDMA.html#ff51ff52--vdma_src_high-vdma_src_low-cgb-mode-only-vram-dma-source-address-write-only
+        case io::HDMA_SOURCE_HIGH_REGISTER:
+        case io::HDMA_SOURCE_LOW_REGISTER:
+        case io::HDMA_DESTINATION_HIGH_REGISTER:
+        case io::HDMA_DESTINATION_LOW_REGISTER:
+            return io::UNMAPPED_READ_VALUE;
 
         // HDMA5: bit 7 reads 0 while an HBlank transfer is running, and
         // bits 0-6 hold the blocks left minus one (0x7F once finished)
@@ -413,6 +419,10 @@ void MMU::writeIO(const Address &address, const uint8_t value)
             if (emulator.cgbMode) hdmaDestination = static_cast<uint16_t>((hdmaDestination & 0xFF00) | (value & mmu::HDMA_ADDRESS_LOW_MASK));
             return;
 
+        case io::INFRARED_PORT_REGISTER:
+            if (emulator.cgbMode) infraredPort = value & io::RP_WRITABLE_BITS;
+            return;
+
         // HDMA control: start a transfer, or cancel a running HBlank one
         case io::HDMA_CONTROL_REGISTER:
             if (!emulator.cgbMode) return;
@@ -433,12 +443,14 @@ void MMU::writeIO(const Address &address, const uint8_t value)
             return;
         case io::BG_PALETTE_DATA_REGISTER:
         case io::OBJ_PALETTE_DATA_REGISTER:
-            if (emulator.cgbMode && emulator.ppu.cpuCanAccessVRAM())
-                emulator.ppu.writeCGBPaletteRegister(address.getValue(), value);
+            if (emulator.cgbMode) emulator.ppu.writeCGBPaletteRegister(address.getValue(), value);
             return;
 
+        // OPRI is set by the boot ROM; writes after it has finished have no
+        // effect
+        // https://gbdev.io/pandocs/CGB_Registers.html#ff6c--opri-cgb-mode-only-object-priority-mode
         case io::OBJ_PRIORITY_MODE_REGISTER:
-            if (emulator.cgbMode) emulator.ppu.setObjectPriorityMode(value);
+            if (emulator.cgbMode && isBootROMActive()) emulator.ppu.setObjectPriorityMode(value);
             return;
 
         // Selecting bank 0 maps bank 1
@@ -547,10 +559,13 @@ void MMU::transferHDMABlock()
     }
     hdmaSource += mmu::HDMA_BLOCK_SIZE;
 
-    // The destination wraps around within VRAM
+    // If the destination runs past the end of VRAM the transfer stops early
+    // https://gbdev.io/pandocs/VDMA.html#bit-7--1--hblank-dma
+    const bool overflowed = hdmaDestination + mmu::HDMA_BLOCK_SIZE > mmu::VRAM_ADDRESS_END;
     hdmaDestination = static_cast<uint16_t>(mmu::VRAM_ADDRESS_START |
         ((hdmaDestination + mmu::HDMA_BLOCK_SIZE - mmu::VRAM_ADDRESS_START) & (mmu::VRAM_BANK_SIZE - 1)));
     --hdmaBlocksRemaining;
+    if (overflowed) hdmaBlocksRemaining = 0;
 
     // A block takes the same real time in either speed mode,
     // which is twice as many CPU cycles in double speed
@@ -560,7 +575,9 @@ void MMU::transferHDMABlock()
 
 uint32_t MMU::hblankDMA()
 {
-    if (!emulator.cgbMode || !hdmaHBlankMode || !hdmaBlocksRemaining) return 0;
+    // While the CPU is halted, HBlank DMA is paused too
+    // https://gbdev.io/pandocs/VDMA.html#bit-7--1--hblank-dma
+    if (!emulator.cgbMode || !hdmaHBlankMode || !hdmaBlocksRemaining || emulator.cpu.halted()) return 0;
     const uint16_t dmaBefore = emulator.dmaCyclesRemaining;
     transferHDMABlock();
     // Return the M-cycles this block consumed so the PPU can absorb them

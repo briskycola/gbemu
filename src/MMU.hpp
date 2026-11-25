@@ -112,6 +112,7 @@ class MMU
         uint8_t undocumentedRegisters[3] = {}; // CGB FF72-FF74
         uint8_t undocumentedFF75 = 0;          // CGB FF75, bits 4-6
         uint8_t key0 = 0;                      // CGB KEY0, written by the boot ROM
+        uint8_t infraredPort = 0;              // CGB RP
         std::vector<uint8_t> bootROM; // 256 bytes (Game Boy) or 2304 bytes (Game Boy Color)
         uint16_t hdmaSource = 0;
         uint16_t hdmaDestination = mmu::VRAM_ADDRESS_START;

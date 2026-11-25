@@ -77,9 +77,12 @@ uint8_t CGBPaletteRAM::readData() const
     return data[index & PALETTE_INDEX_MASK];
 }
 
-void CGBPaletteRAM::writeData(uint8_t value)
+// While the PPU is reading CRAM (mode 3) the write is lost, but the index
+// still auto-increments
+// https://gbdev.io/pandocs/Palettes.html#ff69--bgpd-cgb-mode-only-background-palette-data
+void CGBPaletteRAM::writeData(uint8_t value, bool accessible)
 {
-    data[index & PALETTE_INDEX_MASK] = value;
+    if (accessible) data[index & PALETTE_INDEX_MASK] = value;
     if (index & AUTO_INCREMENT_FLAG) index = static_cast<uint8_t>(AUTO_INCREMENT_FLAG | ((index + 1) & PALETTE_INDEX_MASK));
 }
 

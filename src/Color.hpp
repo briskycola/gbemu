@@ -59,7 +59,7 @@ class CGBPaletteRAM
         uint8_t readIndex() const;
         void writeIndex(uint8_t value);
         uint8_t readData() const;
-        void writeData(uint8_t value);
+        void writeData(uint8_t value, bool accessible);
         uint32_t getColor(uint8_t palette, uint8_t color) const;
 };
 

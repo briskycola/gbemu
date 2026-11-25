@@ -77,6 +77,7 @@ namespace io
     static constexpr uint16_t HDMA_DESTINATION_HIGH_REGISTER = 0xFF53; // HDMA3
     static constexpr uint16_t HDMA_DESTINATION_LOW_REGISTER  = 0xFF54; // HDMA4
     static constexpr uint16_t HDMA_CONTROL_REGISTER          = 0xFF55; // HDMA5
+    static constexpr uint16_t INFRARED_PORT_REGISTER         = 0xFF56; // RP
     static constexpr uint16_t BG_PALETTE_INDEX_REGISTER      = 0xFF68; // BCPS
     static constexpr uint16_t BG_PALETTE_DATA_REGISTER       = 0xFF69; // BCPD
     static constexpr uint16_t OBJ_PALETTE_INDEX_REGISTER     = 0xFF6A; // OCPS
@@ -93,6 +94,13 @@ namespace io
     static constexpr uint16_t CGB_UNDOCUMENTED_FF74_REGISTER = 0xFF74;
     static constexpr uint16_t CGB_UNDOCUMENTED_FF75_REGISTER = 0xFF75;
     static constexpr uint8_t CGB_FF75_WRITABLE_BITS          = 0x70;
+
+    // RP: bit 0 drives the LED, bits 6-7 enable reading, and bit 1 reads 0
+    // while an infrared signal is received; bits 2-5 are unused
+    // https://gbdev.io/pandocs/CGB_Registers.html#ff56--rp-cgb-mode-only-infrared-communications-port
+    static constexpr uint8_t RP_WRITABLE_BITS                = 0xC1;
+    static constexpr uint8_t RP_UNUSED_BITS                  = 0x3C;
+    static constexpr uint8_t RP_NO_SIGNAL_BIT                = 0x02;
 
     // KEY0 bit 2 puts the Game Boy Color in DMG compatibility mode
     // https://gbdev.io/pandocs/CGB_Registers.html#ff4c--key0sys-cgb-mode-only-cpu-mode-select

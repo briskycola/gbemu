@@ -399,6 +399,7 @@ class CPU
         CPU(Emulator &emulator);
         Cycles tick();
         bool stopped() const { return isStopped; }
+        bool halted() const { return isHalted; }
 
         // Returns how many cycles of the last tick() were already advanced
         // by bus accesses, and resets the count
