@@ -286,9 +286,6 @@ void CPU::stackPop(WordValue &reg)
 
 Cycles CPU::executeNormalOpcode(uint8_t opcode, uint16_t opcodePC)
 {
-    //std::cout << "0x"
-    //      << std::uppercase << std::hex
-    //      << opcodePC << ": " << cpu::OPCODE_NAMES[opcode] << "\n";
     switch (opcode)
     {
         case 0x00: opcode00(); break; case 0x01: opcode01(); break; case 0x02: opcode02(); break; case 0x03: opcode03(); break; case 0x04: opcode04(); break; case 0x05: opcode05(); break; case 0x06: opcode06(); break; case 0x07: opcode07(); break; case 0x08: opcode08(); break; case 0x09: opcode09(); break; case 0x0A: opcode0A(); break; case 0x0B: opcode0B(); break; case 0x0C: opcode0C(); break; case 0x0D: opcode0D(); break; case 0x0E: opcode0E(); break; case 0x0F: opcode0F(); break;
@@ -313,9 +310,6 @@ Cycles CPU::executeNormalOpcode(uint8_t opcode, uint16_t opcodePC)
 
 Cycles CPU::executeCBOpcode(const uint8_t opcode, uint16_t opcodePC)
 {
-    //std::cout << "0x"
-    //      << std::uppercase << std::hex
-    //      << opcodePC << ": " << cpu::OPCODE_CB_NAMES[opcode] << "\n";
     switch (opcode)
     {
         case 0x00: opcodeCB00(); break; case 0x01: opcodeCB01(); break; case 0x02: opcodeCB02(); break; case 0x03: opcodeCB03(); break; case 0x04: opcodeCB04(); break; case 0x05: opcodeCB05(); break; case 0x06: opcodeCB06(); break; case 0x07: opcodeCB07(); break; case 0x08: opcodeCB08(); break; case 0x09: opcodeCB09(); break; case 0x0A: opcodeCB0A(); break; case 0x0B: opcodeCB0B(); break; case 0x0C: opcodeCB0C(); break; case 0x0D: opcodeCB0D(); break; case 0x0E: opcodeCB0E(); break; case 0x0F: opcodeCB0F(); break;
