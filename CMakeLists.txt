@@ -24,9 +24,12 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Qt6 desktop frontend
 find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia)
 
-# Collect source files
-file(GLOB SRC_FILES CONFIGURE_DEPENDS src/*.cpp)
+# The emulator core, which doesn't use Qt
+file(GLOB_RECURSE CORE_FILES CONFIGURE_DEPENDS Source/Core/*.cpp)
+add_library(gbemu_core STATIC ${CORE_FILES})
+target_include_directories(gbemu_core PUBLIC Source)
 
-# Create executable
-add_executable(gbemu ${SRC_FILES})
-target_link_libraries(gbemu PRIVATE Qt6::Widgets Qt6::Multimedia)
+# The Qt application
+file(GLOB FRONTEND_FILES CONFIGURE_DEPENDS Source/Frontend/*.cpp)
+add_executable(gbemu Source/Main.cpp ${FRONTEND_FILES})
+target_link_libraries(gbemu PRIVATE gbemu_core Qt6::Widgets Qt6::Multimedia)

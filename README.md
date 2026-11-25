@@ -112,7 +112,7 @@ When the cartridge has battery-backed RAM, the emulator stores it in a
 
 ## Project layout
 
-- `src/` — emulator core and Qt application
+- `Source/` — `Core/` holds the emulator (no Qt), `Frontend/` the Qt application, and `Main.cpp` starts it
 - `CMakeLists.txt` — build configuration
 
 ## Contributing
