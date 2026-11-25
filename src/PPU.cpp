@@ -1177,5 +1177,7 @@ void PPU::registerVBlankCallback(const std::function<void(const FrameBuffer&)> &
 
 void PPU::draw()
 {
+    // The Super Game Boy reads VRAM transfers from the picture
+    if (emulator.sgbMode) emulator.sgb.frameFinished(buffer);
     vblankCallback(buffer);
 }

@@ -17,7 +17,12 @@ constexpr uint8_t COMMAND_ATTR_BLK  = 0x04; // Color rectangular blocks
 constexpr uint8_t COMMAND_ATTR_LIN  = 0x05; // Color whole rows or columns
 constexpr uint8_t COMMAND_ATTR_DIV  = 0x06; // Split the screen in three along a line
 constexpr uint8_t COMMAND_ATTR_CHR  = 0x07; // Color individual cells
+constexpr uint8_t COMMAND_PAL_SET   = 0x0A; // Set palettes 0-3 from system palettes
+constexpr uint8_t COMMAND_PAL_TRN   = 0x0B; // Transfer the 512 system palettes
+constexpr uint8_t COMMAND_ICON_EN   = 0x0E; // Enable or disable SGB functions
 constexpr uint8_t COMMAND_MLT_REQ   = 0x11; // Request multiplayer mode
+constexpr uint8_t COMMAND_ATTR_TRN  = 0x15; // Transfer the 45 attribute files
+constexpr uint8_t COMMAND_ATTR_SET  = 0x16; // Apply an attribute file
 constexpr uint8_t COMMAND_MASK_EN   = 0x17; // Freeze or blank the screen
 
 // The game sends bits by writing the JOYP select lines
@@ -28,7 +33,17 @@ constexpr uint8_t PULSE_ONE   = 1;
 constexpr uint8_t PULSE_ZERO  = 2;
 constexpr uint8_t PULSE_IDLE  = 3;
 
+// PAL_SET's flags byte and ATTR_SET's file byte
+constexpr uint8_t PAL_SET_FLAGS          = 9;
+constexpr uint8_t PAL_SET_APPLY_FILE_BIT = 7;
+constexpr uint8_t CANCEL_MASK_BIT        = 6;
+constexpr uint8_t ATTRIBUTE_FILE_MASK    = 0x3F;
+
+// ICON_EN bit 2 stops the SGB taking any more packets
+constexpr uint8_t ICON_EN_DISABLE_PACKETS_BIT = 2;
+
 // MASK_EN modes
+constexpr uint8_t MASK_CANCEL = 0;
 constexpr uint8_t MASK_FREEZE = 1; // Keep showing the last frame
 constexpr uint8_t MASK_BLACK  = 2;
 constexpr uint8_t MASK_COLOR0 = 3; // Fill with palette 0's color 0
@@ -138,10 +153,57 @@ void SGB::commandReady()
         return;
     }
 
-    // Games that don't unlock the SGB functions can't use its commands
-    if (!functionsUnlocked) return;
+    // Games that don't unlock the SGB functions can't use its commands, and
+    // after ICON_EN disables packets the SGB takes no more
+    if (!functionsUnlocked || packetsDisabled) return;
 
     const uint8_t op = command[0] >> COMMAND_SHIFT;
+
+    // ICON_EN: bit 2 stops the SGB taking any more packets. (Bits 0 and 1
+    // only affect the SGB's own menus, which aren't emulated.)
+    // https://gbdev.io/pandocs/SGB_Command_System.html#sgb-command-0e--icon_en
+    if (op == COMMAND_ICON_EN)
+    {
+        packetsDisabled = checkBit(command[1], ICON_EN_DISABLE_PACKETS_BIT);
+        return;
+    }
+
+    // PAL_TRN and ATTR_TRN send their data through a VRAM transfer
+    if (op == COMMAND_PAL_TRN || op == COMMAND_ATTR_TRN)
+    {
+        startTransfer(op);
+        return;
+    }
+
+    // PAL_SET: bytes 1-8 are four system palette IDs (little-endian) for
+    // palettes 0-3. The flags byte can also apply an attribute file (bit 7,
+    // file in bits 0-5) and cancel MASK_EN (bit 6).
+    // https://gbdev.io/pandocs/SGB_Command_Palettes.html#sgb-command-0a--pal_set
+    if (op == COMMAND_PAL_SET)
+    {
+        for (uint8_t p = 0; p < sgb::SGB_PALETTE_COUNT; ++p)
+        {
+            const uint16_t id = (command[1 + p * 2] | (command[2 + p * 2] << 8)) & sgb::SYSTEM_PALETTE_ID_MASK;
+            for (uint8_t c = 0; c < sgb::SGB_COLORS_PER_PALETTE; ++c)
+                palettes[p * sgb::SGB_COLORS_PER_PALETTE + c] = rgb555ToRGB888(systemPalettes[id * sgb::SGB_COLORS_PER_PALETTE + c]);
+            // Color 0 is shared, and the last one set wins
+            setColor0(palettes[p * sgb::SGB_COLORS_PER_PALETTE]);
+        }
+        const uint8_t flags = command[PAL_SET_FLAGS];
+        if (checkBit(flags, PAL_SET_APPLY_FILE_BIT)) applyAttributeFile(flags & ATTRIBUTE_FILE_MASK);
+        if (checkBit(flags, CANCEL_MASK_BIT)) maskMode = MASK_CANCEL;
+        return;
+    }
+
+    // ATTR_SET: apply attribute file bits 0-5 of byte 1; bit 6 cancels MASK_EN
+    // https://gbdev.io/pandocs/SGB_Command_Attribute.html#sgb-command-16--attr_set
+    if (op == COMMAND_ATTR_SET)
+    {
+        applyAttributeFile(command[1] & ATTRIBUTE_FILE_MASK);
+        if (checkBit(command[1], CANCEL_MASK_BIT)) maskMode = MASK_CANCEL;
+        return;
+    }
+
 
     // PAL01, PAL23, PAL03, and PAL12: set two palettes at once.
     // Bytes 1-2 are the color 0 shared by every palette, bytes 3-8
@@ -151,7 +213,7 @@ void SGB::commandReady()
         const uint8_t first = op == COMMAND_PAL01 ? 0 : (op == COMMAND_PAL23 ? 2 : (op == COMMAND_PAL03 ? 0 : 1));
         const uint8_t second = op == COMMAND_PAL01 ? 1 : (op == COMMAND_PAL23 ? 3 : (op == COMMAND_PAL03 ? 3 : 2));
         const uint32_t color0 = readColor(command, 1);
-        for (uint8_t p = 0; p < sgb::SGB_PALETTE_COUNT; ++p) palettes[p * sgb::SGB_COLORS_PER_PALETTE] = color0;
+        setColor0(color0);
         for (uint8_t i = 0; i < sgb::SGB_COLORS_PER_PALETTE - 1; ++i)
         {
             palettes[first * sgb::SGB_COLORS_PER_PALETTE + i + 1] = readColor(command, 3 + i * 2);
@@ -268,6 +330,90 @@ void SGB::commandReady()
     if (op == COMMAND_MASK_EN) maskMode = command[1] & 3;
 }
 
+
+// Color 0 is shared by every palette: it is the SNES backdrop, and whichever
+// command set it last wins
+// https://gbdev.io/pandocs/SGB_Color_Palettes.html#color-0-restriction
+void SGB::setColor0(uint32_t rgb)
+{
+    for (uint8_t p = 0; p < sgb::SGB_PALETTE_COUNT; ++p) palettes[p * sgb::SGB_COLORS_PER_PALETTE] = rgb;
+}
+
+// An attribute file holds 18 rows of 5 bytes, 2 bits per cell, the leftmost
+// cell in the top bits. Files past $2C don't exist.
+// https://gbdev.io/pandocs/SGB_Command_Attribute.html#sgb-command-15--attr_trn
+void SGB::applyAttributeFile(uint8_t file)
+{
+    if (file >= sgb::ATTRIBUTE_FILES) return;
+    const uint8_t *data = &attributeFiles[file * sgb::ATTRIBUTE_FILE_BYTES];
+    for (uint8_t y = 0; y < sgb::SGB_ATTRIBUTE_ROWS; ++y)
+        for (uint8_t x = 0; x < sgb::SGB_ATTRIBUTE_COLUMNS; ++x)
+        {
+            const uint8_t byte = data[y * sgb::ATTRIBUTE_FILE_ROW_BYTES + x / 4];
+            attributes[y * sgb::SGB_ATTRIBUTE_COLUMNS + x] = (byte >> ((3 - x % 4) * 2)) & 3;
+        }
+}
+
+// A _TRN command starts a VRAM transfer with the next frame
+// https://gbdev.io/pandocs/SGB_VRAM_Transfer.html#transfer-time
+void SGB::startTransfer(uint8_t op)
+{
+    transferCommand = op;
+    transferFrames = 0;
+    transferPending = true;
+}
+
+void SGB::frameFinished(const FrameBuffer &frame)
+{
+    if (!transferPending) return;
+    ++transferFrames;
+    if (transferFrames == sgb::TRANSFER_READ_FRAME + 1) readTransfer(frame);
+    if (transferFrames == sgb::TRANSFER_DONE_FRAME + 1)
+    {
+        transferPending = false;
+        finishTransfer();
+    }
+}
+
+// The SNES reads the 4 KiB from the picture, rebuilding the tile data as it
+// was in VRAM: tile n is the 8x8 cell at column n % 20, row n / 20, and each
+// pixel's shade (BGP is $E4) gives its bit in the low and high bytes of its row
+// https://gbdev.io/pandocs/SGB_VRAM_Transfer.html#transfer-data
+void SGB::readTransfer(const FrameBuffer &frame)
+{
+    for (uint16_t tile = 0; tile < sgb::TRANSFER_TILES; ++tile)
+    {
+        const uint32_t left = (tile % sgb::TRANSFER_TILES_PER_ROW) * ATTRIBUTE_CELL_SIZE;
+        const uint32_t top = (tile / sgb::TRANSFER_TILES_PER_ROW) * ATTRIBUTE_CELL_SIZE;
+        for (uint8_t row = 0; row < ATTRIBUTE_CELL_SIZE; ++row)
+        {
+            uint8_t low = 0, high = 0;
+            for (uint8_t column = 0; column < ATTRIBUTE_CELL_SIZE; ++column)
+            {
+                const uint8_t shade = static_cast<uint8_t>(frame.getPixel(left + column, top + row));
+                low = static_cast<uint8_t>(low << 1 | (shade & 1));
+                high = static_cast<uint8_t>(high << 1 | (shade >> 1));
+            }
+            transferData[tile * 16 + row * 2] = low;
+            transferData[tile * 16 + row * 2 + 1] = high;
+        }
+    }
+}
+
+void SGB::finishTransfer()
+{
+    // PAL_TRN: 512 palettes of 4 little-endian RGB555 colors
+    if (transferCommand == COMMAND_PAL_TRN)
+    {
+        for (uint16_t i = 0; i < systemPalettes.size(); ++i)
+            systemPalettes[i] = static_cast<uint16_t>(transferData[i * 2] | (transferData[i * 2 + 1] << 8));
+    }
+    // ATTR_TRN: 45 attribute files of 90 bytes
+    else if (transferCommand == COMMAND_ATTR_TRN)
+    {
+        std::copy_n(transferData.begin(), attributeFiles.size(), attributeFiles.begin());
+    }
+}
 uint32_t SGB::getColor(uint8_t palette, uint8_t color, uint8_t x, uint8_t y)
 {
     const size_t index = y * common::GAMEBOY_WIDTH + x;

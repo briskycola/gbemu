@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include "Common.hpp"
+#include "FrameBuffer.hpp"
 
 // https://gbdev.io/pandocs/SGB_Functions.html
 
@@ -36,6 +37,26 @@ namespace sgb
     static constexpr uint16_t HEADER_OLD_LICENSEE    = 0x014B;
     static constexpr uint8_t SGB_FLAG_VALUE          = 0x03;
     static constexpr uint8_t OLD_LICENSEE_SGB        = 0x33;
+
+    // VRAM transfers: the SNES reads 4 KiB from the Game Boy's picture, which
+    // must show tiles $00-$FF in order, 20 per row. The data is read from the
+    // first frame after the command's, and the transfer is done at the end of
+    // the 5th.
+    // https://gbdev.io/pandocs/SGB_VRAM_Transfer.html
+    static constexpr uint16_t TRANSFER_BYTES          = 0x1000;
+    static constexpr uint16_t TRANSFER_TILES          = 256;
+    static constexpr uint8_t TRANSFER_TILES_PER_ROW   = 20;
+    static constexpr uint8_t TRANSFER_READ_FRAME      = 1;
+    static constexpr uint8_t TRANSFER_DONE_FRAME      = 5;
+
+    // System palettes (PAL_TRN) and attribute files (ATTR_TRN)
+    // https://gbdev.io/pandocs/SGB_Command_Palettes.html#sgb-command-0b--pal_trn
+    // https://gbdev.io/pandocs/SGB_Command_Attribute.html#sgb-command-15--attr_trn
+    static constexpr uint16_t SYSTEM_PALETTES         = 512;
+    static constexpr uint16_t SYSTEM_PALETTE_ID_MASK  = 0x1FF;
+    static constexpr uint8_t ATTRIBUTE_FILES          = 45;
+    static constexpr uint8_t ATTRIBUTE_FILE_BYTES     = 90; // 18 rows of 5 bytes, 2 bits per cell
+    static constexpr uint8_t ATTRIBUTE_FILE_ROW_BYTES = 5;
 }
 
 class SGB
@@ -59,11 +80,28 @@ class SGB
         std::array<uint8_t, sgb::HEADER_BYTES> header{};
         bool functionsUnlocked = false;
 
+        // A VRAM transfer in progress: its command, and frames since it was sent
+        uint8_t transferCommand = 0;
+        uint8_t transferFrames = 0;
+        bool transferPending = false;
+        std::array<uint8_t, sgb::TRANSFER_BYTES> transferData{};
+
+        std::array<uint16_t, sgb::SYSTEM_PALETTES * sgb::SGB_COLORS_PER_PALETTE> systemPalettes{}; // RGB555
+        std::array<uint8_t, sgb::ATTRIBUTE_FILES * sgb::ATTRIBUTE_FILE_BYTES> attributeFiles{};
+        bool packetsDisabled = false; // ICON_EN bit 2
+
         void commandReady();
+        void startTransfer(uint8_t op);
+        void readTransfer(const FrameBuffer &frame);
+        void finishTransfer();
+        void applyAttributeFile(uint8_t file);
+        void setColor0(uint32_t rgb);
 
     public:
         SGB();
         void writeJOYP(uint8_t value);
+        // Called with every finished frame, which VRAM transfers read
+        void frameFinished(const FrameBuffer &frame);
         uint32_t getColor(uint8_t palette, uint8_t color, uint8_t x, uint8_t y);
         uint8_t getAttribute(uint8_t x, uint8_t y) const;
         // Player 1 reads as 0xF, player 2 as 0xE, and so on
