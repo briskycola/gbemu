@@ -20,6 +20,7 @@ namespace settings
     // Values of HARDWARE_MODEL
     static constexpr const char *MODEL_AUTOMATIC = "automatic";
     static constexpr const char *MODEL_GAME_BOY  = "gameBoy";
+    static constexpr const char *MODEL_GAME_BOY_COLOR = "gameBoyColor";
 }
 
 const QString& Settings::bootROM(bool gameBoyColor) const
@@ -43,8 +44,10 @@ Settings Settings::load()
     const QJsonObject bootROMs = root.value(settings::BOOT_ROMS).toObject();
     loaded.gameBoyBootROM = bootROMs.value(settings::GAME_BOY_BOOT_ROM).toString();
     loaded.gameBoyColorBootROM = bootROMs.value(settings::GAME_BOY_COLOR_BOOT_ROM).toString();
-    loaded.hardwareModel = root.value(settings::HARDWARE_MODEL).toString() == settings::MODEL_GAME_BOY
-        ? HardwareModel::GameBoy : HardwareModel::Automatic;
+    const QString model = root.value(settings::HARDWARE_MODEL).toString();
+    if (model == settings::MODEL_GAME_BOY) loaded.hardwareModel = HardwareModel::GameBoy;
+    else if (model == settings::MODEL_GAME_BOY_COLOR) loaded.hardwareModel = HardwareModel::GameBoyColor;
+    else loaded.hardwareModel = HardwareModel::Automatic;
     return loaded;
 }
 
@@ -56,8 +59,12 @@ bool Settings::save() const
 
     QJsonObject root;
     root[settings::BOOT_ROMS] = bootROMs;
-    root[settings::HARDWARE_MODEL] = hardwareModel == HardwareModel::GameBoy
-        ? settings::MODEL_GAME_BOY : settings::MODEL_AUTOMATIC;
+    switch (hardwareModel)
+    {
+        case HardwareModel::GameBoy: root[settings::HARDWARE_MODEL] = settings::MODEL_GAME_BOY; break;
+        case HardwareModel::GameBoyColor: root[settings::HARDWARE_MODEL] = settings::MODEL_GAME_BOY_COLOR; break;
+        default: root[settings::HARDWARE_MODEL] = settings::MODEL_AUTOMATIC; break;
+    }
 
     // QSaveFile writes to a temporary file and swaps it in, so a failed
     // write never leaves a half-written settings file behind

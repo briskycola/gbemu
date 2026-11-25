@@ -13,11 +13,15 @@
 
 // Which console to emulate. Automatic runs Game Boy Color games as a Game Boy
 // Color and everything else as a Game Boy; GameBoy always emulates the
-// original Game Boy (DMG), even for games that support the Game Boy Color.
+// original Game Boy (DMG), even for games that support the Game Boy Color;
+// GameBoyColor always emulates the Game Boy Color, which runs Game Boy games
+// in its DMG compatibility mode.
+// https://gbdev.io/pandocs/CGB_Registers.html#ff4c--key0sys-cgb-mode-only-cpu-mode-select
 enum class HardwareModel
 {
     Automatic,
     GameBoy,
+    GameBoyColor,
 };
 
 class Emulator
@@ -32,6 +36,11 @@ class Emulator
         // We track the two stalls separately so tick() can suppress PPU
         // advancement during a GDMA.
         uint32_t gdmaCyclesRemaining = 0;
+        // Running on Game Boy Color hardware, and whether its CGB features are
+        // unlocked (CGB Mode). A Game Boy game on the Game Boy Color runs in
+        // DMG compatibility mode, with cgbHardware set and cgbMode clear.
+        // https://gbdev.io/pandocs/CGB_Registers.html#unlocking-cgb-functions
+        bool cgbHardware = false;
         bool cgbMode = false;
         bool doubleSpeed = false;
         bool speedSwitchPrepared = false;

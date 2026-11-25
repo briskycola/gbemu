@@ -104,6 +104,7 @@ QWidget* SettingsDialog::createGameBoyPage(const Settings &settings)
     hardwareModelBox = new QComboBox;
     hardwareModelBox->addItem(tr("Automatic (Game Boy Color for color games)"));
     hardwareModelBox->addItem(tr("Game Boy (DMG) for every game"));
+    hardwareModelBox->addItem(tr("Game Boy Color for every game (Game Boy games in compatibility mode)"));
     hardwareModelBox->setCurrentIndex(static_cast<int>(settings.hardwareModel));
     form->addRow(tr("Hardware:"), hardwareModelBox);
 

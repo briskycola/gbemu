@@ -76,7 +76,7 @@ void Timer::setTimerControl(uint8_t value)
     const bool wasEnabled = isTimerEnabled();
     timerControl.set(value & timer::TIMER_CONTROL_MASK);
 
-    if (emulator.cgbMode)
+    if (emulator.cgbHardware)
     {
         // The CGB ANDs the enable bit after the falling edge detector, so
         // only switching from a set bit to a clear one ticks, while enabled

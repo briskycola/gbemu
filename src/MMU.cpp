@@ -83,7 +83,7 @@ uint8_t MMU::read(const Address &address, bool bypassPPURestrictions) const
     if (address.inRange(mmu::UNUSABLE_ADDRESS_START, mmu::UNUSABLE_ADDRESS_END))
     {
         if (!bypassPPURestrictions && !emulator.ppu.cpuCanAccessOAM()) return io::UNMAPPED_READ_VALUE;
-        if (!emulator.cgbMode) return 0x00;
+        if (!emulator.cgbHardware) return 0x00;
         const uint8_t nibble = (address.getValue() >> 4) & 0x0F;
         return static_cast<uint8_t>(nibble << 4 | nibble);
     }
@@ -159,9 +159,10 @@ uint8_t MMU::readIO(const Address &address) const
         case io::WINDOW_Y_REGISTER: return emulator.ppu.windowY.getValue();
         case io::WINDOW_X_REGISTER: return emulator.ppu.windowX.getValue();
 
-        // KEY0 reports native CGB CPU mode (0x00). This emulator enters color mode
-        // for cartridges whose header advertises CGB support.
-        case io::CGB_MODE_REGISTER: return emulator.cgbMode ? 0x00 : io::UNMAPPED_READ_VALUE;
+        // KEY0 can only be used by the boot ROM
+        // https://gbdev.io/pandocs/CGB_Registers.html#ff4c--key0sys-cgb-mode-only-cpu-mode-select
+        case io::CGB_MODE_REGISTER:
+            return emulator.cgbHardware && isBootROMActive() ? key0 : io::UNMAPPED_READ_VALUE;
 
         // KEY1: bit 7 is the current speed and bit 0 is set when a
         // speed switch is armed. The other bits read as 1.
@@ -169,8 +170,9 @@ uint8_t MMU::readIO(const Address &address) const
             ? static_cast<uint8_t>(0x7E | (emulator.doubleSpeed ? 0x80 : 0) | (emulator.speedSwitchPrepared ? 1 : 0))
             : io::UNMAPPED_READ_VALUE;
 
-        // VBK: only bit 0 is used; the rest read as 1
-        case io::VRAM_BANK_REGISTER: return emulator.cgbMode
+        // VBK: only bit 0 is used; the rest read as 1. It can also be read in
+        // DMG compatibility mode (mooneye's boot_hwio-C and unused_hwio-C).
+        case io::VRAM_BANK_REGISTER: return emulator.cgbHardware
             ? static_cast<uint8_t>(0xFE | emulator.ppu.getVRAMBank()) : io::UNMAPPED_READ_VALUE;
 
         // BANK can only be written, by the boot ROM, so it reads as unmapped
@@ -193,11 +195,12 @@ uint8_t MMU::readIO(const Address &address) const
                                    (hdmaBlocksRemaining ? hdmaBlocksRemaining - 1 : mmu::HDMA_LENGTH_MASK))
             : io::UNMAPPED_READ_VALUE;
 
-        // CGB palette index registers can always be read; palette data
-        // is locked while the PPU is drawing from VRAM
+        // CGB palette index registers can always be read, even in DMG
+        // compatibility mode (mooneye's unused_hwio-C); palette data is
+        // locked while the PPU is drawing from VRAM
         case io::BG_PALETTE_INDEX_REGISTER:
         case io::OBJ_PALETTE_INDEX_REGISTER:
-            return emulator.cgbMode ? emulator.ppu.readCGBPaletteRegister(address.getValue()) : io::UNMAPPED_READ_VALUE;
+            return emulator.cgbHardware ? emulator.ppu.readCGBPaletteRegister(address.getValue()) : io::UNMAPPED_READ_VALUE;
         case io::BG_PALETTE_DATA_REGISTER:
         case io::OBJ_PALETTE_DATA_REGISTER:
             if (!emulator.cgbMode || !emulator.ppu.cpuCanAccessVRAM()) return io::UNMAPPED_READ_VALUE;
@@ -210,18 +213,22 @@ uint8_t MMU::readIO(const Address &address) const
         // SVBK: only bits 0-2 are used; the rest read as 1
         case io::WRAM_BANK_REGISTER: return emulator.cgbMode ? static_cast<uint8_t>(0xF8 | workRAMBank) : io::UNMAPPED_READ_VALUE;
 
-        // Undocumented CGB registers
+        // Undocumented CGB registers. Pan Docs lists them as CGB Mode only, but
+        // FF72, FF73, FF75 and PCM12/PCM34 also work in DMG compatibility mode
+        // (mooneye's unused_hwio-C hardware results); FF74 doesn't.
         // https://gbdev.io/pandocs/CGB_Registers.html#undocumented-registers
         case io::CGB_UNDOCUMENTED_FF72_REGISTER:
         case io::CGB_UNDOCUMENTED_FF73_REGISTER:
+            return emulator.cgbHardware ? undocumentedRegisters[address.getValue() - io::CGB_UNDOCUMENTED_FF72_REGISTER]
+                                        : io::UNMAPPED_READ_VALUE;
         case io::CGB_UNDOCUMENTED_FF74_REGISTER:
             return emulator.cgbMode ? undocumentedRegisters[address.getValue() - io::CGB_UNDOCUMENTED_FF72_REGISTER]
                                     : io::UNMAPPED_READ_VALUE;
         case io::CGB_UNDOCUMENTED_FF75_REGISTER:
-            return emulator.cgbMode ? static_cast<uint8_t>(~io::CGB_FF75_WRITABLE_BITS | undocumentedFF75)
-                                    : io::UNMAPPED_READ_VALUE;
-        case io::PCM12_REGISTER: return emulator.cgbMode ? emulator.apu.readPCM12() : io::UNMAPPED_READ_VALUE;
-        case io::PCM34_REGISTER: return emulator.cgbMode ? emulator.apu.readPCM34() : io::UNMAPPED_READ_VALUE;
+            return emulator.cgbHardware ? static_cast<uint8_t>(~io::CGB_FF75_WRITABLE_BITS | undocumentedFF75)
+                                        : io::UNMAPPED_READ_VALUE;
+        case io::PCM12_REGISTER: return emulator.cgbHardware ? emulator.apu.readPCM12() : io::UNMAPPED_READ_VALUE;
+        case io::PCM34_REGISTER: return emulator.cgbHardware ? emulator.apu.readPCM34() : io::UNMAPPED_READ_VALUE;
 
         // Unused and undocumented registers
         default: return io::UNMAPPED_READ_VALUE;
@@ -376,8 +383,19 @@ void MMU::writeIO(const Address &address, const uint8_t value)
             return;
 
         // Writing a nonzero value unmaps the boot ROM for good: it can't be
-        // mapped back in without a reset
-        case io::BOOT_ROM_DISABLE_REGISTER: if (value != 0) disableBootROMSwitch.set(1); return;
+        // mapped back in without a reset. On the Game Boy Color this also
+        // locks KEY0, which the boot ROM has set to turn on DMG compatibility
+        // mode for Game Boy games, turning CGB Mode off.
+        // https://gbdev.io/pandocs/CGB_Registers.html#ff4c--key0sys-cgb-mode-only-cpu-mode-select
+        case io::BOOT_ROM_DISABLE_REGISTER:
+            if (value == 0 || !isBootROMActive()) return;
+            disableBootROMSwitch.set(1);
+            if (emulator.cgbHardware) emulator.cgbMode = !checkBit(key0, io::KEY0_DMG_COMPATIBILITY_BIT);
+            return;
+
+        case io::CGB_MODE_REGISTER:
+            if (emulator.cgbHardware && isBootROMActive()) key0 = value;
+            return;
 
         // HDMA source and destination
         case io::HDMA_SOURCE_HIGH_REGISTER:
@@ -430,11 +448,13 @@ void MMU::writeIO(const Address &address, const uint8_t value)
 
         case io::CGB_UNDOCUMENTED_FF72_REGISTER:
         case io::CGB_UNDOCUMENTED_FF73_REGISTER:
+            if (emulator.cgbHardware) undocumentedRegisters[address.getValue() - io::CGB_UNDOCUMENTED_FF72_REGISTER] = value;
+            return;
         case io::CGB_UNDOCUMENTED_FF74_REGISTER:
             if (emulator.cgbMode) undocumentedRegisters[address.getValue() - io::CGB_UNDOCUMENTED_FF72_REGISTER] = value;
             return;
         case io::CGB_UNDOCUMENTED_FF75_REGISTER:
-            if (emulator.cgbMode) undocumentedFF75 = value & io::CGB_FF75_WRITABLE_BITS;
+            if (emulator.cgbHardware) undocumentedFF75 = value & io::CGB_FF75_WRITABLE_BITS;
             return;
 
         // Unused registers, and the read-only PCM12/PCM34, ignore writes
@@ -493,7 +513,7 @@ MMU::Bus MMU::busOf(const uint16_t address) const
     if (address <= mmu::CARTRIDGE_RAM_ADDRESS_END) return Bus::External;
 
     // The CGB has work RAM on its own bus, separate from the cartridge
-    if (address <= mmu::ECHO_RAM_ADDRESS_END) return emulator.cgbMode ? Bus::WorkRAM : Bus::External;
+    if (address <= mmu::ECHO_RAM_ADDRESS_END) return emulator.cgbHardware ? Bus::WorkRAM : Bus::External;
     return Bus::None;
 }
 

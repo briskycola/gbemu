@@ -11,7 +11,7 @@
 //         "gameBoy": "C:/path/to/dmg.bin",
 //         "gameBoyColor": "C:/path/to/cgb.bin"
 //     },
-//     "hardwareModel": "automatic"
+//     "hardwareModel": "automatic"   (or "gameBoy", "gameBoyColor")
 // }
 class Settings
 {

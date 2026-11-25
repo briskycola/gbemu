@@ -110,7 +110,7 @@ void PPU::refreshStatSignal(bool requestInterrupt)
 void PPU::writeSTAT(uint8_t value)
 {
     const uint8_t readOnly = lcdStatus.getValue() & ppu::STAT_READ_ONLY_MASK;
-    if (!emulator.cgbMode)
+    if (!emulator.cgbHardware)
     {
         lcdStatus.set(readOnly | ppu::STAT_INTERRUPT_ENABLE_MASK | ppu::STAT_UNUSED_BITS);
         refreshStatSignal(true);
@@ -241,7 +241,7 @@ void PPU::runMode3()
         // On the DMG, a window at WX = 166 isn't drawn on this line but
         // carries on into the next one from its left edge
         // https://gbdev.io/pandocs/Window.html#window-rendering-criteria
-        windowFromLineStart = !emulator.cgbMode && windowEnabled() && windowYTriggered &&
+        windowFromLineStart = !emulator.cgbHardware && windowEnabled() && windowYTriggered &&
             windowX.getValue() == ppu::DMG_WX_BUG_VALUE;
         if (windowFromLineStart) nextLineWindowRow = static_cast<uint8_t>(windowLine++);
         setMode(VideoMode::HBlank);
@@ -320,7 +320,7 @@ bool PPU::startWindowIfReached()
     if (fetchingWindow || !windowEnabled() || !windowYTriggered) return false;
 
     const uint8_t wx = windowX.getValue();
-    if (wx == ppu::DMG_WX_BUG_VALUE && !emulator.cgbMode) return false;
+    if (wx == ppu::DMG_WX_BUG_VALUE && !emulator.cgbHardware) return false;
     if (wx >= ppu::WINDOW_X_OFFSET)
     {
         if (pixelsStillToDrop() > 0 || pixelX + ppu::WINDOW_X_OFFSET != wx) return false;
@@ -358,7 +358,7 @@ bool PPU::startWindowIfReached()
         // On the DMG, WX = 0 with a fine scroll costs a dot more (Mealybug
         // Tearoom's m3_window_timing_wx_0 captures, and SameBoy; Pan Docs
         // instead has mode 3 a dot shorter in this case)
-        if (wx == 0 && scrollX.getValue() % ppu::TILE_WIDTH_PX != 0 && !emulator.cgbMode) ++fetcherIdleDots;
+        if (wx == 0 && scrollX.getValue() % ppu::TILE_WIDTH_PX != 0 && !emulator.cgbHardware) ++fetcherIdleDots;
         return true;
     }
 
@@ -492,7 +492,7 @@ bool PPU::pushTileRow()
     // here, on a tile boundary, a single color 0 pixel goes in first, which
     // pushes the rest of the line one pixel right
     // https://gbdev.io/pandocs/Window.html#window-rendering-criteria
-    if (!emulator.cgbMode && !fetchingWindow && !windowEnabled() && windowYTriggered &&
+    if (!emulator.cgbHardware && !fetchingWindow && !windowEnabled() && windowYTriggered &&
         pixelsStillToDrop() == 0 && pixelX + ppu::WINDOW_X_OFFSET == windowX.getValue())
     {
         bgFifo[(bgFifoHead + bgFifoSize++) % ppu::FIFO_CAPACITY] = FifoPixel{};
@@ -532,7 +532,7 @@ bool PPU::fetchObjectIfReached()
         if (oamX >= common::GAMEBOY_WIDTH + ppu::SPRITE_X_OFFSET || oamX > pixelX + ppu::SPRITE_X_OFFSET) return false;
 
         ++nextLineObject;
-        if (!spritesEnabled() && !emulator.cgbMode) continue;
+        if (!spritesEnabled() && !emulator.cgbHardware) continue;
 
         // This dot is the first of the fetch
         fetchingObject = index;
@@ -609,7 +609,7 @@ void PPU::mixObjectIntoFifo(uint8_t oamIndex, uint8_t low, uint8_t high)
     while (objFifoSize < ppu::OBJ_FIFO_PIXELS) objFifo[objFifoSize++] = FifoPixel{};
 
     const bool flipX = checkBit(attributes, ppu::ATTRIBUTE_X_FLIP_BIT);
-    const bool oamOrder = emulator.cgbMode && objectPriorityMode == 0;
+    const bool oamOrder = emulator.cgbHardware && objectPriorityMode == 0;
     const int32_t left = static_cast<int32_t>(oamX) - ppu::SPRITE_X_OFFSET;
     for (int32_t column = 0; column < static_cast<int32_t>(ppu::TILE_WIDTH_PX); ++column)
     {
@@ -740,6 +740,18 @@ void PPU::drawPixel(const LCDPixel &pixel)
         ? loadPalette(object.palette ? spritePalette1 : spritePalette0)
         : loadPalette(bgPalette);
     const Color shade = !objectWins && !bgShown ? Color::White : getColorFromPalette(getColor(objectWins ? object.color : bgColor), palette);
+
+    // In the Game Boy Color's DMG compatibility mode, BGP, OBP0 and OBP1 pick
+    // a color of CGB BG palette 0, or OBJ palette 0 or 1, instead of a grey
+    // https://gbdev.io/pandocs/Power_Up_Sequence.html#compatibility-palettes
+    if (emulator.cgbHardware)
+    {
+        const uint8_t index = static_cast<uint8_t>(shade);
+        const uint32_t rgb = objectWins ? objColorPalettes.getColor(object.palette, index) : bgColorPalettes.getColor(0, index);
+        buffer.setPixelRGB(x, y, rgb, index);
+        return;
+    }
+
     if (emulator.sgbMode)
     {
         const uint8_t mappedShade = static_cast<uint8_t>(shade);
@@ -756,7 +768,7 @@ void PPU::drawPixel(const LCDPixel &pixel)
 void PPU::writeDMGPalette(ByteRegister &palette, uint8_t value)
 {
     if (paletteGlitchDots > 0) finishPaletteWrite();
-    if (emulator.cgbMode || emulator.sgbMode || !displayEnabled())
+    if (emulator.cgbHardware || emulator.sgbMode || !displayEnabled())
     {
         palette.set(value);
         return;
@@ -788,7 +800,7 @@ void PPU::raiseLateInterrupts()
         return;
     }
     emulator.cpu.interruptFlag.setBitTo(cpu::INTERRUPT_VBLANK_BIT, true);
-    line144OAMPulse = !emulator.cgbMode;
+    line144OAMPulse = !emulator.cgbHardware; // The CGB's pulse came as the line started
     refreshStatSignal(true);
     line144OAMPulse = false;
     refreshStatSignal(true);
@@ -936,6 +948,17 @@ void PPU::tick(Cycles cycles)
                     lateInterruptDelay = ppu::LATE_VBLANK_DOTS;
                     startLYCompare();
                     refreshStatSignal(true);
+
+                    // On the CGB, line 144 raises the mode 2 STAT source briefly as
+                    // it starts, a cycle before the VBlank interrupt (mooneye's
+                    // vblank_stat_intr-C; on the DMG it comes with VBlank)
+                    if (emulator.cgbHardware)
+                    {
+                        line144OAMPulse = true;
+                        refreshStatSignal(true);
+                        line144OAMPulse = false;
+                        refreshStatSignal(true);
+                    }
                 }
                 else
                 {
@@ -1000,14 +1023,14 @@ void PPU::setControlByte(uint8_t value)
 
     // On the CGB, clearing the window enable bit also clears the Y condition
     // https://gbdev.io/pandocs/Window.html#window-rendering-criteria
-    if (emulator.cgbMode && windowEnabled() && !checkBit(value, ppu::LCDC_WINDOW_ENABLE_BIT)) windowYTriggered = false;
+    if (emulator.cgbHardware && windowEnabled() && !checkBit(value, ppu::LCDC_WINDOW_ENABLE_BIT)) windowYTriggered = false;
 
     controlByte = value;
 
     // LCDC bits 0 and 1 reach the LCD a dot later on the DMG, except that
     // clearing bit 1 before the LCD has drawn the line's first pixel takes
     // effect at once (Mealybug Tearoom's captures; SameBoy does the same)
-    if (displayEnabled() && wasEnabled && !emulator.cgbMode)
+    if (displayEnabled() && wasEnabled && !emulator.cgbHardware)
     {
         pendingOutputControl = value;
         outputControlDots = ppu::LCD_CONTROL_OUTPUT_DELAY;
@@ -1093,7 +1116,7 @@ int PPU::oamScanRow() const
 {
     // The bug only exists on the DMG, and line 0 right after the LCD is
     // switched on has no OAM scan
-    if (emulator.cgbMode || !displayEnabled() || screenEnableDelay > 0) return -1;
+    if (emulator.cgbHardware || !displayEnabled() || screenEnableDelay > 0) return -1;
     if (currentMode != VideoMode::AccessOAM) return -1;
     const int row = static_cast<int>(cycleCounter / mmu::OAM_SCAN_CLOCKS_PER_ROW);
     return row < mmu::OAM_ROW_COUNT ? row : -1;

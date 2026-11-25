@@ -93,6 +93,10 @@ namespace io
     static constexpr uint16_t CGB_UNDOCUMENTED_FF74_REGISTER = 0xFF74;
     static constexpr uint16_t CGB_UNDOCUMENTED_FF75_REGISTER = 0xFF75;
     static constexpr uint8_t CGB_FF75_WRITABLE_BITS          = 0x70;
+
+    // KEY0 bit 2 puts the Game Boy Color in DMG compatibility mode
+    // https://gbdev.io/pandocs/CGB_Registers.html#ff4c--key0sys-cgb-mode-only-cpu-mode-select
+    static constexpr uint8_t KEY0_DMG_COMPATIBILITY_BIT      = 2;
     static constexpr uint16_t PCM12_REGISTER                 = 0xFF76;
     static constexpr uint16_t PCM34_REGISTER                 = 0xFF77;
     

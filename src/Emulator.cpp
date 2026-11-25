@@ -6,14 +6,19 @@
 
 bool Emulator::usesCGBBootROM(const std::vector<uint8_t> &cartridgeData, HardwareModel model)
 {
-    return model == HardwareModel::Automatic && getInfo(cartridgeData)->supportsCGB;
+    return model == HardwareModel::GameBoyColor ||
+        (model == HardwareModel::Automatic && getInfo(cartridgeData)->supportsCGB);
 }
 
 Emulator::Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<uint8_t> &saveData,
                    const std::vector<uint8_t> &bootROM, HardwareModel model) :
     cartridge(getCartridge(cartridgeData, saveData)),
-    cgbMode(model == HardwareModel::Automatic && cartridge->supportsCGB()),
-    sgbMode(!cgbMode && cartridge->supportsSGB()),
+    cgbHardware(usesCGBBootROM(cartridgeData, model)),
+    // The boot ROM runs in CGB Mode. As it hands over it sets KEY0, which
+    // leaves CGB Mode on for Game Boy Color games and turns it off for the
+    // rest (MMU, BANK writes).
+    cgbMode(cgbHardware),
+    sgbMode(!cgbHardware && cartridge->supportsSGB()),
     cpu(*this),
     mmu(*this),
     timer(*this),
@@ -24,15 +29,15 @@ Emulator::Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<
 {
     // Every start runs a real boot ROM from address 0, which sets up the
     // hardware and then hands control to the cartridge at $0100
-    const size_t expectedSize = cgbMode ? mmu::CGB_BOOT_ROM_SIZE : mmu::DMG_BOOT_ROM_SIZE;
+    const size_t expectedSize = cgbHardware ? mmu::CGB_BOOT_ROM_SIZE : mmu::DMG_BOOT_ROM_SIZE;
     if (bootROM.size() != expectedSize)
     {
-        throw std::runtime_error(std::string(cgbMode ? "The Game Boy Color" : "The Game Boy")
+        throw std::runtime_error(std::string(cgbHardware ? "The Game Boy Color" : "The Game Boy")
             + " boot ROM must be exactly " + std::to_string(expectedSize) + " bytes, but it is "
             + std::to_string(bootROM.size()) + " bytes");
     }
     mmu.loadBootROM(bootROM);
-    apu.setCGBMode(cgbMode);
+    apu.setCGBMode(cgbHardware);
 }
 
 std::vector<uint8_t> Emulator::getSaveData() const
