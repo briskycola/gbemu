@@ -38,14 +38,52 @@ bool APU::waveRAMAccessible() const
     return cgbMode || wave.cyclesSinceRead < apu::WAVE_ACCESS_WINDOW;
 }
 
-void APU::disableIfDacOff(SquareChannel &channel, uint8_t envelopeReg)
+// A trigger loads the envelope from NRx2. If the next DIV-APU step clocks the
+// envelope, its timer starts one higher.
+// https://gbdev.io/pandocs/Audio_details.html#obscure-behavior
+void APU::startEnvelope(EnvelopeChannel &channel, uint8_t envelope)
 {
-    if ((envelopeReg & apu::DAC_ENABLE_MASK) == 0) channel.enabled = false;
+    channel.initialVolume = envelope >> 4;
+    channel.volume = channel.initialVolume;
+    channel.envelopeIncrease = checkBit(envelope, apu::ENVELOPE_INCREASE_BIT);
+    channel.envelopePeriod = envelope & apu::ENVELOPE_PERIOD_MASK;
+    channel.envelopeTimer = channel.envelopePeriod ? channel.envelopePeriod : apu::ZERO_PERIOD_VALUE;
+    if (frameSequencerStep == apu::ENVELOPE_STEP) ++channel.envelopeTimer;
+    channel.envelopeRunning = true;
 }
 
-void APU::disableIfDacOff(NoiseChannel &channel, uint8_t envelopeReg)
+// Every 1-7 ticks at 64 Hz the volume steps up or down, until it would go
+// past 15 or below 0, which stops the envelope
+// https://gbdev.io/pandocs/Audio_Registers.html#ff12--nr12-channel-1-volume--envelope
+void APU::clockEnvelope(EnvelopeChannel &channel)
 {
-    if ((envelopeReg & apu::DAC_ENABLE_MASK) == 0) channel.enabled = false;
+    if (channel.envelopePeriod == 0 || !channel.envelopeRunning) return;
+    if (channel.envelopeTimer > 0) --channel.envelopeTimer;
+    if (channel.envelopeTimer != 0) return;
+    channel.envelopeTimer = channel.envelopePeriod;
+    if (channel.envelopeIncrease && channel.volume < apu::MAX_VOLUME) ++channel.volume;
+    else if (!channel.envelopeIncrease && channel.volume > 0) --channel.volume;
+    else channel.envelopeRunning = false;
+}
+
+// An NRx2 write while the channel plays changes its volume ("zombie" mode),
+// as Pan Docs gives for the CGB-02 and CGB-04: +1 if the old period was 0 and
+// the envelope is still running, otherwise +2 if it was decreasing; then
+// 16 - volume if the direction changed; keeping the low 4 bits. Turning the
+// DAC off (NRx2 & $F8 = 0) turns the channel off.
+// https://gbdev.io/pandocs/Audio_details.html#obscure-behavior
+void APU::writeEnvelope(EnvelopeChannel &channel, uint8_t oldValue, uint8_t newValue)
+{
+    if ((newValue & apu::DAC_ENABLE_MASK) == 0) channel.enabled = false;
+    if (!channel.enabled) return;
+
+    const bool oldIncrease = checkBit(oldValue, apu::ENVELOPE_INCREASE_BIT);
+    const bool newIncrease = checkBit(newValue, apu::ENVELOPE_INCREASE_BIT);
+    int volume = channel.volume;
+    if ((oldValue & apu::ENVELOPE_PERIOD_MASK) == 0 && channel.envelopeRunning) volume += 1;
+    else if (!oldIncrease) volume += 2;
+    if (oldIncrease != newIncrease) volume = apu::ZOMBIE_VOLUME_FLIP - volume;
+    channel.volume = static_cast<uint8_t>(volume & apu::MAX_VOLUME);
 }
 
 void APU::triggerSquare(SquareChannel &channel, bool hasSweep, uint8_t sweepReg)
@@ -54,15 +92,12 @@ void APU::triggerSquare(SquareChannel &channel, bool hasSweep, uint8_t sweepReg)
     reloadLengthOnTrigger(channel, apu::SQUARE_NOISE_MAX_LENGTH);
 
     channel.enabled = (reg(envelopeRegister) & apu::DAC_ENABLE_MASK) != 0;
-    channel.timer = squarePeriod(channel);
-    channel.dutyPosition = 0;
 
-    const uint8_t envelope = reg(envelopeRegister);
-    channel.initialVolume = envelope >> 4;
-    channel.volume = channel.initialVolume;
-    channel.envelopeIncrease = checkBit(envelope, apu::ENVELOPE_INCREASE_BIT);
-    channel.envelopePeriod = envelope & apu::ENVELOPE_PERIOD_MASK;
-    channel.envelopeTimer = channel.envelopePeriod ? channel.envelopePeriod : apu::ZERO_PERIOD_VALUE;
+    // A trigger reloads the period divider but leaves its low 2 bits, and
+    // doesn't reset the duty step (only turning the APU off does)
+    // https://gbdev.io/pandocs/Audio_details.html#pulse-channels-ch1-ch2
+    channel.timer = (squarePeriod(channel) & ~apu::SQUARE_TIMER_PHASE_MASK) | (channel.timer & apu::SQUARE_TIMER_PHASE_MASK);
+    startEnvelope(channel, reg(envelopeRegister));
 
     if (hasSweep)
     {
@@ -103,14 +138,8 @@ void APU::triggerNoise()
     reloadLengthOnTrigger(noise, apu::SQUARE_NOISE_MAX_LENGTH);
     noise.enabled = (reg(io::CHANNEL4_ENVELOPE_REGISTER) & apu::DAC_ENABLE_MASK) != 0;
     noise.timer = noisePeriod();
-    noise.lfsr = apu::LFSR_RESET_VALUE;
-
-    const uint8_t envelope = reg(io::CHANNEL4_ENVELOPE_REGISTER);
-    noise.initialVolume = envelope >> 4;
-    noise.volume = noise.initialVolume;
-    noise.envelopeIncrease = checkBit(envelope, apu::ENVELOPE_INCREASE_BIT);
-    noise.envelopePeriod = envelope & apu::ENVELOPE_PERIOD_MASK;
-    noise.envelopeTimer = noise.envelopePeriod ? noise.envelopePeriod : apu::ZERO_PERIOD_VALUE;
+    noise.lfsr = 0; // https://gbdev.io/pandocs/Audio_details.html#noise-channel-ch4
+    startEnvelope(noise, reg(io::CHANNEL4_ENVELOPE_REGISTER));
 }
 
 // Whether the next frame sequencer step is one that doesn't clock the
@@ -158,28 +187,9 @@ void APU::clockLength()
 
 void APU::clockEnvelopes()
 {
-    auto clockSquare = [](SquareChannel &channel)
-    {
-        if (channel.envelopePeriod == 0) return;
-        if (channel.envelopeTimer > 0) --channel.envelopeTimer;
-        if (channel.envelopeTimer == 0)
-        {
-            channel.envelopeTimer = channel.envelopePeriod;
-            if (channel.envelopeIncrease && channel.volume < apu::MAX_VOLUME) ++channel.volume;
-            else if (!channel.envelopeIncrease && channel.volume > 0) --channel.volume;
-        }
-    };
-    clockSquare(square1);
-    clockSquare(square2);
-
-    if (noise.envelopePeriod == 0) return;
-    if (noise.envelopeTimer > 0) --noise.envelopeTimer;
-    if (noise.envelopeTimer == 0)
-    {
-        noise.envelopeTimer = noise.envelopePeriod;
-        if (noise.envelopeIncrease && noise.volume < apu::MAX_VOLUME) ++noise.volume;
-        else if (!noise.envelopeIncrease && noise.volume > 0) --noise.volume;
-    }
+    clockEnvelope(square1);
+    clockEnvelope(square2);
+    clockEnvelope(noise);
 }
 
 // Calculates the next sweep frequency from the shadow copy and runs the
@@ -245,6 +255,7 @@ void APU::clockOscillators()
         {
             channel.timer = squarePeriod(channel);
             channel.dutyPosition = (channel.dutyPosition + 1) & apu::DUTY_STEP_MASK;
+            channel.firstStepSilent = false;
         }
     };
     clockSquare(square1);
@@ -256,10 +267,14 @@ void APU::clockOscillators()
         if (wave.timer > 0) --wave.timer;
         if (wave.timer == 0)
         {
-            // Move to the next sample, reading its byte from wave RAM
+            // Move to the next sample and read it from wave RAM into the
+            // sample buffer, which is what the channel plays
+            // https://gbdev.io/pandocs/Audio_details.html#wave-channel-ch3
             wave.timer = wavePeriod();
             wave.position = (wave.position + 1) & apu::WAVE_POSITION_MASK;
             wave.cyclesSinceRead = 0;
+            const uint8_t packed = waveRAM[wave.position >> 1];
+            wave.sampleBuffer = (wave.position & 1) ? (packed & 0x0F) : (packed >> 4);
         }
     }
 
@@ -268,20 +283,30 @@ void APU::clockOscillators()
         if (noise.timer > 0) --noise.timer;
         if (noise.timer == 0)
         {
-            // Shift the LFSR, feeding XOR of its two lowest bits into
-            // the top. Short mode also copies it into bit 6.
+            // Bit 15 gets 1 if bits 0 and 1 are the same (XNOR); short mode
+            // copies it to bit 7 too; then the LFSR shifts right. Clock
+            // shifts of 14 and 15 give the LFSR no clocks at all.
+            // https://gbdev.io/pandocs/Audio_details.html#noise-channel-ch4
             noise.timer = noisePeriod();
-            const uint16_t bit = (noise.lfsr ^ (noise.lfsr >> 1)) & 1;
-            noise.lfsr = (noise.lfsr >> 1) | (bit << apu::LFSR_HIGH_BIT);
-            if (checkBit(reg(io::CHANNEL4_FREQUENCY_REGISTER), apu::NOISE_SHORT_MODE_BIT))
-                noise.lfsr = (noise.lfsr & ~(1u << apu::LFSR_SHORT_MODE_BIT)) | (bit << apu::LFSR_SHORT_MODE_BIT);
+            const uint8_t frequency = reg(io::CHANNEL4_FREQUENCY_REGISTER);
+            if ((frequency >> apu::NOISE_CLOCK_SHIFT) < apu::NOISE_STOPPED_SHIFT)
+            {
+                const uint16_t bit = ~(noise.lfsr ^ (noise.lfsr >> 1)) & 1;
+                noise.lfsr = static_cast<uint16_t>((noise.lfsr & ~(1u << apu::LFSR_NEXT_BIT)) | (bit << apu::LFSR_NEXT_BIT));
+                if (checkBit(frequency, apu::NOISE_SHORT_MODE_BIT))
+                    noise.lfsr = static_cast<uint16_t>((noise.lfsr & ~(1u << apu::LFSR_SHORT_MODE_BIT)) | (bit << apu::LFSR_SHORT_MODE_BIT));
+                noise.lfsr >>= 1;
+            }
         }
     }
 }
 
+// A pulse channel outputs its volume or 0 according to its duty pattern. The
+// first duty step after power-on always plays as 0.
+// https://gbdev.io/pandocs/Audio_details.html#obscure-behavior
 int APU::squareOutput(const SquareChannel &channel, uint8_t dutyReg) const
 {
-    if (!channel.enabled) return 0;
+    if (!channel.enabled || channel.firstStepSilent) return 0;
     const uint8_t duty = (dutyReg >> apu::DUTY_SHIFT) & apu::DUTY_MASK;
     const int bit = (apu::DUTY_PATTERNS[duty] >> channel.dutyPosition) & 1;
     return bit ? channel.volume : 0;
@@ -293,15 +318,15 @@ int APU::waveOutput() const
     const uint8_t level = (reg(io::CHANNEL3_OUTPUT_LEVEL_REGISTER) >> apu::WAVE_LEVEL_SHIFT) & apu::WAVE_LEVEL_MASK;
     if (level == 0) return 0;
 
-    // Each byte holds two samples, high nibble first
-    const uint8_t packed = waveRAM[wave.position >> 1];
-    const uint8_t sample = (wave.position & 1) ? (packed & 0x0F) : (packed >> 4);
-    return sample >> (level - 1);
+    // The output level shifts the buffered sample right
+    // https://gbdev.io/pandocs/Audio_details.html#wave-channel-ch3
+    return wave.sampleBuffer >> (level - 1);
 }
 
 int APU::noiseOutput() const
 {
-    if (!noise.enabled || (noise.lfsr & 1)) return 0;
+    // LFSR bit 0 picks between 0 and the volume
+    if (!noise.enabled || !(noise.lfsr & 1)) return 0;
     return noise.volume;
 }
 
@@ -504,7 +529,7 @@ void APU::write(uint16_t address, uint8_t value)
                 square1.enabled = false;
             break;
         case io::CHANNEL1_LENGTH_DUTY_REGISTER: square1.length = apu::SQUARE_NOISE_MAX_LENGTH - (value & apu::LENGTH_MASK); break;
-        case io::CHANNEL1_ENVELOPE_REGISTER: disableIfDacOff(square1, value); break;
+        case io::CHANNEL1_ENVELOPE_REGISTER: writeEnvelope(square1, oldValue, value); break;
         case io::CHANNEL1_PERIOD_LOW_REGISTER: square1.frequency = (square1.frequency & apu::PERIOD_HIGH_MASK) | value; break;
         case io::CHANNEL1_CONTROL_REGISTER:
             square1.frequency = (square1.frequency & 0xFF) | ((value & apu::PERIOD_HIGH_BITS_MASK) << 8);
@@ -512,7 +537,7 @@ void APU::write(uint16_t address, uint8_t value)
             if (checkBit(value, apu::TRIGGER_BIT)) triggerSquare(square1, true, reg(io::CHANNEL1_SWEEP_REGISTER));
             break;
         case io::CHANNEL2_LENGTH_DUTY_REGISTER: square2.length = apu::SQUARE_NOISE_MAX_LENGTH - (value & apu::LENGTH_MASK); break;
-        case io::CHANNEL2_ENVELOPE_REGISTER: disableIfDacOff(square2, value); break;
+        case io::CHANNEL2_ENVELOPE_REGISTER: writeEnvelope(square2, oldValue, value); break;
         case io::CHANNEL2_PERIOD_LOW_REGISTER: square2.frequency = (square2.frequency & apu::PERIOD_HIGH_MASK) | value; break;
         case io::CHANNEL2_CONTROL_REGISTER:
             square2.frequency = (square2.frequency & 0xFF) | ((value & apu::PERIOD_HIGH_BITS_MASK) << 8);
@@ -529,7 +554,7 @@ void APU::write(uint16_t address, uint8_t value)
             if (checkBit(value, apu::TRIGGER_BIT)) triggerWave();
             break;
         case io::CHANNEL4_LENGTH_REGISTER: noise.length = apu::SQUARE_NOISE_MAX_LENGTH - (value & apu::LENGTH_MASK); break;
-        case io::CHANNEL4_ENVELOPE_REGISTER: disableIfDacOff(noise, value); break;
+        case io::CHANNEL4_ENVELOPE_REGISTER: writeEnvelope(noise, oldValue, value); break;
         case io::CHANNEL4_FREQUENCY_REGISTER: break;
         case io::CHANNEL4_CONTROL_REGISTER:
             writeLengthEnable(noise, value);

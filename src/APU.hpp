@@ -23,6 +23,7 @@ namespace apu
     // 12.5%, 25%, 50%, and 75%
     constexpr uint8_t DUTY_PATTERNS[4] = {0x01, 0x81, 0x87, 0x7E};
     constexpr uint8_t DUTY_STEP_MASK = 0x07;
+    constexpr uint32_t SQUARE_TIMER_PHASE_MASK = 0x03; // Low bits a trigger leaves alone
     
     // Noise channel clock divisors, indexed by NR43 bits 0-2
     constexpr uint8_t NOISE_DIVISORS[8] = {8, 16, 32, 48, 64, 80, 96, 112};
@@ -54,6 +55,7 @@ namespace apu
     constexpr uint8_t ENVELOPE_INCREASE_BIT = 3;
     constexpr uint8_t ENVELOPE_PERIOD_MASK  = 0x07;
     constexpr uint8_t MAX_VOLUME            = 15;
+    constexpr int ZOMBIE_VOLUME_FLIP        = 16; // Changing direction sets volume to 16 - volume
     
     // Envelope and sweep periods of 0 are treated as 8
     constexpr uint8_t ZERO_PERIOD_VALUE = 8;
@@ -89,16 +91,17 @@ namespace apu
     constexpr uint8_t WAVE_LEVEL_SHIFT = 5;
     constexpr uint8_t WAVE_LEVEL_MASK  = 0x03;
     
-    // NR43: bits 0-2 pick the divisor, bit 3 selects the 7-bit
-    // LFSR, and bits 4-7 are the clock shift. The LFSR is 15 bits
-    // wide and resets to all ones.
+    // NR43: bits 0-2 pick the divisor, bit 3 selects the 7-bit LFSR, and
+    // bits 4-7 are the clock shift; shifts of 14 and 15 stop the LFSR. The
+    // LFSR has 15 bits of state and a 16th that holds the next bit in.
+    // https://gbdev.io/pandocs/Audio_details.html#noise-channel-ch4
     constexpr uint8_t NOISE_DIVISOR_MASK     = 0x07;
     constexpr uint8_t NOISE_SHORT_MODE_BIT   = 3;
     constexpr uint8_t NOISE_CLOCK_SHIFT      = 4;
     constexpr uint8_t NOISE_CLOCK_SHIFT_MASK = 0x0F;
-    constexpr uint16_t LFSR_RESET_VALUE      = 0x7FFF;
-    constexpr uint8_t LFSR_HIGH_BIT          = 14;
-    constexpr uint8_t LFSR_SHORT_MODE_BIT    = 6;
+    constexpr uint8_t NOISE_STOPPED_SHIFT    = 14;
+    constexpr uint8_t LFSR_NEXT_BIT          = 15;
+    constexpr uint8_t LFSR_SHORT_MODE_BIT    = 7;
     
     // NRx1 bits 6-7 pick the square duty pattern
     constexpr uint8_t DUTY_SHIFT = 6;
@@ -137,16 +140,24 @@ class APU
             bool lengthEnabled = false;
         };
 
-        struct SquareChannel : public LengthChannel
+        // A channel with a volume envelope (CH1, CH2 and CH4)
+        // https://gbdev.io/pandocs/Audio.html#volume--envelope
+        struct EnvelopeChannel : public LengthChannel
         {
-            uint16_t frequency = 0;
-            uint32_t timer = 0;
-            uint8_t dutyPosition = 0;
             uint8_t initialVolume = 0;
             uint8_t volume = 0;
             uint8_t envelopePeriod = 0;
             uint8_t envelopeTimer = 0;
             bool envelopeIncrease = false;
+            bool envelopeRunning = false; // Stops once the volume reaches 0 or 15
+        };
+
+        struct SquareChannel : public EnvelopeChannel
+        {
+            uint16_t frequency = 0;
+            uint32_t timer = 0;
+            uint8_t dutyPosition = 0;
+            bool firstStepSilent = true; // Until the first duty step after power-on
         };
 
         struct WaveChannel : public LengthChannel
@@ -155,17 +166,13 @@ class APU
             uint32_t timer = 0;
             uint8_t position = 0;
             uint32_t cyclesSinceRead = UINT32_MAX; // Clocks since it last read wave RAM
+            uint8_t sampleBuffer = 0; // The last sample read, which is what plays
         };
 
-        struct NoiseChannel : public LengthChannel
+        struct NoiseChannel : public EnvelopeChannel
         {
             uint32_t timer = 0;
-            uint16_t lfsr = 0x7FFF; // All 15 bits set
-            uint8_t initialVolume = 0;
-            uint8_t volume = 0;
-            uint8_t envelopePeriod = 0;
-            uint8_t envelopeTimer = 0;
-            bool envelopeIncrease = false;
+            uint16_t lfsr = 0;
         };
 
         // Raw values of every register from NR10 to the end of wave RAM
@@ -217,8 +224,9 @@ class APU
         int squareOutput(const SquareChannel &channel, uint8_t dutyReg) const;
         int waveOutput() const;
         int noiseOutput() const;
-        void disableIfDacOff(SquareChannel &channel, uint8_t envelopeReg);
-        void disableIfDacOff(NoiseChannel &channel, uint8_t envelopeReg);
+        void startEnvelope(EnvelopeChannel &channel, uint8_t envelope);
+        void clockEnvelope(EnvelopeChannel &channel);
+        void writeEnvelope(EnvelopeChannel &channel, uint8_t oldValue, uint8_t newValue);
         bool waveRAMAccessible() const;
 
     public:
