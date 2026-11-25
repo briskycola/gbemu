@@ -254,6 +254,12 @@ class MBC3 : public Cartridge
         static uint8_t clockRegisterValue(const Clock &registers, uint8_t select);
         static void setClockRegister(Clock &registers, uint8_t select, uint8_t value);
 
+        // The save file's clock footer is little-endian, and stamped with the
+        // time it was saved at (seconds since 1970)
+        static uint64_t readLittleEndian(const std::vector<uint8_t> &data, size_t offset, size_t bytes);
+        static void writeLittleEndian(std::vector<uint8_t> &data, uint64_t value, size_t bytes);
+        static uint64_t unixTimeNow();
+
     protected:
         std::vector<uint8_t> saveExtra() const override;
 

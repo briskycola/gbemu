@@ -73,11 +73,6 @@ constexpr uint8_t MAX_ATTRIBUTE_BLOCKS  = MAX_ATTRIBUTE_LINES / ATTRIBUTE_BLOCK_
 // white, light gray, dark gray, and black
 constexpr uint16_t DEFAULT_PALETTE[sgb::SGB_COLORS_PER_PALETTE] = {0x7FFF, 0x56B5, 0x294A, 0x0000};
 
-// Little-endian RGB555 color stored at command[offset]
-uint32_t readColor(const std::array<uint8_t, sgb::SGB_PACKET_BYTES * sgb::SGB_MAX_PACKETS> &command, uint8_t offset)
-{
-    return rgb555ToRGB888(command[offset] | (command[offset + 1] << 8));
-}
 }
 
 SGB::SGB()
@@ -227,12 +222,12 @@ void SGB::commandReady()
     {
         const uint8_t first = op == COMMAND_PAL01 ? 0 : (op == COMMAND_PAL23 ? 2 : (op == COMMAND_PAL03 ? 0 : 1));
         const uint8_t second = op == COMMAND_PAL01 ? 1 : (op == COMMAND_PAL23 ? 3 : (op == COMMAND_PAL03 ? 3 : 2));
-        const uint32_t color0 = readColor(command, 1);
+        const uint32_t color0 = readColor(1);
         setColor0(color0);
         for (uint8_t i = 0; i < sgb::SGB_COLORS_PER_PALETTE - 1; ++i)
         {
-            palettes[first * sgb::SGB_COLORS_PER_PALETTE + i + 1] = readColor(command, 3 + i * 2);
-            palettes[second * sgb::SGB_COLORS_PER_PALETTE + i + 1] = readColor(command, 9 + i * 2);
+            palettes[first * sgb::SGB_COLORS_PER_PALETTE + i + 1] = readColor(3 + i * 2);
+            palettes[second * sgb::SGB_COLORS_PER_PALETTE + i + 1] = readColor(9 + i * 2);
         }
         return;
     }
@@ -345,6 +340,12 @@ void SGB::commandReady()
     if (op == COMMAND_MASK_EN) maskMode = command[1] & 3;
 }
 
+
+// The little-endian RGB555 color at command[offset]
+uint32_t SGB::readColor(uint8_t offset) const
+{
+    return rgb555ToRGB888(command[offset] | (command[offset + 1] << 8));
+}
 
 // Color 0 is shared by every palette: it is the SNES backdrop, and whichever
 // command set it last wins

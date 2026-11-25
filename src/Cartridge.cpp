@@ -376,25 +376,22 @@ void MBC3::advanceSecond()
         clock.daysHigh |= cartridge::MBC3_DAY_HIGH_BIT;
 }
 
-namespace
+uint64_t MBC3::readLittleEndian(const std::vector<uint8_t> &data, size_t offset, size_t bytes)
 {
-    uint64_t readLittleEndian(const std::vector<uint8_t> &data, size_t offset, size_t bytes)
-    {
-        uint64_t value = 0;
-        for (size_t i = 0; i < bytes; ++i) value |= static_cast<uint64_t>(data[offset + i]) << (8 * i);
-        return value;
-    }
+    uint64_t value = 0;
+    for (size_t i = 0; i < bytes; ++i) value |= static_cast<uint64_t>(data[offset + i]) << (8 * i);
+    return value;
+}
 
-    void writeLittleEndian(std::vector<uint8_t> &data, uint64_t value, size_t bytes)
-    {
-        for (size_t i = 0; i < bytes; ++i) data.push_back(static_cast<uint8_t>(value >> (8 * i)));
-    }
+void MBC3::writeLittleEndian(std::vector<uint8_t> &data, uint64_t value, size_t bytes)
+{
+    for (size_t i = 0; i < bytes; ++i) data.push_back(static_cast<uint8_t>(value >> (8 * i)));
+}
 
-    uint64_t unixTimeNow()
-    {
-        return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count());
-    }
+uint64_t MBC3::unixTimeNow()
+{
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count());
 }
 
 // Restores the clock from a save, then catches it up on the time that passed

@@ -104,9 +104,11 @@ std::string describeCartridge(CartridgeType type);
 std::string getTitleFromCartridge(std::vector<uint8_t> &rom);
 
 ROMSize getROMSize(uint8_t size);
+ROMSize getRomSize(uint8_t size);
 std::string describeROM(ROMSize size);
 
 RAMSize getRAMSize(uint8_t size);
+RAMSize getRamSize(uint8_t size);
 uint32_t getActualRamSize(RAMSize size);
 std::string describeRAM(RAMSize size);
 

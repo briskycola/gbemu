@@ -122,6 +122,7 @@ class SGB
         void finishTransfer();
         void applyAttributeFile(uint8_t file);
         void setColor0(uint32_t rgb);
+        uint32_t readColor(uint8_t offset) const;
 
     public:
         SGB();
