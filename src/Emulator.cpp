@@ -5,21 +5,34 @@
 #include <stdexcept>
 #include <string>
 
-bool Emulator::usesCGBBootROM(const std::vector<uint8_t> &cartridgeData, HardwareModel model)
+Console Emulator::consoleFor(const std::vector<uint8_t> &cartridgeData, HardwareModel model)
 {
-    return model == HardwareModel::GameBoyColor ||
-        (model == HardwareModel::Automatic && getInfo(cartridgeData)->supportsCGB);
+    switch (model)
+    {
+        case HardwareModel::GameBoy: return Console::GameBoy;
+        case HardwareModel::GameBoyColor: return Console::GameBoyColor;
+        case HardwareModel::SuperGameBoy: return Console::SuperGameBoy;
+        case HardwareModel::Automatic: break;
+    }
+    const auto info = getInfo(cartridgeData);
+    if (info->supportsCGB) return Console::GameBoyColor;
+    return info->supportsSGB ? Console::SuperGameBoy : Console::GameBoy;
+}
+
+uint32_t Emulator::clockRate() const
+{
+    return sgbMode ? common::SGB_CLOCK_RATE : common::GAMEBOY_CLOCK_RATE;
 }
 
 Emulator::Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<uint8_t> &saveData,
                    const std::vector<uint8_t> &bootROM, HardwareModel model) :
     cartridge(getCartridge(cartridgeData, saveData)),
-    cgbHardware(usesCGBBootROM(cartridgeData, model)),
+    cgbHardware(consoleFor(cartridgeData, model) == Console::GameBoyColor),
     // The boot ROM runs in CGB Mode. As it hands over it sets KEY0, which
     // leaves CGB Mode on for Game Boy Color games and turns it off for the
     // rest (MMU, BANK writes).
     cgbMode(cgbHardware),
-    sgbMode(!cgbHardware && cartridge->supportsSGB()),
+    sgbMode(consoleFor(cartridgeData, model) == Console::SuperGameBoy),
     cpu(*this),
     mmu(*this),
     timer(*this),
@@ -39,6 +52,7 @@ Emulator::Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<
     }
     mmu.loadBootROM(bootROM);
     apu.setCGBMode(cgbHardware);
+    apu.setClockRate(clockRate());
 }
 
 std::vector<uint8_t> Emulator::getSaveData() const
@@ -78,8 +92,19 @@ void Emulator::advance(const uint32_t mCycles)
     elapsedCycles += t.cycles;
 
     // The cartridge's own hardware, like the MBC3 clock, runs in real time,
-    // so it sees half as many clocks per CPU cycle in double speed
-    cartridge->tick(doubleSpeed ? t.cycles / 2 : t.cycles);
+    // so it sees half as many clocks per CPU cycle in double speed, and on
+    // the faster Super Game Boy clock as many as a Game Boy would in that time
+    const uint32_t clocks = doubleSpeed ? t.cycles / 2 : t.cycles;
+    if (sgbMode)
+    {
+        const uint64_t scaled = static_cast<uint64_t>(clocks) * common::GAMEBOY_CLOCK_RATE + cartridgeClockRemainder;
+        cartridgeClockRemainder = static_cast<uint32_t>(scaled % common::SGB_CLOCK_RATE);
+        cartridge->tick(static_cast<uint32_t>(scaled / common::SGB_CLOCK_RATE));
+    }
+    else
+    {
+        cartridge->tick(clocks);
+    }
 
     // OAM DMA runs at CPU speed, one byte per machine cycle
     mmu.tickOAMDMA(m.cycles);

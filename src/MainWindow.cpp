@@ -205,10 +205,10 @@ bool MainWindow::openROM(const QString &filename)
         // Run the boot ROM of the console this game will be emulated on,
         // asking for it the first time it is needed
         const HardwareModel model = settings.hardwareModel;
-        const bool gameBoyColor = Emulator::usesCGBBootROM(romData, model);
-        if (!QFileInfo(settings.bootROM(gameBoyColor)).isFile())
+        const Console console = Emulator::consoleFor(romData, model);
+        if (!QFileInfo(settings.bootROM(console)).isFile())
         {
-            const QString name = gameBoyColor ? tr("Game Boy Color") : tr("Game Boy");
+            const QString name = Settings::consoleName(console);
             const QMessageBox::StandardButton answer = QMessageBox::question(
                 this, tr("gbemu"),
                 tr("This game needs the %1 BIOS, and none has been chosen yet "
@@ -219,10 +219,10 @@ bool MainWindow::openROM(const QString &filename)
             offerRestartOnApply = false;
             openSettings(SettingsDialog::Page::BIOS);
             offerRestartOnApply = true;
-            if (!QFileInfo(settings.bootROM(gameBoyColor)).isFile()) return false;
+            if (!QFileInfo(settings.bootROM(console)).isFile()) return false;
         }
         newEmulator = std::make_unique<Emulator>(romData, loadState(path),
-                                                 readFile(settings.bootROM(gameBoyColor).toStdString()), model);
+                                                 readFile(settings.bootROM(console).toStdString()), model);
     }
     catch (const std::exception &error)
     {
@@ -294,10 +294,13 @@ void MainWindow::runFrame()
                         pendingAudio.begin() + bytesWritten / sizeof(int16_t));
             }
         }
-        nextFrameDeadline += mainwindow::FRAME_PERIOD_NS;
+        // A frame lasts CLOCKS_PER_FRAME clocks of the console, whose clock
+        // runs 2.41% fast on the Super Game Boy
+        const qint64 framePeriod = (1'000'000'000LL * ppu::CLOCKS_PER_FRAME) / emulator->clockRate();
+        nextFrameDeadline += framePeriod;
         // Do not run a burst of catch-up frames after a dialog or a slow frame.
         if (nextFrameDeadline <= frameClock.nsecsElapsed())
-            nextFrameDeadline = frameClock.nsecsElapsed() + mainwindow::FRAME_PERIOD_NS;
+            nextFrameDeadline = frameClock.nsecsElapsed() + framePeriod;
     }
     catch (const std::exception &error)
     {

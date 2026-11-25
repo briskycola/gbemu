@@ -1,4 +1,5 @@
 #include "Settings.hpp"
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -15,17 +16,34 @@ namespace settings
     static constexpr const char *BOOT_ROMS               = "bootROMs";
     static constexpr const char *GAME_BOY_BOOT_ROM       = "gameBoy";
     static constexpr const char *GAME_BOY_COLOR_BOOT_ROM = "gameBoyColor";
+    static constexpr const char *SUPER_GAME_BOY_BOOT_ROM = "superGameBoy";
     static constexpr const char *HARDWARE_MODEL          = "hardwareModel";
 
     // Values of HARDWARE_MODEL
     static constexpr const char *MODEL_AUTOMATIC = "automatic";
     static constexpr const char *MODEL_GAME_BOY  = "gameBoy";
     static constexpr const char *MODEL_GAME_BOY_COLOR = "gameBoyColor";
+    static constexpr const char *MODEL_SUPER_GAME_BOY = "superGameBoy";
 }
 
-const QString& Settings::bootROM(bool gameBoyColor) const
+const QString& Settings::bootROM(Console console) const
 {
-    return gameBoyColor ? gameBoyColorBootROM : gameBoyBootROM;
+    switch (console)
+    {
+        case Console::GameBoyColor: return gameBoyColorBootROM;
+        case Console::SuperGameBoy: return superGameBoyBootROM;
+        default: return gameBoyBootROM;
+    }
+}
+
+QString Settings::consoleName(Console console)
+{
+    switch (console)
+    {
+        case Console::GameBoyColor: return QCoreApplication::translate("Settings", "Game Boy Color");
+        case Console::SuperGameBoy: return QCoreApplication::translate("Settings", "Super Game Boy");
+        default: return QCoreApplication::translate("Settings", "Game Boy");
+    }
 }
 
 QString Settings::filePath()
@@ -44,9 +62,11 @@ Settings Settings::load()
     const QJsonObject bootROMs = root.value(settings::BOOT_ROMS).toObject();
     loaded.gameBoyBootROM = bootROMs.value(settings::GAME_BOY_BOOT_ROM).toString();
     loaded.gameBoyColorBootROM = bootROMs.value(settings::GAME_BOY_COLOR_BOOT_ROM).toString();
+    loaded.superGameBoyBootROM = bootROMs.value(settings::SUPER_GAME_BOY_BOOT_ROM).toString();
     const QString model = root.value(settings::HARDWARE_MODEL).toString();
     if (model == settings::MODEL_GAME_BOY) loaded.hardwareModel = HardwareModel::GameBoy;
     else if (model == settings::MODEL_GAME_BOY_COLOR) loaded.hardwareModel = HardwareModel::GameBoyColor;
+    else if (model == settings::MODEL_SUPER_GAME_BOY) loaded.hardwareModel = HardwareModel::SuperGameBoy;
     else loaded.hardwareModel = HardwareModel::Automatic;
     return loaded;
 }
@@ -56,6 +76,7 @@ bool Settings::save() const
     QJsonObject bootROMs;
     bootROMs[settings::GAME_BOY_BOOT_ROM] = gameBoyBootROM;
     bootROMs[settings::GAME_BOY_COLOR_BOOT_ROM] = gameBoyColorBootROM;
+    bootROMs[settings::SUPER_GAME_BOY_BOOT_ROM] = superGameBoyBootROM;
 
     QJsonObject root;
     root[settings::BOOT_ROMS] = bootROMs;
@@ -63,6 +84,7 @@ bool Settings::save() const
     {
         case HardwareModel::GameBoy: root[settings::HARDWARE_MODEL] = settings::MODEL_GAME_BOY; break;
         case HardwareModel::GameBoyColor: root[settings::HARDWARE_MODEL] = settings::MODEL_GAME_BOY_COLOR; break;
+        case HardwareModel::SuperGameBoy: root[settings::HARDWARE_MODEL] = settings::MODEL_SUPER_GAME_BOY; break;
         default: root[settings::HARDWARE_MODEL] = settings::MODEL_AUTOMATIC; break;
     }
 

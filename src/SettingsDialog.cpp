@@ -68,30 +68,32 @@ QWidget* SettingsDialog::createBIOSPage(const Settings &settings)
     QGridLayout *grid = new QGridLayout(page);
 
     // One row per boot ROM: label, path, Browse button
-    const auto addRow = [this, grid](int row, const QString &label, const QString &path, bool gameBoyColor)
+    const auto addRow = [this, grid](int row, const QString &label, const QString &path, Console console)
     {
         QLineEdit *edit = new QLineEdit(QDir::toNativeSeparators(path));
         edit->setPlaceholderText(tr("No file chosen"));
         QPushButton *browse = new QPushButton(tr("Browse"));
-        connect(browse, &QPushButton::clicked, this, [this, edit, gameBoyColor]
+        connect(browse, &QPushButton::clicked, this, [this, edit, console]
             {
-                browseForBootROM(edit, gameBoyColor);
+                browseForBootROM(edit, console);
             });
         grid->addWidget(new QLabel(label), row, 0);
         grid->addWidget(edit, row, 1);
         grid->addWidget(browse, row, 2);
         return edit;
     };
-    gameBoyBootROMEdit = addRow(0, tr("GB BIOS file:"), settings.gameBoyBootROM, false);
-    gameBoyColorBootROMEdit = addRow(1, tr("GBC BIOS file:"), settings.gameBoyColorBootROM, true);
+    gameBoyBootROMEdit = addRow(0, tr("GB BIOS file:"), settings.gameBoyBootROM, Console::GameBoy);
+    gameBoyColorBootROMEdit = addRow(1, tr("GBC BIOS file:"), settings.gameBoyColorBootROM, Console::GameBoyColor);
+    superGameBoyBootROMEdit = addRow(2, tr("SGB BIOS file:"), settings.superGameBoyBootROM, Console::SuperGameBoy);
 
     QLabel *note = new QLabel(tr("gbemu does not include any BIOS. Every game starts by running the "
                                  "BIOS of the console it is emulated on, so choose your own dumps: "
-                                 "a %1-byte Game Boy BIOS and a %2-byte Game Boy Color BIOS.")
+                                 "a %1-byte Game Boy BIOS, a %2-byte Game Boy Color BIOS and a "
+                                 "%1-byte Super Game Boy BIOS.")
                                   .arg(mmu::DMG_BOOT_ROM_SIZE).arg(mmu::CGB_BOOT_ROM_SIZE));
     note->setWordWrap(true);
-    grid->addWidget(note, 2, 1, 1, 2);
-    grid->setRowStretch(3, 1);
+    grid->addWidget(note, 3, 1, 1, 2);
+    grid->setRowStretch(4, 1);
     return page;
 }
 
@@ -102,9 +104,10 @@ QWidget* SettingsDialog::createGameBoyPage(const Settings &settings)
 
     // Item order matches HardwareModel
     hardwareModelBox = new QComboBox;
-    hardwareModelBox->addItem(tr("Automatic (Game Boy Color for color games)"));
+    hardwareModelBox->addItem(tr("Automatic (Game Boy Color for color games, Super Game Boy for SGB games)"));
     hardwareModelBox->addItem(tr("Game Boy (DMG) for every game"));
     hardwareModelBox->addItem(tr("Game Boy Color for every game (Game Boy games in compatibility mode)"));
+    hardwareModelBox->addItem(tr("Super Game Boy for every Game Boy game"));
     hardwareModelBox->setCurrentIndex(static_cast<int>(settings.hardwareModel));
     form->addRow(tr("Hardware:"), hardwareModelBox);
 
@@ -115,11 +118,11 @@ QWidget* SettingsDialog::createGameBoyPage(const Settings &settings)
     return page;
 }
 
-void SettingsDialog::browseForBootROM(QLineEdit *edit, bool gameBoyColor)
+void SettingsDialog::browseForBootROM(QLineEdit *edit, Console console)
 {
     const QString current = edit->text().trimmed();
     const QString filename = QFileDialog::getOpenFileName(
-        this, gameBoyColor ? tr("Choose the Game Boy Color BIOS") : tr("Choose the Game Boy BIOS"),
+        this, tr("Choose the %1 BIOS").arg(Settings::consoleName(console)),
         current.isEmpty() ? QDir::currentPath() : QFileInfo(current).absolutePath(),
         tr("BIOS files (*.bin *.rom *.gb *.gbc);;All files (*)"));
     if (!filename.isEmpty()) edit->setText(QDir::toNativeSeparators(filename));
@@ -130,6 +133,7 @@ Settings SettingsDialog::editedSettings() const
     Settings edited;
     edited.gameBoyBootROM = QDir::fromNativeSeparators(gameBoyBootROMEdit->text().trimmed());
     edited.gameBoyColorBootROM = QDir::fromNativeSeparators(gameBoyColorBootROMEdit->text().trimmed());
+    edited.superGameBoyBootROM = QDir::fromNativeSeparators(superGameBoyBootROMEdit->text().trimmed());
     edited.hardwareModel = static_cast<HardwareModel>(hardwareModelBox->currentIndex());
     return edited;
 }
@@ -157,6 +161,7 @@ bool SettingsDialog::applyChanges()
     };
     if (!check(edited.gameBoyBootROM, tr("Game Boy"), mmu::DMG_BOOT_ROM_SIZE)) return false;
     if (!check(edited.gameBoyColorBootROM, tr("Game Boy Color"), mmu::CGB_BOOT_ROM_SIZE)) return false;
+    if (!check(edited.superGameBoyBootROM, tr("Super Game Boy"), mmu::DMG_BOOT_ROM_SIZE)) return false;
 
     return apply(edited);
 }

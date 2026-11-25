@@ -19,6 +19,23 @@ namespace sgb
     static constexpr uint8_t SGB_ATTRIBUTE_ROWS     = common::GAMEBOY_HEIGHT / 8;
     static constexpr uint8_t SGB_PALETTE_COUNT      = 4;
     static constexpr uint8_t SGB_COLORS_PER_PALETTE = 4;
+
+    // The SGB boot ROM sends the cartridge header ($0104-$014F) in packets
+    // $F1, $F3 ... $FB, each holding the packet ID, a checksum and 14 header
+    // bytes (6 in the last). The SNES program unlocks the SGB functions if
+    // the SGB flag is $03 and the old licensee code $33.
+    // https://gbdev.io/pandocs/Power_Up_Sequence.html#super-game-boy-sgb-sgb2
+    // https://gbdev.io/pandocs/SGB_Unlocking.html#cartridge-header
+    static constexpr uint16_t HEADER_START           = 0x0104;
+    static constexpr uint8_t HEADER_BYTES            = 0x0150 - HEADER_START;
+    static constexpr uint8_t HEADER_PACKET_FIRST     = 0xF1;
+    static constexpr uint8_t HEADER_PACKET_LAST      = 0xFB;
+    static constexpr uint8_t HEADER_PACKET_DATA      = 2;  // Offset of the header bytes in a packet
+    static constexpr uint8_t HEADER_BYTES_PER_PACKET = 14;
+    static constexpr uint16_t HEADER_SGB_FLAG        = 0x0146;
+    static constexpr uint16_t HEADER_OLD_LICENSEE    = 0x014B;
+    static constexpr uint8_t SGB_FLAG_VALUE          = 0x03;
+    static constexpr uint8_t OLD_LICENSEE_SGB        = 0x33;
 }
 
 class SGB
@@ -36,6 +53,11 @@ class SGB
         uint8_t playerCount = 1;
         uint8_t currentPlayer = 0;
         uint8_t previousJoyp = 0xCF; // JOYP with nothing selected or pressed
+
+        // The cartridge header the boot ROM sends, and whether it unlocks the
+        // SGB functions
+        std::array<uint8_t, sgb::HEADER_BYTES> header{};
+        bool functionsUnlocked = false;
 
         void commandReady();
 

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <vector>
 #include "IORegisters.hpp"
+#include "Common.hpp"
 
 // Audio is generated at this rate (samples per second, per channel)
 namespace apu
@@ -197,6 +198,7 @@ class APU
         bool sweepNegateUsed = false;
         uint32_t samplePhase = 0;
         uint32_t sampleRate = apu::AUDIO_SAMPLE_RATE;
+        uint32_t clockRate = common::GAMEBOY_CLOCK_RATE; // Clocks per second of the console
         int64_t sampleLeftAccumulator = 0;
         int64_t sampleRightAccumulator = 0;
         uint32_t sampleCycleCount = 0;
@@ -234,6 +236,7 @@ class APU
 
     public:
         void setCGBMode(bool enabled) { cgbMode = enabled; }
+        void setClockRate(uint32_t rate) { clockRate = rate; }
         void tick(uint32_t tCycles);
 
         // Called by the Timer on each falling edge of its frame sequencer bit

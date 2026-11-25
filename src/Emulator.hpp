@@ -12,15 +12,25 @@
 #include <memory>
 
 // Which console to emulate. Automatic runs Game Boy Color games as a Game Boy
-// Color and everything else as a Game Boy; GameBoy always emulates the
-// original Game Boy (DMG), even for games that support the Game Boy Color;
-// GameBoyColor always emulates the Game Boy Color, which runs Game Boy games
-// in its DMG compatibility mode.
+// Color, Super Game Boy games on a Super Game Boy and everything else as a
+// Game Boy; GameBoy always emulates the original Game Boy (DMG), even for
+// games that support the Game Boy Color; GameBoyColor always emulates the
+// Game Boy Color, which runs Game Boy games in its DMG compatibility mode;
+// SuperGameBoy runs every Game Boy game on a Super Game Boy.
 // https://gbdev.io/pandocs/CGB_Registers.html#ff4c--key0sys-cgb-mode-only-cpu-mode-select
 enum class HardwareModel
 {
     Automatic,
     GameBoy,
+    GameBoyColor,
+    SuperGameBoy,
+};
+
+// The console a game ends up running on, which decides its boot ROM
+enum class Console
+{
+    GameBoy,
+    SuperGameBoy,
     GameBoyColor,
 };
 
@@ -42,7 +52,9 @@ class Emulator
         bool doubleSpeed = false;
         bool speedSwitchPrepared = false;
         uint32_t speedSwitchPause = 0; // Machine cycles the CPU still waits after a speed switch
+        // Running on a Super Game Boy (whether or not the game unlocks its functions)
         bool sgbMode = false;
+        uint32_t cartridgeClockRemainder = 0; // Keeps cartridge clocks in real time on the SGB
         SGB sgb;
 
         friend class CPU;
@@ -71,15 +83,17 @@ class Emulator
         // Runs everything but the CPU (DMA, PPU, timer, APU) for some machine cycles
         void advance(uint32_t mCycles);
     public:
-        // Runs the given boot ROM first: the Game Boy Color one (2304 bytes) when
-        // usesCGBBootROM() is true for this ROM and model, otherwise the Game Boy
-        // one (256 bytes). Throws if the boot ROM is missing or the wrong size.
+        // Runs the boot ROM of console() first: the Game Boy Color one is 2304
+        // bytes, the Game Boy and Super Game Boy ones 256. Throws if the boot ROM
+        // is the wrong size.
         Emulator(const std::vector<uint8_t> &cartridgeData, const std::vector<uint8_t> &saveData,
                  const std::vector<uint8_t> &bootROM, HardwareModel model);
 
-        // Whether a ROM runs in Game Boy Color mode, and so needs the
-        // Game Boy Color boot ROM, on the given model
-        static bool usesCGBBootROM(const std::vector<uint8_t> &cartridgeData, HardwareModel model);
+        // The console a ROM runs on with the given model, and so its boot ROM
+        static Console consoleFor(const std::vector<uint8_t> &cartridgeData, HardwareModel model);
+
+        // Clocks per second of the emulated console
+        uint32_t clockRate() const;
 
         // What the cartridge's battery keeps (RAM, and the MBC3 clock); empty
         // for cartridges without a battery

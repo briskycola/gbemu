@@ -33,11 +33,12 @@ class SettingsDialog final : public QDialog
         QStackedWidget *pages;
         QLineEdit *gameBoyBootROMEdit;
         QLineEdit *gameBoyColorBootROMEdit;
+        QLineEdit *superGameBoyBootROMEdit;
         QComboBox *hardwareModelBox;
 
         QWidget* createBIOSPage(const Settings &settings);
         QWidget* createGameBoyPage(const Settings &settings);
-        void browseForBootROM(QLineEdit *edit, bool gameBoyColor);
+        void browseForBootROM(QLineEdit *edit, Console console);
 
         // The settings as currently shown in the window
         Settings editedSettings() const;

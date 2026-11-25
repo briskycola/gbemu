@@ -9,9 +9,10 @@
 // {
 //     "bootROMs": {
 //         "gameBoy": "C:/path/to/dmg.bin",
-//         "gameBoyColor": "C:/path/to/cgb.bin"
+//         "gameBoyColor": "C:/path/to/cgb.bin",
+//         "superGameBoy": "C:/path/to/sgb.bin"
 //     },
-//     "hardwareModel": "automatic"   (or "gameBoy", "gameBoyColor")
+//     "hardwareModel": "automatic"   (or "gameBoy", "gameBoyColor", "superGameBoy")
 // }
 class Settings
 {
@@ -19,11 +20,15 @@ class Settings
         // Boot ROMs the user supplied. Empty when none has been chosen.
         QString gameBoyBootROM;
         QString gameBoyColorBootROM;
+        QString superGameBoyBootROM;
 
         HardwareModel hardwareModel = HardwareModel::Automatic;
 
         // The boot ROM path for one console
-        const QString& bootROM(bool gameBoyColor) const;
+        const QString& bootROM(Console console) const;
+
+        // The console's name, for messages
+        static QString consoleName(Console console);
 
         // Where the settings file lives
         static QString filePath();

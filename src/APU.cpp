@@ -375,7 +375,8 @@ void APU::accumulateSample()
 // NR50 scales each output by its volume + 1 (never muting it), then each goes
 // through a high-pass filter that pulls it towards 0. With every DAC off the
 // output is 0. The filter's charge factor is 0.999958 per clock on the DMG and
-// 0.998943 on the CGB, raised to the number of clocks per output sample.
+// 0.998943 on the CGB, raised to the number of 4194304 Hz clocks per output
+// sample (the capacitor works in real time, even on the faster SGB clock).
 // https://gbdev.io/pandocs/Audio_details.html#mixer
 // https://gbdev.io/pandocs/Audio_details.html#obscure-behavior
 void APU::emitSample()
@@ -428,9 +429,9 @@ void APU::tick(uint32_t tCycles)
         // clocks, averaging everything accumulated since the last one
         accumulateSample();
         samplePhase += sampleRate;
-        if (samplePhase >= static_cast<uint32_t>(common::GAMEBOY_CLOCK_RATE))
+        if (samplePhase >= clockRate)
         {
-            samplePhase -= common::GAMEBOY_CLOCK_RATE;
+            samplePhase -= clockRate;
             emitSample();
         }
     }

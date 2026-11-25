@@ -8,6 +8,9 @@ namespace common
     static constexpr uint8_t GAMEBOY_HEIGHT       = 144;
     static constexpr uint16_t BACKGROUND_MAP_SIZE = 256;
     static constexpr int32_t GAMEBOY_CLOCK_RATE   = 4194304; // T-cycles (clocks) per second
+    // The (NTSC) Super Game Boy runs off the SNES clock: 21.477 MHz / 5, 2.41% fast
+    // https://gbdev.io/pandocs/SGB_Functions.html#sgb-clock-speed
+    static constexpr int32_t SGB_CLOCK_RATE       = 4295454;
     
     // The CPU counts in machine cycles (M-cycles), each
     // of which is 4 clock cycles (T-cycles)

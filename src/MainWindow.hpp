@@ -28,7 +28,6 @@ namespace mainwindow
     static constexpr uint8_t AUDIO_CHANNELS       = 2;
     static constexpr int MAX_QUEUED_AUDIO_BYTES   = apu::AUDIO_SAMPLE_RATE / 10 * AUDIO_CHANNELS * sizeof(int16_t);
     // A DMG/CGB frame is 70224 T-cycles at a 4194304 Hz clock: about 59.73 Hz.
-    static constexpr qint64 FRAME_PERIOD_NS       = (1'000'000'000LL * ppu::CLOCKS_PER_FRAME) / common::GAMEBOY_CLOCK_RATE;
 }
 
 // The application window: menus, ROM loading, frame timing and audio output.

@@ -102,7 +102,10 @@ void SGB::writeJOYP(uint8_t value)
             readyForWrite = false;
             return;
         }
-        const uint16_t packets = (command[0] & PACKET_COUNT_MASK) ? (command[0] & PACKET_COUNT_MASK) : 1;
+        // The boot ROM's header packets are single packets whatever their
+        // low bits say
+        const bool headerPacket = command[0] >= sgb::HEADER_PACKET_FIRST && (command[0] & 1);
+        const uint16_t packets = headerPacket || !(command[0] & PACKET_COUNT_MASK) ? 1 : (command[0] & PACKET_COUNT_MASK);
         if (bitCount >= packets * sgb::SGB_PACKET_BITS)
         {
             commandReady();
@@ -123,6 +126,21 @@ void SGB::writeJOYP(uint8_t value)
 
 void SGB::commandReady()
 {
+    // The boot ROM's header packets
+    if (command[0] >= sgb::HEADER_PACKET_FIRST && command[0] <= sgb::HEADER_PACKET_LAST && (command[0] & 1))
+    {
+        const uint8_t start = static_cast<uint8_t>((command[0] - sgb::HEADER_PACKET_FIRST) / 2 * sgb::HEADER_BYTES_PER_PACKET);
+        for (uint8_t i = 0; i < sgb::HEADER_BYTES_PER_PACKET && start + i < sgb::HEADER_BYTES; ++i)
+            header[start + i] = command[sgb::HEADER_PACKET_DATA + i];
+        if (command[0] == sgb::HEADER_PACKET_LAST)
+            functionsUnlocked = header[sgb::HEADER_SGB_FLAG - sgb::HEADER_START] == sgb::SGB_FLAG_VALUE &&
+                header[sgb::HEADER_OLD_LICENSEE - sgb::HEADER_START] == sgb::OLD_LICENSEE_SGB;
+        return;
+    }
+
+    // Games that don't unlock the SGB functions can't use its commands
+    if (!functionsUnlocked) return;
+
     const uint8_t op = command[0] >> COMMAND_SHIFT;
 
     // PAL01, PAL23, PAL03, and PAL12: set two palettes at once.
