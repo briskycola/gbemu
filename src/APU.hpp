@@ -138,46 +138,51 @@ class APU
     private:
         // What every channel has: whether it is playing, and its length timer
         // https://gbdev.io/pandocs/Audio.html#length-timer
-        struct LengthChannel
+        class LengthChannel
         {
-            bool enabled = false;
-            uint16_t length = 0;
-            bool lengthEnabled = false;
+            public:
+                bool enabled = false;
+                uint16_t length = 0;
+                bool lengthEnabled = false;
         };
 
         // A channel with a volume envelope (CH1, CH2 and CH4)
         // https://gbdev.io/pandocs/Audio.html#volume--envelope
-        struct EnvelopeChannel : public LengthChannel
+        class EnvelopeChannel : public LengthChannel
         {
-            uint8_t initialVolume = 0;
-            uint8_t volume = 0;
-            uint8_t envelopePeriod = 0;
-            uint8_t envelopeTimer = 0;
-            bool envelopeIncrease = false;
-            bool envelopeRunning = false; // Stops once the volume reaches 0 or 15
+            public:
+                uint8_t initialVolume = 0;
+                uint8_t volume = 0;
+                uint8_t envelopePeriod = 0;
+                uint8_t envelopeTimer = 0;
+                bool envelopeIncrease = false;
+                bool envelopeRunning = false; // Stops once the volume reaches 0 or 15
         };
 
-        struct SquareChannel : public EnvelopeChannel
+        class SquareChannel : public EnvelopeChannel
         {
-            uint16_t frequency = 0;
-            uint32_t timer = 0;
-            uint8_t dutyPosition = 0;
-            bool firstStepSilent = true; // Until the first duty step after power-on
+            public:
+                uint16_t frequency = 0;
+                uint32_t timer = 0;
+                uint8_t dutyPosition = 0;
+                bool firstStepSilent = true; // Until the first duty step after power-on
         };
 
-        struct WaveChannel : public LengthChannel
+        class WaveChannel : public LengthChannel
         {
-            uint16_t frequency = 0;
-            uint32_t timer = 0;
-            uint8_t position = 0;
-            uint32_t cyclesSinceRead = UINT32_MAX; // Clocks since it last read wave RAM
-            uint8_t sampleBuffer = 0; // The last sample read, which is what plays
+            public:
+                uint16_t frequency = 0;
+                uint32_t timer = 0;
+                uint8_t position = 0;
+                uint32_t cyclesSinceRead = UINT32_MAX; // Clocks since it last read wave RAM
+                uint8_t sampleBuffer = 0; // The last sample read, which is what plays
         };
 
-        struct NoiseChannel : public EnvelopeChannel
+        class NoiseChannel : public EnvelopeChannel
         {
-            uint32_t timer = 0;
-            uint16_t lfsr = 0;
+            public:
+                uint32_t timer = 0;
+                uint16_t lfsr = 0;
         };
 
         // Raw values of every register from NR10 to the end of wave RAM

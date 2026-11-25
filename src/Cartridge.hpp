@@ -231,13 +231,14 @@ class MBC3 : public Cartridge
     private:
         // The real-time clock's counters: seconds, minutes, hours, the low
         // 8 bits of the day counter, and DH (day bit 8, halt, day carry)
-        struct Clock
+        class Clock
         {
-            uint8_t seconds = 0;
-            uint8_t minutes = 0;
-            uint8_t hours = 0;
-            uint8_t daysLow = 0;
-            uint8_t daysHigh = 0;
+            public:
+                uint8_t seconds = 0;
+                uint8_t minutes = 0;
+                uint8_t hours = 0;
+                uint8_t daysLow = 0;
+                uint8_t daysHigh = 0;
         };
 
         uint8_t romBank = 1;

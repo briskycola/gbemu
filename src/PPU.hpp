@@ -181,12 +181,13 @@ enum class VideoMode : uint8_t
 // OBJ-to-BG bit, or on the CGB the BG tile's priority bit) and, for objects
 // on the CGB, the OAM index that decides which object is on top.
 // https://gbdev.io/pandocs/pixel_fifo.html#introduction
-struct FifoPixel
+class FifoPixel
 {
-    uint8_t color = 0;
-    uint8_t palette = 0;
-    bool bgPriority = false;
-    uint8_t oamIndex = 0xFF;
+    public:
+        uint8_t color = 0;
+        uint8_t palette = 0;
+        bool bgPriority = false;
+        uint8_t oamIndex = 0xFF;
 };
 
 // The fetcher's steps, in order
@@ -264,7 +265,7 @@ class PPU
         uint8_t fetchingObject = 0;     // The OAM index of the object being fetched
 
         // Pixels on their way to the LCD
-        struct LCDPixel { FifoPixel bg; FifoPixel object; uint8_t x; uint8_t dotsLeft; };
+        class LCDPixel { public: FifoPixel bg; FifoPixel object; uint8_t x; uint8_t dotsLeft; };
         std::array<LCDPixel, ppu::LCD_PIPELINE_CAPACITY> lcdPipeline{};
         uint8_t lcdPipelineHead = 0;
         uint8_t lcdPipelineSize = 0;
