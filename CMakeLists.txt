@@ -8,6 +8,14 @@ if(WIN32 AND NOT (MINGW AND "$ENV{MSYSTEM}" STREQUAL "UCRT64"))
     message(FATAL_ERROR "On Windows, build gbemu from the MSYS2 UCRT64 shell. See README.md.")
 endif()
 
+# Build optimized unless a build type was chosen. Without optimization the
+# emulator can't keep up with 60 frames a second in heavier games (Tomb
+# Raider's menus and cutscenes take up to 19 ms a frame), so it stutters.
+# Configure with -DCMAKE_BUILD_TYPE=Debug to debug.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
+endif()
+
 # Use C++ 17
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
