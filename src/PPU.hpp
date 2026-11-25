@@ -150,6 +150,10 @@ namespace ppu
     
     // WX = 7 puts the window at the left edge of the screen
     static constexpr uint32_t WINDOW_X_OFFSET = 7;
+    // On the DMG, WX = 166 makes the window span the whole screen, a line
+    // down: the window carries on into the next line from its left edge
+    // https://gbdev.io/pandocs/Window.html#window-rendering-criteria
+    static constexpr uint8_t DMG_WX_BUG_VALUE = 166;
     
     // Attribute bits for sprites (OAM byte 3) and, on the Game
     // Boy Color, for background tiles (VRAM bank 1 tile map)
@@ -252,6 +256,10 @@ class PPU
         uint8_t windowPixelsToShift = 0; // Window pixels left of the screen still to shift out
         uint8_t windowPixelsToDrop = 0; // Window pixels left of the screen when WX < 7
         int32_t windowStartX = 0;       // WX - 7 when the window started on this line
+        uint8_t windowStartWX = 0;      // WX when the window started on this line
+        bool insertBlankPixel = false;  // The WX-change bug's pixel goes out next
+        bool windowFromLineStart = false; // DMG WX = 166: the next line starts in the window
+        uint8_t nextLineWindowRow = 0;
         uint32_t objectStall = 0;       // Dots the output still waits for an object fetch
         uint8_t fetchingObject = 0;     // The OAM index of the object being fetched
 

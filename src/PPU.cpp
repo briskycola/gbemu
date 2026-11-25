@@ -210,6 +210,19 @@ void PPU::startMode3(uint32_t length, uint32_t start)
     objectStall = 0;
     nextLineObject = 0;
     tilesWaitedForCount = 0;
+    insertBlankPixel = false;
+
+    // The DMG's WX = 166 window, carried on from the line before, starting
+    // at its second tile
+    if (windowFromLineStart)
+    {
+        windowFromLineStart = false;
+        fetchingWindow = true;
+        windowRow = nextLineWindowRow;
+        windowStartX = -static_cast<int32_t>(ppu::TILE_WIDTH_PX);
+        windowStartWX = windowX.getValue();
+        fetcherX = 1;
+    }
 
     setMode(VideoMode::AccessVRAM);
 }
@@ -224,6 +237,13 @@ void PPU::runMode3()
 
         cycleCounter -= mode3Dots;
         hblankLength = lineLength - mode3Start - mode3Dots;
+
+        // On the DMG, a window at WX = 166 isn't drawn on this line but
+        // carries on into the next one from its left edge
+        // https://gbdev.io/pandocs/Window.html#window-rendering-criteria
+        windowFromLineStart = !emulator.cgbMode && windowEnabled() && windowYTriggered &&
+            windowX.getValue() == ppu::DMG_WX_BUG_VALUE;
+        if (windowFromLineStart) nextLineWindowRow = static_cast<uint8_t>(windowLine++);
         setMode(VideoMode::HBlank);
 
         // Copy one HBlank DMA block. Only the CPU stalls while it runs
@@ -263,6 +283,18 @@ bool PPU::stepMode3()
     else stepFetcher();
 
     if (windowStarted || bgFifoSize == 0 || fetchObjectIfReached()) return false;
+
+    // If WX changes after the window has started and the pixel counter
+    // reaches the new value, a color 0 pixel goes out ahead of the FIFO.
+    // This only happens on a tile boundary, just after a window tile past
+    // the first has been pushed (Mealybug Tearoom's m3_wx_*_change
+    // captures, and SameBoy; Pan Docs doesn't give the condition).
+    // https://gbdev.io/pandocs/pixel_fifo.html#the-window
+    const bool tileJustPushed = fetchStep == FetchStep::Tile && fetchStepDots == 0 && bgFifoSize == ppu::TILE_WIDTH_PX;
+    if (fetchingWindow && tileJustPushed && static_cast<int32_t>(pixelX) > windowStartX &&
+        windowX.getValue() != windowStartWX && pixelsStillToDrop() == 0 &&
+        pixelX + ppu::WINDOW_X_OFFSET == windowX.getValue())
+        insertBlankPixel = true;
     popPixel();
     return pixelX == common::GAMEBOY_WIDTH;
 }
@@ -288,6 +320,7 @@ bool PPU::startWindowIfReached()
     if (fetchingWindow || !windowEnabled() || !windowYTriggered) return false;
 
     const uint8_t wx = windowX.getValue();
+    if (wx == ppu::DMG_WX_BUG_VALUE && !emulator.cgbMode) return false;
     if (wx >= ppu::WINDOW_X_OFFSET)
     {
         if (pixelsStillToDrop() > 0 || pixelX + ppu::WINDOW_X_OFFSET != wx) return false;
@@ -299,6 +332,7 @@ bool PPU::startWindowIfReached()
 
     fetchingWindow = true;
     windowStartX = static_cast<int32_t>(wx) - static_cast<int32_t>(ppu::WINDOW_X_OFFSET);
+    windowStartWX = wx;
     windowPixelsToDrop = wx < ppu::WINDOW_X_OFFSET ? static_cast<uint8_t>(ppu::WINDOW_X_OFFSET - wx) : 0;
     windowRow = static_cast<uint8_t>(windowLine++);
 
@@ -454,6 +488,18 @@ bool PPU::pushTileRow()
         return false;
     }
 
+    // On the DMG, if the window is disabled but would otherwise start right
+    // here, on a tile boundary, a single color 0 pixel goes in first, which
+    // pushes the rest of the line one pixel right
+    // https://gbdev.io/pandocs/Window.html#window-rendering-criteria
+    if (!emulator.cgbMode && !fetchingWindow && !windowEnabled() && windowYTriggered &&
+        pixelsStillToDrop() == 0 && pixelX + ppu::WINDOW_X_OFFSET == windowX.getValue())
+    {
+        bgFifo[(bgFifoHead + bgFifoSize++) % ppu::FIFO_CAPACITY] = FifoPixel{};
+        fetchStep = FetchStep::Push;
+        return true;
+    }
+
     const bool flipX = checkBit(fetchedAttributes, ppu::ATTRIBUTE_X_FLIP_BIT);
     for (uint8_t i = 0; i < ppu::TILE_WIDTH_PX; ++i)
     {
@@ -589,9 +635,18 @@ void PPU::mixObjectIntoFifo(uint8_t oamIndex, uint8_t low, uint8_t high)
 // https://gbdev.io/pandocs/pixel_fifo.html#pixel-rendering
 void PPU::popPixel()
 {
-    const FifoPixel bg = bgFifo[bgFifoHead];
-    bgFifoHead = static_cast<uint8_t>((bgFifoHead + 1) % ppu::FIFO_CAPACITY);
-    --bgFifoSize;
+    // The WX-change bug's pixel is drawn in place of the FIFO's next one
+    FifoPixel bg;
+    if (insertBlankPixel)
+    {
+        insertBlankPixel = false;
+    }
+    else
+    {
+        bg = bgFifo[bgFifoHead];
+        bgFifoHead = static_cast<uint8_t>((bgFifoHead + 1) % ppu::FIFO_CAPACITY);
+        --bgFifoSize;
+    }
 
     // Window pixels left of the screen, then SCX's fine scroll, are shifted
     // out without being drawn. The fine scroll ends once SCX % 8 pixels have
@@ -875,6 +930,7 @@ void PPU::tick(Cycles cycles)
                     // Window state resets for the next frame
                     windowLine = 0;
                     windowYTriggered = false;
+                    windowFromLineStart = false;
 
                     // The VBlank interrupts come a little later
                     lateInterruptDelay = ppu::LATE_VBLANK_DOTS;
