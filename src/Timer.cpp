@@ -90,10 +90,14 @@ void Timer::setTimerControl(uint8_t value)
     }
 }
 
+uint16_t Timer::frameSequencerMask() const
+{
+    return static_cast<uint16_t>(1u << (emulator.doubleSpeed ? timer::FRAME_SEQUENCER_BIT_DOUBLE_SPEED : timer::FRAME_SEQUENCER_BIT));
+}
+
 bool Timer::isFrameSequencerInputHigh() const
 {
-    const uint8_t bit = emulator.doubleSpeed ? timer::FRAME_SEQUENCER_BIT_DOUBLE_SPEED : timer::FRAME_SEQUENCER_BIT;
-    return (dividerCounter & (1u << bit)) != 0;
+    return (dividerCounter & frameSequencerMask()) != 0;
 }
 
 // The serial port's internal clock is driven by a bit of the system counter too
@@ -109,12 +113,17 @@ bool Timer::isTimerEnabled() const
 }
 
 // The system counter bit TAC's clock select picks. TIMA ticks when it falls.
-bool Timer::selectedBitHigh() const
+uint16_t Timer::selectedMask() const
 {
     // Indexed by TAC bits 0-1: every 256, 4, 16 and 64 M-cycles
     // https://gbdev.io/pandocs/Timer_and_Divider_Registers.html#ff07--tac-timer-control
     static constexpr uint8_t DIVIDER_BITS[4] = {9, 3, 5, 7};
-    return (dividerCounter & (1u << DIVIDER_BITS[timerControl.getValue() & timer::TIMER_CLOCK_SELECT_MASK])) != 0;
+    return static_cast<uint16_t>(1u << DIVIDER_BITS[timerControl.getValue() & timer::TIMER_CLOCK_SELECT_MASK]);
+}
+
+bool Timer::selectedBitHigh() const
+{
+    return (dividerCounter & selectedMask()) != 0;
 }
 
 // Ticks TIMA if the selected bit fell while the timer is enabled
@@ -143,14 +152,14 @@ void Timer::incrementTimer()
 // One clock of the system counter. TIMA and the APU's frame sequencer are
 // driven by falling edges of its bits.
 // https://gbdev.io/pandocs/Timer_Obscure_Behaviour.html
-void Timer::step()
+void Timer::step(const EdgeMasks &masks)
 {
-    const bool wasHigh = selectedBitHigh();
-    const bool serialWasHigh = serialClockHigh();
-    const bool frameSequencerWasHigh = isFrameSequencerInputHigh();
-    ++dividerCounter;
-    if (frameSequencerWasHigh && !isFrameSequencerInputHigh()) emulator.apu.clockFrameSequencerFromDivider();
-    if (serialWasHigh && !serialClockHigh()) emulator.serial.clock();
+    // The counter bits that fall as it counts up: those that were 1 and are
+    // now 0
+    const uint16_t before = dividerCounter++;
+    const uint16_t fell = static_cast<uint16_t>(before & ~dividerCounter);
+    if (fell & masks.frameSequencer) emulator.apu.clockFrameSequencerFromDivider();
+    if (fell & masks.serial) emulator.serial.clock();
 
     if (reloadDelay > 0 && --reloadDelay == 0)
     {
@@ -159,7 +168,20 @@ void Timer::step()
         reloadedThisCycle = true;
     }
 
-    tickOnFallingEdge(wasHigh, isTimerEnabled());
+    if (fell & masks.timer) incrementTimer();
+}
+
+// The counter bits whose falling edges clock TIMA (only while the timer is
+// enabled), the APU frame sequencer and serial. They can only change between
+// ticks (TAC, SC and the CPU speed are written between them), so they are
+// worked out once per tick rather than every clock.
+Timer::EdgeMasks Timer::edgeMasks() const
+{
+    return EdgeMasks{
+        static_cast<uint16_t>(isTimerEnabled() ? selectedMask() : 0),
+        frameSequencerMask(),
+        static_cast<uint16_t>(1u << emulator.serial.clockCounterBit()),
+    };
 }
 
 void Timer::tick(uint32_t cycles)
@@ -173,12 +195,14 @@ void Timer::tick(uint32_t cycles)
     if (skipped == 0) reloadedThisCycle = false;
 
     // Step per clock so writes and overflows keep their order
-    for (uint32_t cycle = skipped; cycle < cycles; ++cycle) step();
+    const EdgeMasks masks = edgeMasks();
+    for (uint32_t cycle = skipped; cycle < cycles; ++cycle) step(masks);
 }
 
 void Timer::tickAhead(uint32_t cycles)
 {
     reloadedThisCycle = false;
-    for (uint32_t cycle = 0; cycle < cycles; ++cycle) step();
+    const EdgeMasks masks = edgeMasks();
+    for (uint32_t cycle = 0; cycle < cycles; ++cycle) step(masks);
     clocksAhead = cycles;
 }

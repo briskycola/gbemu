@@ -42,9 +42,19 @@ class Timer
         bool reloadedThisCycle = false; // TMA was copied to TIMA in the current M-cycle
         uint32_t clocksAhead = 0;       // Clocks of the coming M-cycle already run by tickAhead()
 
-        void step();
+        class EdgeMasks
+        {
+            public:
+                uint16_t timer;
+                uint16_t frameSequencer;
+                uint16_t serial;
+        };
+        EdgeMasks edgeMasks() const;
+        void step(const EdgeMasks &masks);
 
         bool isTimerEnabled() const;
+        uint16_t selectedMask() const;
+        uint16_t frameSequencerMask() const;
         bool selectedBitHigh() const;
         void tickOnFallingEdge(bool wasHigh, bool enabled);
         bool isFrameSequencerInputHigh() const;
