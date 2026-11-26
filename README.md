@@ -16,6 +16,7 @@ and Super Game Boy components.
 - Hardware setting to run every game on the original Game Boy (DMG)
 - Video settings: window size, scaling, Game Boy colors, Super Game Boy border, and full screen
 - Audio settings: output device, volume, and mute
+- Remappable keyboard controls
 
 Emulation coverage is still evolving, so compatibility varies by game.
 
@@ -110,6 +111,9 @@ A ROM can also be passed on the command line:
 ```
 
 ### Keyboard controls
+
+The default keys are below. To change them, open the **Input** page in Settings, click a button,
+and press the new key (Escape cancels). **Restore Defaults** puts these back.
 
 | Game Boy button | Keyboard |
 | --- | --- |

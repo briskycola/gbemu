@@ -3,6 +3,8 @@
 #include "Core/Emulator.hpp"
 #include <QJsonObject>
 #include <QString>
+#include <array>
+#include <cstddef>
 #include <vector>
 
 // The emulator's user settings, stored as JSON in the per-user
@@ -28,6 +30,10 @@
 //         "deviceName": "",              (the chosen device's name, shown while it is unplugged)
 //         "volume": 100,                 (0 to 100)
 //         "muted": false
+//     },
+//     "input": {
+//         "up": "W", "down": "S", "left": "A", "right": "D",
+//         "a": "P", "b": "O", "select": "Backspace", "start": "Return"
 //     }
 // }
 
@@ -61,6 +67,17 @@ namespace audio
     static constexpr int MAX_VOLUME = 100;
 }
 
+namespace input
+{
+    // The keys of the Game Boy's buttons, in the order of GBButton
+    static constexpr size_t BUTTON_COUNT = 8;
+    static constexpr std::array<int, BUTTON_COUNT> DEFAULT_BUTTON_KEYS =
+    {
+        Qt::Key_W, Qt::Key_S, Qt::Key_A, Qt::Key_D,         // Up, Down, Left, Right
+        Qt::Key_P, Qt::Key_O, Qt::Key_Backspace, Qt::Key_Return // A, B, Select, Start
+    };
+}
+
 class Settings
 {
     public:
@@ -82,6 +99,9 @@ class Settings
         QString audioDeviceName;
         int volume = audio::MAX_VOLUME;
         bool muted = false;
+
+        // The key of each Game Boy button, indexed by GBButton
+        std::array<int, input::BUTTON_COUNT> buttonKeys = input::DEFAULT_BUTTON_KEYS;
 
         // The boot ROM path for one console
         const QString& bootROM(Console console) const;

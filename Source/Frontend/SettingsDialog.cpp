@@ -1,5 +1,6 @@
 #include "Frontend/SettingsDialog.hpp"
 #include "Core/Memory/MMU.hpp"
+#include "Frontend/KeyBindingButton.hpp"
 #include <QAudioDevice>
 #include <QCheckBox>
 #include <QComboBox>
@@ -43,6 +44,7 @@ SettingsDialog::SettingsDialog(const Settings &settings, std::function<bool(cons
     categories->addItem(tr("Game Boy"));
     categories->addItem(tr("Video"));
     categories->addItem(tr("Audio"));
+    categories->addItem(tr("Input"));
     categories->setFixedWidth(settings_dialog::CATEGORY_LIST_WIDTH);
 
     pages = new QStackedWidget(this);
@@ -50,6 +52,7 @@ SettingsDialog::SettingsDialog(const Settings &settings, std::function<bool(cons
     pages->addWidget(createGameBoyPage(settings));
     pages->addWidget(createVideoPage(settings));
     pages->addWidget(createAudioPage(settings));
+    pages->addWidget(createInputPage(settings));
     connect(categories, &QListWidget::currentRowChanged, pages, &QStackedWidget::setCurrentIndex);
     categories->setCurrentRow(0);
 
@@ -214,6 +217,60 @@ QWidget* SettingsDialog::createAudioPage(const Settings &settings)
     return page;
 }
 
+QWidget* SettingsDialog::createInputPage(const Settings &settings)
+{
+    QWidget *page = new QWidget(this);
+    QGridLayout *grid = new QGridLayout(page);
+
+    // One row per Game Boy button
+    const std::array<QString, input::BUTTON_COUNT> names = buttonNames();
+    for (size_t button = 0; button < input::BUTTON_COUNT; ++button)
+    {
+        buttonKeyButtons[button] = new KeyBindingButton(settings.buttonKeys[button]);
+        const int row = static_cast<int>(button);
+        grid->addWidget(new QLabel(names[button] + ':'), row, 0);
+        grid->addWidget(buttonKeyButtons[button], row, 1);
+    }
+
+    QPushButton *defaults = new QPushButton(tr("Restore Defaults"));
+    connect(defaults, &QPushButton::clicked, this, [this]
+        {
+            for (size_t button = 0; button < input::BUTTON_COUNT; ++button)
+                buttonKeyButtons[button]->setKey(input::DEFAULT_BUTTON_KEYS[button]);
+        });
+    const int last = static_cast<int>(input::BUTTON_COUNT);
+    grid->addWidget(defaults, last, 1, Qt::AlignLeft);
+
+    QLabel *note = new QLabel(tr("Click a button, then press the key to use for it. Escape cancels."));
+    note->setWordWrap(true);
+    grid->addWidget(note, last + 1, 0, 1, 3);
+    grid->setColumnStretch(2, 1);
+    grid->setRowStretch(last + 2, 1);
+    return page;
+}
+
+std::array<QString, input::BUTTON_COUNT> SettingsDialog::buttonNames()
+{
+    return {tr("Up"), tr("Down"), tr("Left"), tr("Right"), tr("A"), tr("B"), tr("Select"), tr("Start")};
+}
+
+bool SettingsDialog::checkButtonKeys(const Settings &edited)
+{
+    const std::array<QString, input::BUTTON_COUNT> names = buttonNames();
+    for (size_t first = 0; first < input::BUTTON_COUNT; ++first)
+    {
+        for (size_t second = first + 1; second < input::BUTTON_COUNT; ++second)
+        {
+            if (edited.buttonKeys[first] != edited.buttonKeys[second]) continue;
+            showPage(Page::Input);
+            QMessageBox::warning(this, tr("Settings"), tr("%1 and %2 both use the %3 key. Choose a different key for one of them.")
+                .arg(names[first], names[second], KeyBindingButton::keyName(edited.buttonKeys[first])));
+            return false;
+        }
+    }
+    return true;
+}
+
 void SettingsDialog::listAudioDevices(const QString &selectedID, const QString &selectedName)
 {
     audioDeviceBox->clear();
@@ -263,6 +320,8 @@ Settings SettingsDialog::editedSettings() const
         ? QString() : audioDeviceBox->currentData(settings_dialog::DEVICE_NAME_ROLE).toString();
     edited.volume = volumeSlider->value();
     edited.muted = mutedBox->isChecked();
+    for (size_t button = 0; button < input::BUTTON_COUNT; ++button)
+        edited.buttonKeys[button] = buttonKeyButtons[button]->getKey();
     return edited;
 }
 
@@ -290,6 +349,7 @@ bool SettingsDialog::applyChanges()
     if (!check(edited.gameBoyBootROM, tr("Game Boy"), mmu::DMG_BOOT_ROM_SIZE)) return false;
     if (!check(edited.gameBoyColorBootROM, tr("Game Boy Color"), mmu::CGB_BOOT_ROM_SIZE)) return false;
     if (!check(edited.superGameBoyBootROM, tr("Super Game Boy"), mmu::DMG_BOOT_ROM_SIZE)) return false;
+    if (!checkButtonKeys(edited)) return false;
 
     return apply(edited);
 }

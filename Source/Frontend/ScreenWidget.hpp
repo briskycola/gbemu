@@ -14,7 +14,8 @@ class FrameBuffer;
 class QKeyEvent;
 class QPaintEvent;
 
-// Draws the Game Boy screen and turns key presses into button presses.
+// Draws the Game Boy screen and turns key presses into button presses,
+// using the keys chosen in the settings.
 class ScreenWidget final : public QWidget
 {
     private:
@@ -26,8 +27,10 @@ class ScreenWidget final : public QWidget
         std::array<uint32_t, 4> shadeColors{};
         bool recolorShades = false;
         bool showSuperGameBoyBorder = true;
+        std::array<int, input::BUTTON_COUNT> buttonKeys = input::DEFAULT_BUTTON_KEYS;
 
-        static bool tryToGetGBButton(int key, GBButton &button);
+        // The Game Boy button a key is bound to, if any
+        bool tryToGetGBButton(int key, GBButton &button) const;
 
         // The RGB colors of each Game Boy color choice, lightest first
         static std::array<uint32_t, 4> colorsFor(GameBoyColors colors);
@@ -39,6 +42,8 @@ class ScreenWidget final : public QWidget
         void paintEvent(QPaintEvent *event) override;
         void keyPressEvent(QKeyEvent *event) override;
         void keyReleaseEvent(QKeyEvent *event) override;
+        // Tab would move the focus away instead of reaching the game
+        bool focusNextPrevChild(bool next) override;
 
     public:
         explicit ScreenWidget(QWidget *parent = nullptr);

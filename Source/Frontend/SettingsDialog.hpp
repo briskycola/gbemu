@@ -2,8 +2,10 @@
 
 #include "Frontend/Settings.hpp"
 #include <QDialog>
+#include <array>
 #include <functional>
 
+class KeyBindingButton;
 class QCheckBox;
 class QComboBox;
 class QLineEdit;
@@ -22,6 +24,7 @@ class SettingsDialog final : public QDialog
             GameBoy,
             Video,
             Audio,
+            Input,
         };
 
         // apply is called with the edited settings on OK or Apply and
@@ -46,11 +49,20 @@ class SettingsDialog final : public QDialog
         QComboBox *audioDeviceBox;
         QSlider *volumeSlider;
         QCheckBox *mutedBox;
+        std::array<KeyBindingButton *, input::BUTTON_COUNT> buttonKeyButtons{};
 
         QWidget* createBIOSPage(const Settings &settings);
         QWidget* createGameBoyPage(const Settings &settings);
         QWidget* createVideoPage(const Settings &settings);
         QWidget* createAudioPage(const Settings &settings);
+        QWidget* createInputPage(const Settings &settings);
+
+        // The Game Boy buttons' names, in the order of GBButton
+        static std::array<QString, input::BUTTON_COUNT> buttonNames();
+
+        // Explains which buttons share a key, if any. Returns whether every
+        // button has a key of its own.
+        bool checkButtonKeys(const Settings &edited);
 
         // Lists "System default" and every connected output, selecting the
         // device with the given ID. A chosen device that is unplugged stays

@@ -2,25 +2,18 @@
 #include "Core/Emulator.hpp"
 #include "Core/SGB/SGB.hpp"
 #include "Core/Video/FrameBuffer.hpp"
+#include "Frontend/KeyBindingButton.hpp"
 #include <QKeyEvent>
 #include <QPainter>
 #include <QPaintEvent>
 #include <algorithm>
 
-bool ScreenWidget::tryToGetGBButton(int key, GBButton &button)
+bool ScreenWidget::tryToGetGBButton(int key, GBButton &button) const
 {
-    switch (key)
-    {
-        case Qt::Key_W: button = GBButton::Up; return true;
-        case Qt::Key_S: button = GBButton::Down; return true;
-        case Qt::Key_A: button = GBButton::Left; return true;
-        case Qt::Key_D: button = GBButton::Right; return true;
-        case Qt::Key_P: button = GBButton::A; return true;
-        case Qt::Key_O: button = GBButton::B; return true;
-        case Qt::Key_Backspace: button = GBButton::Select; return true;
-        case Qt::Key_Return: case Qt::Key_Enter: button = GBButton::Start; return true;
-        default: return false;
-    }
+    const auto found = std::find(buttonKeys.begin(), buttonKeys.end(), KeyBindingButton::normalizedKey(key));
+    if (found == buttonKeys.end()) return false;
+    button = static_cast<GBButton>(found - buttonKeys.begin());
+    return true;
 }
 
 std::array<uint32_t, 4> ScreenWidget::colorsFor(GameBoyColors colors)
@@ -50,6 +43,13 @@ void ScreenWidget::applySettings(const Settings &settings)
     scaling = settings.scaling;
     shadeColors = colorsFor(settings.gameBoyColors);
     showSuperGameBoyBorder = settings.showSuperGameBoyBorder;
+    // A button held while its key changes would never see its key released
+    if (emulator && buttonKeys != settings.buttonKeys)
+    {
+        for (size_t button = 0; button < input::BUTTON_COUNT; ++button)
+            emulator->buttonReleased(static_cast<GBButton>(button));
+    }
+    buttonKeys = settings.buttonKeys;
     update();
 }
 
@@ -111,6 +111,12 @@ void ScreenWidget::keyReleaseEvent(QKeyEvent *event)
         event->accept();
     }
     else QWidget::keyReleaseEvent(event);
+}
+
+bool ScreenWidget::focusNextPrevChild(bool next)
+{
+    Q_UNUSED(next);
+    return false;
 }
 
 void ScreenWidget::setEmulator(Emulator *value) { emulator = value; }

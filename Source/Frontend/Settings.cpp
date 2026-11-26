@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QKeySequence>
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <algorithm>
@@ -29,11 +30,14 @@ namespace settings
     static constexpr const char *AUDIO_DEVICE_NAME       = "deviceName";
     static constexpr const char *VOLUME                  = "volume";
     static constexpr const char *MUTED                   = "muted";
+    static constexpr const char *INPUT                   = "input";
 
     // The words stored for each choice, in the order of its enum
     static const std::vector<QString> HARDWARE_MODEL_NAMES  = {"automatic", "gameBoy", "gameBoyColor", "superGameBoy"};
     static const std::vector<QString> SCALING_NAMES         = {"fit", "integer", "stretch"};
     static const std::vector<QString> GAME_BOY_COLORS_NAMES = {"gray", "green", "pocket"};
+    static const std::array<QString, input::BUTTON_COUNT> BUTTON_NAMES =
+        {"up", "down", "left", "right", "a", "b", "select", "start"};
 }
 
 const QString& Settings::bootROM(Console console) const
@@ -108,6 +112,12 @@ QJsonObject Settings::toJson() const
     audio[settings::VOLUME] = volume;
     audio[settings::MUTED] = muted;
     root[settings::AUDIO] = audio;
+
+    // Keys are stored by name, such as "W" or "Return"
+    QJsonObject input;
+    for (size_t button = 0; button < input::BUTTON_COUNT; ++button)
+        input[settings::BUTTON_NAMES[button]] = QKeySequence(buttonKeys[button]).toString(QKeySequence::PortableText);
+    root[settings::INPUT] = input;
     return root;
 }
 
@@ -148,6 +158,14 @@ Settings Settings::fromJson(const QJsonObject &root)
     loaded.audioDeviceName = audio.value(settings::AUDIO_DEVICE_NAME).toString();
     loaded.volume = std::clamp(audio.value(settings::VOLUME).toInt(loaded.volume), 0, audio::MAX_VOLUME);
     loaded.muted = audio.value(settings::MUTED).toBool(loaded.muted);
+
+    const QJsonObject input = root.value(settings::INPUT).toObject();
+    for (size_t button = 0; button < input::BUTTON_COUNT; ++button)
+    {
+        const QKeySequence keys = QKeySequence::fromString(
+            input.value(settings::BUTTON_NAMES[button]).toString(), QKeySequence::PortableText);
+        if (!keys.isEmpty()) loaded.buttonKeys[button] = keys[0].key();
+    }
     return loaded;
 }
 
