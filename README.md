@@ -17,6 +17,7 @@ and Super Game Boy components.
 - Video settings: window size, scaling, Game Boy colors, Super Game Boy border, and full screen
 - Audio settings: output device, volume, and mute
 - Remappable keyboard controls
+- Pause, reset, and fast-forward
 
 Emulation coverage is still evolving, so compatibility varies by game.
 
@@ -87,9 +88,14 @@ Game Boy Color BIOS. Open **Settings > Settings...** and, on the
 **BIOS** page, use **Browse** to choose the **GB BIOS file** and **GBC BIOS file**. If a game needs
 a BIOS that hasn't been chosen, gbemu offers to open Settings when the game is opened.
 
-The **Game Boy** page picks the hardware. **Automatic** runs Game Boy Color games as a Game Boy
-Color and everything else as a Game Boy. **Game Boy (DMG) for every game** runs every game on the
-original Game Boy, which some test ROMs (such as the OAM corruption tests) need.
+The **Emulation** page picks the hardware. **Automatic** runs Game Boy Color games as a Game Boy
+Color, Super Game Boy games on a Super Game Boy, and everything else as a Game Boy. **Game Boy (DMG)
+for every game** runs every game on the original Game Boy, which some test ROMs (such as the OAM
+corruption tests) need. The page also sets the fast-forward speed (2× to 8×) and whether the game
+pauses while another window is active.
+
+The **Emulation** menu pauses the game (**Pause**, Ctrl+P) and restarts it as if the console were
+switched off and on (**Reset**, Ctrl+R).
 
 The **Video** page sets the window size (1× to 8× the Game Boy's screen), how the picture is
 scaled (fit the window, whole multiples only, or stretched), the colors original Game Boy games
@@ -122,6 +128,7 @@ and press the new key (Escape cancels). **Restore Defaults** puts these back.
 | B | O |
 | Select | Backspace |
 | Start | Enter |
+| Fast-forward (hold) | Space |
 
 When the cartridge has battery-backed RAM, the emulator stores it in a
 `.battery` file next to the ROM. For example, `game.gb` uses `game.gb.battery`.

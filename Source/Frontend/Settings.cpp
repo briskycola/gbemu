@@ -20,6 +20,8 @@ namespace settings
     static constexpr const char *SUPER_GAME_BOY_BOOT_ROM = "superGameBoy";
     static constexpr const char *EMULATION               = "emulation";
     static constexpr const char *HARDWARE_MODEL          = "hardwareModel";
+    static constexpr const char *FAST_FORWARD_SPEED      = "fastForwardSpeed";
+    static constexpr const char *PAUSE_IN_BACKGROUND     = "pauseInBackground";
     static constexpr const char *VIDEO                   = "video";
     static constexpr const char *WINDOW_SCALE            = "windowScale";
     static constexpr const char *SCALING                 = "scaling";
@@ -31,6 +33,7 @@ namespace settings
     static constexpr const char *VOLUME                  = "volume";
     static constexpr const char *MUTED                   = "muted";
     static constexpr const char *INPUT                   = "input";
+    static constexpr const char *FAST_FORWARD_KEY        = "fastForward";
 
     // The words stored for each choice, in the order of its enum
     static const std::vector<QString> HARDWARE_MODEL_NAMES  = {"automatic", "gameBoy", "gameBoyColor", "superGameBoy"};
@@ -94,6 +97,8 @@ QJsonObject Settings::toJson() const
 
     QJsonObject emulation;
     emulation[settings::HARDWARE_MODEL] = settings::HARDWARE_MODEL_NAMES[static_cast<int>(hardwareModel)];
+    emulation[settings::FAST_FORWARD_SPEED] = fastForwardSpeed;
+    emulation[settings::PAUSE_IN_BACKGROUND] = pauseInBackground;
 
     QJsonObject video;
     video[settings::WINDOW_SCALE] = windowScale;
@@ -117,6 +122,7 @@ QJsonObject Settings::toJson() const
     QJsonObject input;
     for (size_t button = 0; button < input::BUTTON_COUNT; ++button)
         input[settings::BUTTON_NAMES[button]] = QKeySequence(buttonKeys[button]).toString(QKeySequence::PortableText);
+    input[settings::FAST_FORWARD_KEY] = QKeySequence(fastForwardKey).toString(QKeySequence::PortableText);
     root[settings::INPUT] = input;
     return root;
 }
@@ -142,6 +148,13 @@ Settings Settings::fromJson(const QJsonObject &root)
         : root.value(settings::HARDWARE_MODEL).toString();
     loaded.hardwareModel = static_cast<HardwareModel>(nameIndex(
         model, settings::HARDWARE_MODEL_NAMES, static_cast<int>(loaded.hardwareModel)));
+    const int speed = emulation.value(settings::FAST_FORWARD_SPEED).toInt(loaded.fastForwardSpeed);
+    if (std::find(emulation::FAST_FORWARD_SPEEDS.begin(), emulation::FAST_FORWARD_SPEEDS.end(), speed)
+        != emulation::FAST_FORWARD_SPEEDS.end())
+    {
+        loaded.fastForwardSpeed = speed;
+    }
+    loaded.pauseInBackground = emulation.value(settings::PAUSE_IN_BACKGROUND).toBool(loaded.pauseInBackground);
 
     const QJsonObject video = root.value(settings::VIDEO).toObject();
     loaded.windowScale = std::clamp(video.value(settings::WINDOW_SCALE).toInt(loaded.windowScale),
@@ -166,6 +179,9 @@ Settings Settings::fromJson(const QJsonObject &root)
             input.value(settings::BUTTON_NAMES[button]).toString(), QKeySequence::PortableText);
         if (!keys.isEmpty()) loaded.buttonKeys[button] = keys[0].key();
     }
+    const QKeySequence fastForward = QKeySequence::fromString(
+        input.value(settings::FAST_FORWARD_KEY).toString(), QKeySequence::PortableText);
+    if (!fastForward.isEmpty()) loaded.fastForwardKey = fastForward[0].key();
     return loaded;
 }
 

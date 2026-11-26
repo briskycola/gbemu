@@ -21,6 +21,7 @@
 #include <QStackedWidget>
 #include <QVBoxLayout>
 #include <utility>
+#include <vector>
 
 namespace settings_dialog
 {
@@ -40,16 +41,16 @@ SettingsDialog::SettingsDialog(const Settings &settings, std::function<bool(cons
 
     // Categories on the left, in the same order as the pages
     categories = new QListWidget(this);
+    categories->addItem(tr("Emulation"));
     categories->addItem(tr("BIOS"));
-    categories->addItem(tr("Game Boy"));
     categories->addItem(tr("Video"));
     categories->addItem(tr("Audio"));
     categories->addItem(tr("Input"));
     categories->setFixedWidth(settings_dialog::CATEGORY_LIST_WIDTH);
 
     pages = new QStackedWidget(this);
+    pages->addWidget(createEmulationPage(settings));
     pages->addWidget(createBIOSPage(settings));
-    pages->addWidget(createGameBoyPage(settings));
     pages->addWidget(createVideoPage(settings));
     pages->addWidget(createAudioPage(settings));
     pages->addWidget(createInputPage(settings));
@@ -110,7 +111,7 @@ QWidget* SettingsDialog::createBIOSPage(const Settings &settings)
     return page;
 }
 
-QWidget* SettingsDialog::createGameBoyPage(const Settings &settings)
+QWidget* SettingsDialog::createEmulationPage(const Settings &settings)
 {
     QWidget *page = new QWidget(this);
     QFormLayout *form = new QFormLayout(page);
@@ -128,6 +129,19 @@ QWidget* SettingsDialog::createGameBoyPage(const Settings &settings)
                                  "corruption tests, need the original Game Boy."));
     note->setWordWrap(true);
     form->addRow(QString(), note);
+
+    fastForwardSpeedBox = new QComboBox;
+    for (int speed : emulation::FAST_FORWARD_SPEEDS) fastForwardSpeedBox->addItem(tr("%1× speed").arg(speed), speed);
+    fastForwardSpeedBox->setCurrentIndex(fastForwardSpeedBox->findData(settings.fastForwardSpeed));
+    form->addRow(tr("Fast-forward:"), fastForwardSpeedBox);
+    QLabel *fastForwardNote = new QLabel(tr("Runs while the fast-forward key (Space unless changed on the "
+                                            "Input page) is held. The sound is muted meanwhile."));
+    fastForwardNote->setWordWrap(true);
+    form->addRow(QString(), fastForwardNote);
+
+    pauseInBackgroundBox = new QCheckBox(tr("Pause while another window is active"));
+    pauseInBackgroundBox->setChecked(settings.pauseInBackground);
+    form->addRow(QString(), pauseInBackgroundBox);
     return page;
 }
 
@@ -232,13 +246,21 @@ QWidget* SettingsDialog::createInputPage(const Settings &settings)
         grid->addWidget(buttonKeyButtons[button], row, 1);
     }
 
+    // Then the key held to fast-forward, after a gap
+    const int fastForwardRow = static_cast<int>(input::BUTTON_COUNT) + 1;
+    grid->setRowMinimumHeight(fastForwardRow - 1, grid->verticalSpacing() * 2);
+    fastForwardKeyButton = new KeyBindingButton(settings.fastForwardKey);
+    grid->addWidget(new QLabel(tr("Fast-forward:")), fastForwardRow, 0);
+    grid->addWidget(fastForwardKeyButton, fastForwardRow, 1);
+
     QPushButton *defaults = new QPushButton(tr("Restore Defaults"));
     connect(defaults, &QPushButton::clicked, this, [this]
         {
             for (size_t button = 0; button < input::BUTTON_COUNT; ++button)
                 buttonKeyButtons[button]->setKey(input::DEFAULT_BUTTON_KEYS[button]);
+            fastForwardKeyButton->setKey(input::DEFAULT_FAST_FORWARD_KEY);
         });
-    const int last = static_cast<int>(input::BUTTON_COUNT);
+    const int last = fastForwardRow + 1;
     grid->addWidget(defaults, last, 1, Qt::AlignLeft);
 
     QLabel *note = new QLabel(tr("Click a button, then press the key to use for it. Escape cancels."));
@@ -256,15 +278,21 @@ std::array<QString, input::BUTTON_COUNT> SettingsDialog::buttonNames()
 
 bool SettingsDialog::checkButtonKeys(const Settings &edited)
 {
-    const std::array<QString, input::BUTTON_COUNT> names = buttonNames();
-    for (size_t first = 0; first < input::BUTTON_COUNT; ++first)
+    // Every key on the page with its name: the buttons, then fast-forward
+    const std::array<QString, input::BUTTON_COUNT> buttons = buttonNames();
+    std::vector<QString> names(buttons.begin(), buttons.end());
+    std::vector<int> keys(edited.buttonKeys.begin(), edited.buttonKeys.end());
+    names.push_back(tr("Fast-forward"));
+    keys.push_back(edited.fastForwardKey);
+
+    for (size_t first = 0; first < keys.size(); ++first)
     {
-        for (size_t second = first + 1; second < input::BUTTON_COUNT; ++second)
+        for (size_t second = first + 1; second < keys.size(); ++second)
         {
-            if (edited.buttonKeys[first] != edited.buttonKeys[second]) continue;
+            if (keys[first] != keys[second]) continue;
             showPage(Page::Input);
             QMessageBox::warning(this, tr("Settings"), tr("%1 and %2 both use the %3 key. Choose a different key for one of them.")
-                .arg(names[first], names[second], KeyBindingButton::keyName(edited.buttonKeys[first])));
+                .arg(names[first], names[second], KeyBindingButton::keyName(keys[first])));
             return false;
         }
     }
@@ -311,6 +339,8 @@ Settings SettingsDialog::editedSettings() const
     edited.gameBoyColorBootROM = QDir::fromNativeSeparators(gameBoyColorBootROMEdit->text().trimmed());
     edited.superGameBoyBootROM = QDir::fromNativeSeparators(superGameBoyBootROMEdit->text().trimmed());
     edited.hardwareModel = static_cast<HardwareModel>(hardwareModelBox->currentIndex());
+    edited.fastForwardSpeed = fastForwardSpeedBox->currentData().toInt();
+    edited.pauseInBackground = pauseInBackgroundBox->isChecked();
     edited.windowScale = windowScaleBox->currentData().toInt();
     edited.scaling = static_cast<ScreenScaling>(scalingBox->currentIndex());
     edited.gameBoyColors = static_cast<GameBoyColors>(gameBoyColorsBox->currentIndex());
@@ -322,6 +352,7 @@ Settings SettingsDialog::editedSettings() const
     edited.muted = mutedBox->isChecked();
     for (size_t button = 0; button < input::BUTTON_COUNT; ++button)
         edited.buttonKeys[button] = buttonKeyButtons[button]->getKey();
+    edited.fastForwardKey = fastForwardKeyButton->getKey();
     return edited;
 }
 

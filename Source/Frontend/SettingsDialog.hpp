@@ -20,8 +20,8 @@ class SettingsDialog final : public QDialog
     public:
         enum class Page
         {
+            Emulation,
             BIOS,
-            GameBoy,
             Video,
             Audio,
             Input,
@@ -42,6 +42,8 @@ class SettingsDialog final : public QDialog
         QLineEdit *gameBoyColorBootROMEdit;
         QLineEdit *superGameBoyBootROMEdit;
         QComboBox *hardwareModelBox;
+        QComboBox *fastForwardSpeedBox;
+        QCheckBox *pauseInBackgroundBox;
         QComboBox *windowScaleBox;
         QComboBox *scalingBox;
         QComboBox *gameBoyColorsBox;
@@ -50,9 +52,10 @@ class SettingsDialog final : public QDialog
         QSlider *volumeSlider;
         QCheckBox *mutedBox;
         std::array<KeyBindingButton *, input::BUTTON_COUNT> buttonKeyButtons{};
+        KeyBindingButton *fastForwardKeyButton;
 
         QWidget* createBIOSPage(const Settings &settings);
-        QWidget* createGameBoyPage(const Settings &settings);
+        QWidget* createEmulationPage(const Settings &settings);
         QWidget* createVideoPage(const Settings &settings);
         QWidget* createAudioPage(const Settings &settings);
         QWidget* createInputPage(const Settings &settings);
@@ -60,8 +63,8 @@ class SettingsDialog final : public QDialog
         // The Game Boy buttons' names, in the order of GBButton
         static std::array<QString, input::BUTTON_COUNT> buttonNames();
 
-        // Explains which buttons share a key, if any. Returns whether every
-        // button has a key of its own.
+        // Explains which buttons (or the fast-forward key) share a key, if
+        // any. Returns whether each has a key of its own.
         bool checkButtonKeys(const Settings &edited);
 
         // Lists "System default" and every connected output, selecting the

@@ -50,6 +50,8 @@ void ScreenWidget::applySettings(const Settings &settings)
             emulator->buttonReleased(static_cast<GBButton>(button));
     }
     buttonKeys = settings.buttonKeys;
+    if (fastForwardKey != settings.fastForwardKey) fastForwardHeld = false;
+    fastForwardKey = settings.fastForwardKey;
     update();
 }
 
@@ -93,7 +95,12 @@ void ScreenWidget::keyPressEvent(QKeyEvent *event)
 {
     if (event->isAutoRepeat() || !emulator) return;
     GBButton button;
-    if (tryToGetGBButton(event->key(), button))
+    if (KeyBindingButton::normalizedKey(event->key()) == fastForwardKey)
+    {
+        fastForwardHeld = true;
+        event->accept();
+    }
+    else if (tryToGetGBButton(event->key(), button))
     {
         emulator->buttonPressed(button);
         event->accept();
@@ -105,7 +112,12 @@ void ScreenWidget::keyReleaseEvent(QKeyEvent *event)
 {
     if (event->isAutoRepeat() || !emulator) return;
     GBButton button;
-    if (tryToGetGBButton(event->key(), button))
+    if (KeyBindingButton::normalizedKey(event->key()) == fastForwardKey)
+    {
+        fastForwardHeld = false;
+        event->accept();
+    }
+    else if (tryToGetGBButton(event->key(), button))
     {
         emulator->buttonReleased(button);
         event->accept();
@@ -117,6 +129,17 @@ bool ScreenWidget::focusNextPrevChild(bool next)
 {
     Q_UNUSED(next);
     return false;
+}
+
+void ScreenWidget::focusOutEvent(QFocusEvent *event)
+{
+    fastForwardHeld = false;
+    if (emulator)
+    {
+        for (size_t button = 0; button < input::BUTTON_COUNT; ++button)
+            emulator->buttonReleased(static_cast<GBButton>(button));
+    }
+    QWidget::focusOutEvent(event);
 }
 
 void ScreenWidget::setEmulator(Emulator *value) { emulator = value; }

@@ -145,18 +145,33 @@ MainWindow::MainWindow(QWidget *parent)
     exitAction->setShortcut(QKeySequence::Quit);
     connect(exitAction, &QAction::triggered, qApp, &QApplication::quit);
 
+    QMenu *emulationMenu = menuBar()->addMenu(tr("&Emulation"));
+    pauseAction = emulationMenu->addAction(tr("&Pause"));
+    pauseAction->setCheckable(true);
+    pauseAction->setShortcut(Qt::CTRL | Qt::Key_P);
+    connect(pauseAction, &QAction::toggled, this, &MainWindow::updateWindowTitle);
+    QAction *resetAction = emulationMenu->addAction(tr("&Reset"));
+    resetAction->setShortcut(Qt::CTRL | Qt::Key_R);
+    connect(resetAction, &QAction::triggered, this, [this]
+        {
+            // Like switching the console off and on: the save is kept and the BIOS runs again
+            if (emulator) openROM(QString::fromStdString(currentROMPath));
+        });
+
     QMenu *viewMenu = menuBar()->addMenu(tr("&View"));
     fullScreenAction = viewMenu->addAction(tr("&Full Screen"));
     fullScreenAction->setCheckable(true);
     fullScreenAction->setShortcut(QKeySequence::FullScreen);
     connect(fullScreenAction, &QAction::triggered, this, &MainWindow::setFullScreen);
-    // The menu bar is hidden in full screen, so the window holds the shortcut too
+    // The menu bar is hidden in full screen, so the window holds the shortcuts too
     addAction(fullScreenAction);
+    addAction(pauseAction);
+    addAction(resetAction);
 
     QMenu *settingsMenu = menuBar()->addMenu(tr("&Settings"));
     QAction *settingsAction = settingsMenu->addAction(tr("&Settings..."));
     settingsAction->setShortcut(QKeySequence::Preferences);
-    connect(settingsAction, &QAction::triggered, this, [this] { openSettings(SettingsDialog::Page::BIOS); });
+    connect(settingsAction, &QAction::triggered, this, [this] { openSettings(SettingsDialog::Page::Emulation); });
     resizeToScale(settings.windowScale);
     // Size it again once it is on screen, from the menu bar's real height
     QTimer::singleShot(0, this, [this] { resizeToScale(settings.windowScale); });
@@ -261,7 +276,16 @@ void MainWindow::closeROM()
     pendingAudio.clear();
     screen->setEmulator(nullptr);
     screen->clear();
-    setWindowTitle("gbemu");
+    updateWindowTitle();
+}
+
+// "gbemu - game.gb", with "(Paused)" while paused
+void MainWindow::updateWindowTitle()
+{
+    QString title = currentROMPath.empty()
+        ? tr("gbemu") : tr("gbemu - %1").arg(QFileInfo(QString::fromStdString(currentROMPath)).fileName());
+    if (pauseAction->isChecked()) title += tr(" (Paused)");
+    setWindowTitle(title);
 }
 
 bool MainWindow::openROM(const QString &filename)
@@ -314,7 +338,7 @@ bool MainWindow::openROM(const QString &filename)
     // Only an original Game Boy shows plain shades, which can be recolored
     screen->setRecolorShades(console == Console::GameBoy);
     screen->clear();
-    setWindowTitle(tr("gbemu - %1").arg(QFileInfo(filename).fileName()));
+    updateWindowTitle();
     screen->setFocus();
     return true;
 }
@@ -331,17 +355,23 @@ void MainWindow::openROMDialog()
 
 void MainWindow::runFrame()
 {
-    if (!emulator) return;
+    if (!emulator || pauseAction->isChecked()) return;
+    if (settings.pauseInBackground && !isActiveWindow()) return;
 
     const qint64 now = frameClock.nsecsElapsed();
     if (now < nextFrameDeadline) return;
     if (nextFrameDeadline == 0) nextFrameDeadline = now;
 
+    // Fast-forward runs frames more often, and is silent: its sound would
+    // come out sped up and chopped
+    const bool fastForwarding = screen->isFastForwarding();
+    const int speed = fastForwarding ? settings.fastForwardSpeed : 1;
+
     try
     {
         emulator->runFrame([this](const FrameBuffer &buffer) { screen->updateFrame(buffer); });
         std::vector<int16_t> newSamples = emulator->takeAudioSamples();
-        if (!newSamples.empty())
+        if (!newSamples.empty() && !fastForwarding)
         {
             pendingAudio.insert(pendingAudio.end(), newSamples.begin(), newSamples.end());
             const size_t maxSamples = mainwindow::MAX_QUEUED_AUDIO_BYTES / sizeof(int16_t);
@@ -375,7 +405,7 @@ void MainWindow::runFrame()
         }
         // A frame lasts CLOCKS_PER_FRAME clocks of the console, whose clock
         // runs 2.41% fast on the Super Game Boy
-        const qint64 framePeriod = (1'000'000'000LL * ppu::CLOCKS_PER_FRAME) / emulator->clockRate();
+        const qint64 framePeriod = (1'000'000'000LL * ppu::CLOCKS_PER_FRAME) / emulator->clockRate() / speed;
         nextFrameDeadline += framePeriod;
         // Do not run a burst of catch-up frames after a dialog or a slow frame.
         if (nextFrameDeadline <= frameClock.nsecsElapsed())

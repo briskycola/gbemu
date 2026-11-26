@@ -39,6 +39,7 @@ class MainWindow final : public QMainWindow
     private:
         ScreenWidget *screen;
         QAction *fullScreenAction;
+        QAction *pauseAction;
         QTimer *timer;
         std::unique_ptr<QAudioSink> audioSink;
         QMediaDevices *mediaDevices = nullptr;
@@ -62,6 +63,7 @@ class MainWindow final : public QMainWindow
         void applyVolume();
         void setUpAudioOutput();
         void showError(const QString &message);
+        void updateWindowTitle();
         void closeROM();
         bool openROM(const QString &filename);
         void openROMDialog();

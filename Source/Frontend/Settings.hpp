@@ -17,7 +17,9 @@
 //         "superGameBoy": "C:/path/to/sgb.bin"
 //     },
 //     "emulation": {
-//         "hardwareModel": "automatic"   (or "gameBoy", "gameBoyColor", "superGameBoy")
+//         "hardwareModel": "automatic",  (or "gameBoy", "gameBoyColor", "superGameBoy")
+//         "fastForwardSpeed": 4,         (2, 3, 4 or 8 times normal speed)
+//         "pauseInBackground": false
 //     },
 //     "video": {
 //         "windowScale": 6,              (1 to 8)
@@ -33,7 +35,8 @@
 //     },
 //     "input": {
 //         "up": "W", "down": "S", "left": "A", "right": "D",
-//         "a": "P", "b": "O", "select": "Backspace", "start": "Return"
+//         "a": "P", "b": "O", "select": "Backspace", "start": "Return",
+//         "fastForward": "Space"
 //     }
 // }
 
@@ -54,6 +57,13 @@ enum class GameBoyColors
     Green,
     Pocket,
 };
+
+namespace emulation
+{
+    // The speeds fast-forward can run at, in times normal speed
+    static constexpr std::array<int, 4> FAST_FORWARD_SPEEDS = {2, 3, 4, 8};
+    static constexpr int DEFAULT_FAST_FORWARD_SPEED = 4;
+}
 
 namespace video
 {
@@ -76,6 +86,7 @@ namespace input
         Qt::Key_W, Qt::Key_S, Qt::Key_A, Qt::Key_D,         // Up, Down, Left, Right
         Qt::Key_P, Qt::Key_O, Qt::Key_Backspace, Qt::Key_Return // A, B, Select, Start
     };
+    static constexpr int DEFAULT_FAST_FORWARD_KEY = Qt::Key_Space;
 }
 
 class Settings
@@ -87,6 +98,10 @@ class Settings
         QString superGameBoyBootROM;
 
         HardwareModel hardwareModel = HardwareModel::Automatic;
+        // How many times normal speed the game runs while fast-forward is held
+        int fastForwardSpeed = emulation::DEFAULT_FAST_FORWARD_SPEED;
+        // Whether the game pauses while another window is active
+        bool pauseInBackground = false;
 
         // The window's size in Game Boy pixels, and how the picture is drawn
         int windowScale = video::DEFAULT_WINDOW_SCALE;
@@ -102,6 +117,8 @@ class Settings
 
         // The key of each Game Boy button, indexed by GBButton
         std::array<int, input::BUTTON_COUNT> buttonKeys = input::DEFAULT_BUTTON_KEYS;
+        // The key held to fast-forward
+        int fastForwardKey = input::DEFAULT_FAST_FORWARD_KEY;
 
         // The boot ROM path for one console
         const QString& bootROM(Console console) const;

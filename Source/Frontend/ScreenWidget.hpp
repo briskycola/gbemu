@@ -11,6 +11,7 @@
 
 class Emulator;
 class FrameBuffer;
+class QFocusEvent;
 class QKeyEvent;
 class QPaintEvent;
 
@@ -28,6 +29,8 @@ class ScreenWidget final : public QWidget
         bool recolorShades = false;
         bool showSuperGameBoyBorder = true;
         std::array<int, input::BUTTON_COUNT> buttonKeys = input::DEFAULT_BUTTON_KEYS;
+        int fastForwardKey = input::DEFAULT_FAST_FORWARD_KEY;
+        bool fastForwardHeld = false;
 
         // The Game Boy button a key is bound to, if any
         bool tryToGetGBButton(int key, GBButton &button) const;
@@ -44,6 +47,8 @@ class ScreenWidget final : public QWidget
         void keyReleaseEvent(QKeyEvent *event) override;
         // Tab would move the focus away instead of reaching the game
         bool focusNextPrevChild(bool next) override;
+        // Keys released while another window has the focus never arrive
+        void focusOutEvent(QFocusEvent *event) override;
 
     public:
         explicit ScreenWidget(QWidget *parent = nullptr);
@@ -58,4 +63,7 @@ class ScreenWidget final : public QWidget
         // Whether the game runs as an original Game Boy, whose four shades
         // are shown in the chosen Game Boy colors
         void setRecolorShades(bool value);
+
+        // Whether the fast-forward key is held
+        bool isFastForwarding() const { return fastForwardHeld; }
 };
