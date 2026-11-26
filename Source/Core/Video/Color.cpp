@@ -42,7 +42,7 @@ GBColor getColor(uint8_t pixelValue)
 uint32_t shadeToRGB(Color color)
 {
     // White, light gray, dark gray, and black
-    static const uint32_t GRAYSCALE[] = {0xFFFFFF, 0xAAAAAA, 0x555555, 0x000000};
+    static constexpr std::array<uint32_t, 4> GRAYSCALE = {0xFFFFFF, 0xAAAAAA, 0x555555, 0x000000};
     return GRAYSCALE[static_cast<uint8_t>(color) & COLOR_NUMBER_MASK];
 }
 

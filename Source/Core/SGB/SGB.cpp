@@ -71,7 +71,7 @@ constexpr uint8_t MAX_ATTRIBUTE_BLOCKS  = MAX_ATTRIBUTE_LINES / ATTRIBUTE_BLOCK_
 
 // The default palettes are shades of gray (RGB555):
 // white, light gray, dark gray, and black
-constexpr uint16_t DEFAULT_PALETTE[sgb::SGB_COLORS_PER_PALETTE] = {0x7FFF, 0x56B5, 0x294A, 0x0000};
+constexpr std::array<uint16_t, sgb::SGB_COLORS_PER_PALETTE> DEFAULT_PALETTE = {0x7FFF, 0x56B5, 0x294A, 0x0000};
 
 }
 

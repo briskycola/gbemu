@@ -88,14 +88,8 @@ std::string describeCartridge(CartridgeType type)
 
 std::string getTitleFromCartridge(const std::vector<uint8_t> &rom)
 {
-    char name[cartridge::TITLE_LENGTH];
-
-    for (uint8_t i = 0; i < cartridge::TITLE_LENGTH; i++)
-    {
-        name[i] = static_cast<char>(rom[cartridge::TITLE_START_ADDRESS + i]);
-    }
-
-    return std::string(name, cartridge::TITLE_LENGTH);
+    const auto start = rom.begin() + cartridge::TITLE_START_ADDRESS;
+    return std::string(start, start + cartridge::TITLE_LENGTH);
 }
 
 // Header byte 0x148

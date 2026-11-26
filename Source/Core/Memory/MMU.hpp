@@ -2,6 +2,7 @@
 
 #include "Core/Common/Address.hpp"
 #include "Core/Common/Register.hpp"
+#include <array>
 #include <vector>
 
 // https://gbdev.io/pandocs/Memory_Map.html
@@ -109,7 +110,7 @@ class MMU
         std::vector<uint8_t> oamRAM;
         std::vector<uint8_t> highRAM;
         uint8_t workRAMBank = 1;
-        uint8_t undocumentedRegisters[3] = {}; // CGB FF72-FF74
+        std::array<uint8_t, 3> undocumentedRegisters{}; // CGB FF72-FF74
         uint8_t undocumentedFF75 = 0;          // CGB FF75, bits 4-6
         uint8_t key0 = 0;                      // CGB KEY0, written by the boot ROM
         uint8_t infraredPort = 0;              // CGB RP

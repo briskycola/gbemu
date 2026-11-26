@@ -22,12 +22,12 @@ namespace apu
     
     // Square wave duty patterns, one bit per step:
     // 12.5%, 25%, 50%, and 75%
-    constexpr uint8_t DUTY_PATTERNS[4] = {0x01, 0x81, 0x87, 0x7E};
+    constexpr std::array<uint8_t, 4> DUTY_PATTERNS = {0x01, 0x81, 0x87, 0x7E};
     constexpr uint8_t DUTY_STEP_MASK = 0x07;
     constexpr uint32_t SQUARE_TIMER_PHASE_MASK = 0x03; // Low bits a trigger leaves alone
     
     // Noise channel clock divisors, indexed by NR43 bits 0-2
-    constexpr uint8_t NOISE_DIVISORS[8] = {8, 16, 32, 48, 64, 80, 96, 112};
+    constexpr std::array<uint8_t, 8> NOISE_DIVISORS = {8, 16, 32, 48, 64, 80, 96, 112};
     
     // Channel periods are 11-bit values. The timer counts up
     // from the period to 2048; square channels step every 4

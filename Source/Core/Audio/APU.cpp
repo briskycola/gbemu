@@ -340,14 +340,14 @@ int APU::noiseOutput() const
 // https://gbdev.io/pandocs/Audio_details.html#mixer
 void APU::accumulateSample()
 {
-    const int outputs[apu::CHANNEL_COUNT] =
+    const std::array<int, apu::CHANNEL_COUNT> outputs =
     {
         squareOutput(square1, reg(io::CHANNEL1_LENGTH_DUTY_REGISTER)),
         squareOutput(square2, reg(io::CHANNEL2_LENGTH_DUTY_REGISTER)),
         waveOutput(),
         noiseOutput()
     };
-    const bool dacOn[apu::CHANNEL_COUNT] =
+    const std::array<bool, apu::CHANNEL_COUNT> dacOn =
     {
         (reg(io::CHANNEL1_ENVELOPE_REGISTER) & apu::DAC_ENABLE_MASK) != 0,
         (reg(io::CHANNEL2_ENVELOPE_REGISTER) & apu::DAC_ENABLE_MASK) != 0,
@@ -460,7 +460,7 @@ uint8_t APU::read(uint16_t address) const
     // bits (lengths, periods, triggers) and unused bits.
     // 0xFF15 and 0xFF1F are unused registers, and NR41 (0xFF20)
     // only holds the write-only length, so it reads as all 1s.
-    static constexpr uint8_t READ_MASKS[io::SOUND_CONTROL_REGISTER - io::AUDIO_ADDRESS_START] =
+    static constexpr std::array<uint8_t, io::SOUND_CONTROL_REGISTER - io::AUDIO_ADDRESS_START> READ_MASKS =
     {
         0x80, 0x3F, 0x00, 0xFF, 0xBF, 0xFF, 0x3F, 0x00,
         0xFF, 0xBF, 0x7F, 0xFF, 0x9F, 0xFF, 0xBF, 0xFF,
@@ -486,7 +486,7 @@ void APU::write(uint16_t address, uint8_t value)
         {
             // Powering off clears every register and channel. On the DMG the
             // length counters are unaffected by power; on the CGB they clear too.
-            const uint16_t lengths[apu::CHANNEL_COUNT] = {square1.length, square2.length, wave.length, noise.length};
+            const std::array<uint16_t, apu::CHANNEL_COUNT> lengths = {square1.length, square2.length, wave.length, noise.length};
             powered = false;
             registers.fill(0);
             square1 = SquareChannel{};

@@ -3,6 +3,7 @@
 #include "Core/Emulator.hpp"
 #include "Core/CPU/CPU.hpp"
 #include <algorithm>
+#include <array>
 #include <stdexcept>
 
 Timer::Timer(Emulator &emulator) :
@@ -117,7 +118,7 @@ uint16_t Timer::selectedMask() const
 {
     // Indexed by TAC bits 0-1: every 256, 4, 16 and 64 M-cycles
     // https://gbdev.io/pandocs/Timer_and_Divider_Registers.html#ff07--tac-timer-control
-    static constexpr uint8_t DIVIDER_BITS[4] = {9, 3, 5, 7};
+    static constexpr std::array<uint8_t, 4> DIVIDER_BITS = {9, 3, 5, 7};
     return static_cast<uint16_t>(1u << DIVIDER_BITS[timerControl.getValue() & timer::TIMER_CLOCK_SELECT_MASK]);
 }
 
