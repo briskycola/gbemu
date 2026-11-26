@@ -22,6 +22,12 @@
 //         "scaling": "fit",              (or "integer", "stretch")
 //         "gameBoyColors": "gray",       (or "green", "pocket")
 //         "showSuperGameBoyBorder": true
+//     },
+//     "audio": {
+//         "device": "",                  (empty for the system's default output)
+//         "deviceName": "",              (the chosen device's name, shown while it is unplugged)
+//         "volume": 100,                 (0 to 100)
+//         "muted": false
 //     }
 // }
 
@@ -50,6 +56,11 @@ namespace video
     static constexpr int DEFAULT_WINDOW_SCALE = 6;
 }
 
+namespace audio
+{
+    static constexpr int MAX_VOLUME = 100;
+}
+
 class Settings
 {
     public:
@@ -65,6 +76,12 @@ class Settings
         ScreenScaling scaling = ScreenScaling::Fit;
         GameBoyColors gameBoyColors = GameBoyColors::Gray;
         bool showSuperGameBoyBorder = true;
+
+        // The audio output's ID, empty for the system default, and its name
+        QString audioDevice;
+        QString audioDeviceName;
+        int volume = audio::MAX_VOLUME;
+        bool muted = false;
 
         // The boot ROM path for one console
         const QString& bootROM(Console console) const;

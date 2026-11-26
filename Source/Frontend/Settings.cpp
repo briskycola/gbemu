@@ -24,6 +24,11 @@ namespace settings
     static constexpr const char *SCALING                 = "scaling";
     static constexpr const char *GAME_BOY_COLORS         = "gameBoyColors";
     static constexpr const char *SHOW_SGB_BORDER         = "showSuperGameBoyBorder";
+    static constexpr const char *AUDIO                   = "audio";
+    static constexpr const char *AUDIO_DEVICE            = "device";
+    static constexpr const char *AUDIO_DEVICE_NAME       = "deviceName";
+    static constexpr const char *VOLUME                  = "volume";
+    static constexpr const char *MUTED                   = "muted";
 
     // The words stored for each choice, in the order of its enum
     static const std::vector<QString> HARDWARE_MODEL_NAMES  = {"automatic", "gameBoy", "gameBoyColor", "superGameBoy"};
@@ -96,6 +101,13 @@ QJsonObject Settings::toJson() const
     root[settings::BOOT_ROMS] = bootROMs;
     root[settings::EMULATION] = emulation;
     root[settings::VIDEO] = video;
+
+    QJsonObject audio;
+    audio[settings::AUDIO_DEVICE] = audioDevice;
+    audio[settings::AUDIO_DEVICE_NAME] = audioDeviceName;
+    audio[settings::VOLUME] = volume;
+    audio[settings::MUTED] = muted;
+    root[settings::AUDIO] = audio;
     return root;
 }
 
@@ -130,6 +142,12 @@ Settings Settings::fromJson(const QJsonObject &root)
         video.value(settings::GAME_BOY_COLORS).toString(), settings::GAME_BOY_COLORS_NAMES,
         static_cast<int>(loaded.gameBoyColors)));
     loaded.showSuperGameBoyBorder = video.value(settings::SHOW_SGB_BORDER).toBool(loaded.showSuperGameBoyBorder);
+
+    const QJsonObject audio = root.value(settings::AUDIO).toObject();
+    loaded.audioDevice = audio.value(settings::AUDIO_DEVICE).toString();
+    loaded.audioDeviceName = audio.value(settings::AUDIO_DEVICE_NAME).toString();
+    loaded.volume = std::clamp(audio.value(settings::VOLUME).toInt(loaded.volume), 0, audio::MAX_VOLUME);
+    loaded.muted = audio.value(settings::MUTED).toBool(loaded.muted);
     return loaded;
 }
 

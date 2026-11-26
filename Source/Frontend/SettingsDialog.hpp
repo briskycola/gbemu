@@ -8,6 +8,7 @@ class QCheckBox;
 class QComboBox;
 class QLineEdit;
 class QListWidget;
+class QSlider;
 class QStackedWidget;
 
 // The Settings window: a list of categories on the left, the selected
@@ -20,6 +21,7 @@ class SettingsDialog final : public QDialog
             BIOS,
             GameBoy,
             Video,
+            Audio,
         };
 
         // apply is called with the edited settings on OK or Apply and
@@ -41,10 +43,19 @@ class SettingsDialog final : public QDialog
         QComboBox *scalingBox;
         QComboBox *gameBoyColorsBox;
         QCheckBox *superGameBoyBorderBox;
+        QComboBox *audioDeviceBox;
+        QSlider *volumeSlider;
+        QCheckBox *mutedBox;
 
         QWidget* createBIOSPage(const Settings &settings);
         QWidget* createGameBoyPage(const Settings &settings);
         QWidget* createVideoPage(const Settings &settings);
+        QWidget* createAudioPage(const Settings &settings);
+
+        // Lists "System default" and every connected output, selecting the
+        // device with the given ID. A chosen device that is unplugged stays
+        // listed under its saved name, so applying doesn't forget it.
+        void listAudioDevices(const QString &selectedID, const QString &selectedName);
         void browseForBootROM(QLineEdit *edit, Console console);
 
         // The settings as currently shown in the window

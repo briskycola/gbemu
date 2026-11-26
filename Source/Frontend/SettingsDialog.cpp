@@ -1,5 +1,6 @@
 #include "Frontend/SettingsDialog.hpp"
 #include "Core/Memory/MMU.hpp"
+#include <QAudioDevice>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -12,8 +13,10 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMediaDevices>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSlider>
 #include <QStackedWidget>
 #include <QVBoxLayout>
 #include <utility>
@@ -23,6 +26,8 @@ namespace settings_dialog
     static constexpr int CATEGORY_LIST_WIDTH = 150;
     static constexpr int MINIMUM_WIDTH       = 640;
     static constexpr int MINIMUM_HEIGHT      = 360;
+    // Where each audio device item keeps the device's name
+    static constexpr int DEVICE_NAME_ROLE    = Qt::UserRole + 1;
 }
 
 SettingsDialog::SettingsDialog(const Settings &settings, std::function<bool(const Settings&)> apply,
@@ -37,12 +42,14 @@ SettingsDialog::SettingsDialog(const Settings &settings, std::function<bool(cons
     categories->addItem(tr("BIOS"));
     categories->addItem(tr("Game Boy"));
     categories->addItem(tr("Video"));
+    categories->addItem(tr("Audio"));
     categories->setFixedWidth(settings_dialog::CATEGORY_LIST_WIDTH);
 
     pages = new QStackedWidget(this);
     pages->addWidget(createBIOSPage(settings));
     pages->addWidget(createGameBoyPage(settings));
     pages->addWidget(createVideoPage(settings));
+    pages->addWidget(createAudioPage(settings));
     connect(categories, &QListWidget::currentRowChanged, pages, &QStackedWidget::setCurrentIndex);
     categories->setCurrentRow(0);
 
@@ -166,6 +173,70 @@ QWidget* SettingsDialog::createVideoPage(const Settings &settings)
     return page;
 }
 
+QWidget* SettingsDialog::createAudioPage(const Settings &settings)
+{
+    QWidget *page = new QWidget(this);
+    QFormLayout *form = new QFormLayout(page);
+
+    audioDeviceBox = new QComboBox;
+    listAudioDevices(settings.audioDevice, settings.audioDeviceName);
+    form->addRow(tr("Output device:"), audioDeviceBox);
+
+    // Keep the list current as devices are plugged in and out
+    QMediaDevices *devices = new QMediaDevices(page);
+    connect(devices, &QMediaDevices::audioOutputsChanged, this, [this]
+        {
+            listAudioDevices(audioDeviceBox->currentData().toString(),
+                             audioDeviceBox->currentData(settings_dialog::DEVICE_NAME_ROLE).toString());
+        });
+
+    volumeSlider = new QSlider(Qt::Horizontal);
+    volumeSlider->setRange(0, audio::MAX_VOLUME);
+    volumeSlider->setValue(settings.volume);
+    QLabel *volumeLabel = new QLabel;
+    volumeLabel->setMinimumWidth(volumeLabel->fontMetrics().horizontalAdvance(QStringLiteral("100%")));
+    const auto showVolume = [volumeLabel](int volume) { volumeLabel->setText(QStringLiteral("%1%").arg(volume)); };
+    showVolume(settings.volume);
+    connect(volumeSlider, &QSlider::valueChanged, volumeLabel, showVolume);
+    QHBoxLayout *volumeRow = new QHBoxLayout;
+    volumeRow->addWidget(volumeSlider, 1);
+    volumeRow->addWidget(volumeLabel);
+    form->addRow(tr("Volume:"), volumeRow);
+
+    mutedBox = new QCheckBox(tr("Mute"));
+    mutedBox->setChecked(settings.muted);
+    form->addRow(QString(), mutedBox);
+
+    QLabel *note = new QLabel(tr("Audio settings take effect straight away. If the chosen device is "
+                                 "unplugged, the system default plays until it comes back."));
+    note->setWordWrap(true);
+    form->addRow(QString(), note);
+    return page;
+}
+
+void SettingsDialog::listAudioDevices(const QString &selectedID, const QString &selectedName)
+{
+    audioDeviceBox->clear();
+    audioDeviceBox->addItem(tr("System default"), QString());
+
+    for (const QAudioDevice &device : QMediaDevices::audioOutputs())
+    {
+        audioDeviceBox->addItem(device.description(), QString::fromUtf8(device.id()));
+        audioDeviceBox->setItemData(audioDeviceBox->count() - 1, device.description(),
+                                    settings_dialog::DEVICE_NAME_ROLE);
+    }
+
+    int index = audioDeviceBox->findData(selectedID);
+    if (index < 0)
+    {
+        audioDeviceBox->addItem(tr("%1 (not connected)").arg(selectedName.isEmpty() ? tr("Unknown device") : selectedName),
+                                selectedID);
+        index = audioDeviceBox->count() - 1;
+        audioDeviceBox->setItemData(index, selectedName, settings_dialog::DEVICE_NAME_ROLE);
+    }
+    audioDeviceBox->setCurrentIndex(index);
+}
+
 void SettingsDialog::browseForBootROM(QLineEdit *edit, Console console)
 {
     const QString current = edit->text().trimmed();
@@ -187,6 +258,11 @@ Settings SettingsDialog::editedSettings() const
     edited.scaling = static_cast<ScreenScaling>(scalingBox->currentIndex());
     edited.gameBoyColors = static_cast<GameBoyColors>(gameBoyColorsBox->currentIndex());
     edited.showSuperGameBoyBorder = superGameBoyBorderBox->isChecked();
+    edited.audioDevice = audioDeviceBox->currentData().toString();
+    edited.audioDeviceName = edited.audioDevice.isEmpty()
+        ? QString() : audioDeviceBox->currentData(settings_dialog::DEVICE_NAME_ROLE).toString();
+    edited.volume = volumeSlider->value();
+    edited.muted = mutedBox->isChecked();
     return edited;
 }
 

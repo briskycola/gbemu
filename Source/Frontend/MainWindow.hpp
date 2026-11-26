@@ -21,6 +21,7 @@ class QAudioSink;
 class QIODevice;
 class QMediaDevices;
 class QAction;
+class QAudioDevice;
 class QKeyEvent;
 class QTimer;
 
@@ -57,6 +58,8 @@ class MainWindow final : public QMainWindow
         static void saveBatteryState(Emulator *emulator, const std::string &filename);
         static std::vector<uint8_t> loadState(const std::string &filename);
 
+        QAudioDevice chosenAudioDevice() const;
+        void applyVolume();
         void setUpAudioOutput();
         void showError(const QString &message);
         void closeROM();

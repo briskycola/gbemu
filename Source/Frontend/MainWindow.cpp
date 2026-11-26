@@ -70,11 +70,14 @@ bool MainWindow::applySettings(const Settings &newSettings)
     }
     const bool restart = settings.needsRestart(newSettings);
     const bool resized = settings.windowScale != newSettings.windowScale;
+    const bool newAudioDevice = settings.audioDevice != newSettings.audioDevice;
     settings = newSettings;
 
-    // Video settings take effect straight away
+    // Video and audio settings take effect straight away
     screen->applySettings(settings);
     if (resized) resizeToScale(settings.windowScale);
+    if (newAudioDevice) setUpAudioOutput();
+    else applyVolume();
 
     if (restart && offerRestartOnApply) offerRestart();
     return true;
@@ -159,11 +162,12 @@ MainWindow::MainWindow(QWidget *parent)
     QTimer::singleShot(0, this, [this] { resizeToScale(settings.windowScale); });
 
     setUpAudioOutput();
-    // Follow the system default output, e.g. when headphones are plugged in.
+    // Follow device changes: a new system default (e.g. headphones plugged
+    // in), or the chosen device being unplugged or plugged back in
     mediaDevices = new QMediaDevices(this);
     connect(mediaDevices, &QMediaDevices::audioOutputsChanged, this, [this]
         {
-            if (QMediaDevices::defaultAudioOutput().id() != audioDeviceId) setUpAudioOutput();
+            if (chosenAudioDevice().id() != audioDeviceId) setUpAudioOutput();
         });
 
     timer = new QTimer(this);
@@ -182,7 +186,28 @@ MainWindow::~MainWindow()
 
 void MainWindow::loadInitialROM(const QString &filename) { if (!filename.isEmpty()) openROM(filename); }
 
-// (Re)creates the audio sink on the current default output device.
+// The output chosen in the settings while it is connected, otherwise the
+// system default
+QAudioDevice MainWindow::chosenAudioDevice() const
+{
+    if (!settings.audioDevice.isEmpty())
+    {
+        for (const QAudioDevice &device : QMediaDevices::audioOutputs())
+            if (QString::fromUtf8(device.id()) == settings.audioDevice) return device;
+    }
+    return QMediaDevices::defaultAudioOutput();
+}
+
+// The volume setting, as the sink's linear gain. The slider follows how
+// loud it sounds, so it is converted from a logarithmic scale.
+void MainWindow::applyVolume()
+{
+    if (!audioSink) return;
+    const float volume = settings.muted ? 0.0f : static_cast<float>(settings.volume) / audio::MAX_VOLUME;
+    audioSink->setVolume(QAudio::convertVolume(volume, QAudio::LogarithmicVolumeScale, QAudio::LinearVolumeScale));
+}
+
+// (Re)creates the audio sink on the chosen output device.
 // Playback restarts from the queued samples on the next frame.
 void MainWindow::setUpAudioOutput()
 {
@@ -191,7 +216,7 @@ void MainWindow::setUpAudioOutput()
     audioOutput = nullptr;
     audioStarted = false;
 
-    const QAudioDevice audioDevice = QMediaDevices::defaultAudioOutput();
+    const QAudioDevice audioDevice = chosenAudioDevice();
     audioDeviceId = audioDevice.id();
     QAudioFormat format;
     format.setSampleRate(apu::AUDIO_SAMPLE_RATE);
@@ -199,16 +224,17 @@ void MainWindow::setUpAudioOutput()
     format.setSampleFormat(QAudioFormat::Int16);
     if (audioDevice.isNull())
     {
-        qWarning() << "No default audio output device is available";
+        qWarning() << "No audio output device is available";
         return;
     }
     if (!audioDevice.isFormatSupported(format))
     {
-        qWarning() << "Default audio device does not support 48 kHz, stereo, signed 16-bit audio";
+        qWarning() << audioDevice.description() << "does not support 48 kHz, stereo, signed 16-bit audio";
         return;
     }
     audioSink = std::make_unique<QAudioSink>(audioDevice, format, this);
     audioSink->setBufferSize(apu::AUDIO_SAMPLE_RATE / 10 * mainwindow::AUDIO_CHANNELS * sizeof(int16_t));
+    applyVolume();
     connect(audioSink.get(), &QAudioSink::stateChanged, this,
         [this](QAudio::State state)
         {

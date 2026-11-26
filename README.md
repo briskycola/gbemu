@@ -15,6 +15,7 @@ and Super Game Boy components.
 - Settings window (saved as JSON) for your own Game Boy and Game Boy Color BIOS files (not included)
 - Hardware setting to run every game on the original Game Boy (DMG)
 - Video settings: window size, scaling, Game Boy colors, Super Game Boy border, and full screen
+- Audio settings: output device, volume, and mute
 
 Emulation coverage is still evolving, so compatibility varies by game.
 
@@ -94,6 +95,10 @@ scaled (fit the window, whole multiples only, or stretched), the colors original
 are shown in (gray, green, or Game Boy Pocket), and whether the Super Game Boy border is shown.
 Video settings take effect straight away. **View > Full Screen** (F11) shows only the picture;
 Escape leaves it.
+
+The **Audio** page picks the output device (**System default** follows the device your system
+uses), the volume, and mute. If the chosen device is unplugged, the system default plays until it
+is plugged back in.
 
 Settings are saved as JSON in `settings.json` in your user configuration folder
 (`%LOCALAPPDATA%\gbemu` on Windows, `~/.config/gbemu` on Linux).
