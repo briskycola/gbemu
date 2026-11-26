@@ -134,7 +134,9 @@ class SGB
         // border around this frame of the game
         bool hasBorder() const { return borderLoaded; }
         const FrameBuffer &compose(const FrameBuffer &game);
-        uint32_t getColor(uint8_t palette, uint8_t color, uint8_t x, uint8_t y);
+        // The color shown for a shade at (x, y) with the given attribute palette,
+        // unless MASK_EN freezes the screen or blanks it to black or color 0
+        uint32_t getColor(uint8_t palette, Shade shade, uint8_t x, uint8_t y);
         uint8_t getAttribute(uint8_t x, uint8_t y) const;
         // Player 1 reads as 0xF, player 2 as 0xE, and so on
         uint8_t getPlayerId() const { return static_cast<uint8_t>(0x0F - currentPlayer); }

@@ -2,7 +2,6 @@
 #include "Core/Video/Color.hpp"
 #include "Core/Emulator.hpp"
 #include "Core/Common/Common.hpp"
-#include "Core/Video/Tile.hpp"
 #include "Core/Memory/IORegisters.hpp"
 #include <stdexcept>
 #include <algorithm>
@@ -508,7 +507,7 @@ bool PPU::pushTileRow()
 
         const uint8_t bit = static_cast<uint8_t>(flipX ? i : ppu::TILE_WIDTH_PX - 1 - i);
         FifoPixel &pixel = bgFifo[(bgFifoHead + bgFifoSize++) % ppu::FIFO_CAPACITY];
-        pixel.color = static_cast<uint8_t>(getBitValue(fetchedHigh, bit) << 1 | getBitValue(fetchedLow, bit));
+        pixel.colorIndex = tileColorIndex(fetchedLow, fetchedHigh, bit);
         pixel.palette = fetchedAttributes & ppu::ATTRIBUTE_CGB_PALETTE_MASK;
         pixel.bgPriority = checkBit(fetchedAttributes, ppu::ATTRIBUTE_PRIORITY_BIT);
     }
@@ -617,12 +616,12 @@ void PPU::mixObjectIntoFifo(uint8_t oamIndex, uint8_t low, uint8_t high)
         if (slot < 0 || slot >= ppu::OBJ_FIFO_PIXELS) continue;
 
         const uint8_t bit = static_cast<uint8_t>(flipX ? column : ppu::TILE_WIDTH_PX - 1 - column);
-        const uint8_t color = static_cast<uint8_t>(getBitValue(high, bit) << 1 | getBitValue(low, bit));
+        const uint8_t colorIndex = tileColorIndex(low, high, bit);
         FifoPixel &existing = objFifo[slot];
-        if (color == 0) continue;
-        if (existing.color != 0 && !(oamOrder && existing.oamIndex > oamIndex)) continue;
+        if (colorIndex == 0) continue;
+        if (existing.colorIndex != 0 && !(oamOrder && existing.oamIndex > oamIndex)) continue;
 
-        existing.color = color;
+        existing.colorIndex = colorIndex;
         existing.palette = emulator.cgbMode
             ? attributes & ppu::ATTRIBUTE_CGB_PALETTE_MASK
             : getBitValue(attributes, ppu::ATTRIBUTE_DMG_PALETTE_BIT);
@@ -714,53 +713,58 @@ void PPU::drawPixel(const LCDPixel &pixel)
     // https://gbdev.io/pandocs/LCDC.html#lcdc0--bg-and-window-enablepriority
     const bool bgOn = checkBit(outputControl, ppu::LCDC_BG_ENABLE_BIT);
     const bool bgShown = emulator.cgbMode || bgOn;
-    const uint8_t bgColor = bgShown ? bg.color : 0;
+    const uint8_t bgColorIndex = bgShown ? bg.colorIndex : 0;
 
-    // An object pixel is drawn unless it is transparent, objects are off, or
-    // the background pixel is not color 0 and has priority: through the
-    // object's OBJ-to-BG bit, or on the CGB the tile's own priority bit.
+    // An object pixel is drawn unless it is transparent (color index 0),
+    // objects are off, or the background pixel is not color index 0 and has
+    // priority: through the object's OBJ-to-BG bit, or on the CGB the tile's
+    // own priority bit.
     // https://gbdev.io/pandocs/Tile_Maps.html#bg-to-obj-priority-in-cgb-mode
-    bool objectWins = object.color != 0 && checkBit(outputControl, ppu::LCDC_SPRITES_ENABLE_BIT);
-    if (objectWins && bgColor != 0)
+    bool objectWins = object.colorIndex != 0 && checkBit(outputControl, ppu::LCDC_SPRITES_ENABLE_BIT);
+    if (objectWins && bgColorIndex != 0)
     {
         const bool bgPriority = emulator.cgbMode ? bgOn && (object.bgPriority || bg.bgPriority) : object.bgPriority;
         if (bgPriority) objectWins = false;
     }
+    const uint8_t colorIndex = objectWins ? object.colorIndex : bgColorIndex;
 
     const uint32_t x = pixel.x;
     const uint32_t y = line.getValue();
+
+    // In CGB Mode the color index picks a color of the pixel's CGB palette
+    // https://gbdev.io/pandocs/Palettes.html#lcd-color-palettes-cgb-only
     if (emulator.cgbMode)
     {
-        const uint32_t rgb = objectWins ? objColorPalettes.getColor(object.palette, object.color) : bgColorPalettes.getColor(bg.palette, bgColor);
-        buffer.setPixelRGB(x, y, rgb, objectWins ? object.color : bgColor);
+        const uint32_t rgb = objectWins ? objColorPalettes.getColor(object.palette, colorIndex) : bgColorPalettes.getColor(bg.palette, colorIndex);
+        buffer.setPixelRGB(x, y, rgb);
         return;
     }
 
-    const ColorPalette palette = objectWins
-        ? loadPalette(object.palette ? spritePalette1 : spritePalette0)
-        : loadPalette(bgPalette);
-    const Color shade = !objectWins && !bgShown ? Color::White : getColorFromPalette(getColor(objectWins ? object.color : bgColor), palette);
+    // Otherwise BGP, OBP0 or OBP1 assigns the color index a shade. A hidden
+    // background is white.
+    const ByteRegister &palette = objectWins ? (object.palette ? spritePalette1 : spritePalette0) : bgPalette;
+    const Shade shade = !objectWins && !bgShown ? Shade::White : shadeFromPalette(palette.getValue(), colorIndex);
 
-    // In the Game Boy Color's DMG compatibility mode, BGP, OBP0 and OBP1 pick
-    // a color of CGB BG palette 0, or OBJ palette 0 or 1, instead of a grey
+    // In the Game Boy Color's DMG compatibility mode, the shade picks a color
+    // of CGB BG palette 0, or OBJ palette 0 or 1, instead of a gray
     // https://gbdev.io/pandocs/Power_Up_Sequence.html#compatibility-palettes
     if (emulator.cgbHardware)
     {
-        const uint8_t index = static_cast<uint8_t>(shade);
+        const uint8_t index = shadeIndex(shade);
         const uint32_t rgb = objectWins ? objColorPalettes.getColor(object.palette, index) : bgColorPalettes.getColor(0, index);
-        buffer.setPixelRGB(x, y, rgb, index);
+        buffer.setPixel(x, y, shade, rgb);
         return;
     }
 
+    // The Super Game Boy colors the shade from the palette of the pixel's
+    // attribute area
     if (emulator.sgbMode)
     {
-        const uint8_t mappedShade = static_cast<uint8_t>(shade);
-        buffer.setPixelRGB(x, y, emulator.sgb.getColor(emulator.sgb.getAttribute(x, y), mappedShade, x, y), mappedShade);
+        buffer.setPixel(x, y, shade, emulator.sgb.getColor(emulator.sgb.getAttribute(x, y), shade, x, y));
+        return;
     }
-    else
-    {
-        buffer.setPixel(x, y, shade);
-    }
+
+    buffer.setPixel(x, y, shade);
 }
 
 // BGP, OBP0 and OBP1. On the DMG (not the SGB or CGB) the LCD sees the old
@@ -1130,45 +1134,6 @@ bool PPU::usesLargeSprites() const { return checkBit(controlByte, ppu::LCDC_SPRI
 bool PPU::spritesEnabled() const { return checkBit(controlByte, ppu::LCDC_SPRITES_ENABLE_BIT); }
 bool PPU::bgEnabled() const { return checkBit(controlByte, ppu::LCDC_BG_ENABLE_BIT); }
 
-ColorPalette PPU::loadPalette(ByteRegister &paletteRegister)
-{
-    uint8_t color0 = composeBits(getBitValue(paletteRegister.getValue(), 1), getBitValue(paletteRegister.getValue(), 0));
-    uint8_t color1 = composeBits(getBitValue(paletteRegister.getValue(), 3), getBitValue(paletteRegister.getValue(), 2));
-    uint8_t color2 = composeBits(getBitValue(paletteRegister.getValue(), 5), getBitValue(paletteRegister.getValue(), 4));
-    uint8_t color3 = composeBits(getBitValue(paletteRegister.getValue(), 7), getBitValue(paletteRegister.getValue(), 6));
-
-    Color realColor0 = getRealColor(color0);
-    Color realColor1 = getRealColor(color1);
-    Color realColor2 = getRealColor(color2);
-    Color realColor3 = getRealColor(color3);
-
-    return { realColor0, realColor1, realColor2, realColor3 };
-}
-
-Color PPU::getColorFromPalette(GBColor color, const ColorPalette &palette) const
-{
-    switch (color)
-    {
-        case GBColor::Color0: return palette.color0;
-        case GBColor::Color1: return palette.color1;
-        case GBColor::Color2: return palette.color2;
-        case GBColor::Color3: return palette.color3;
-    }
-    return palette.color0;
-}
-
-Color PPU::getRealColor(uint8_t pixelValue)
-{
-    switch (pixelValue)
-    {
-        case 0: return Color::White;
-        case 1: return Color::LightGray;
-        case 2: return Color::DarkGray;
-        case 3: return Color::Black;
-        default: throw std::runtime_error("Invalid color");
-    }
-    return Color::White;
-}
 
 void PPU::registerVBlankCallback(const std::function<void(const FrameBuffer&)> &vblankCallback)
 {

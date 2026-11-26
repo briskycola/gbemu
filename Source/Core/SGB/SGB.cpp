@@ -81,7 +81,7 @@ SGB::SGB()
         for (uint8_t c = 0; c < sgb::SGB_COLORS_PER_PALETTE; ++c)
             palettes[p * sgb::SGB_COLORS_PER_PALETTE + c] = rgb555ToRGB888(DEFAULT_PALETTE[c]);
     attributes.fill(0);
-    previousFrame.fill(shadeToRGB(Color::White));
+    previousFrame.fill(shadeToRGB(Shade::White));
 }
 
 void SGB::writeJOYP(uint8_t value)
@@ -406,9 +406,9 @@ void SGB::readTransfer(const FrameBuffer &frame)
             uint8_t low = 0, high = 0;
             for (uint8_t column = 0; column < ATTRIBUTE_CELL_SIZE; ++column)
             {
-                const uint8_t shade = static_cast<uint8_t>(frame.getPixel(left + column, top + row));
-                low = static_cast<uint8_t>(low << 1 | (shade & 1));
-                high = static_cast<uint8_t>(high << 1 | (shade >> 1));
+                const uint8_t index = shadeIndex(frame.getShade(left + column, top + row));
+                low = static_cast<uint8_t>(low << 1 | (index & 1));
+                high = static_cast<uint8_t>(high << 1 | (index >> 1));
             }
             transferData[tile * 16 + row * 2] = low;
             transferData[tile * 16 + row * 2 + 1] = high;
@@ -473,37 +473,38 @@ const FrameBuffer &SGB::compose(const FrameBuffer &game)
             if ((entry >> BORDER_Y_FLIP_BIT) & 1) row = static_cast<uint8_t>(ATTRIBUTE_CELL_SIZE - 1 - row);
             if ((entry >> BORDER_X_FLIP_BIT) & 1) column = static_cast<uint8_t>(ATTRIBUTE_CELL_SIZE - 1 - column);
             const uint8_t bit = static_cast<uint8_t>(ATTRIBUTE_CELL_SIZE - 1 - column);
-            const uint8_t color = static_cast<uint8_t>(
+            const uint8_t colorIndex = static_cast<uint8_t>(
                 getBitValue(tile[row * 2], bit) | getBitValue(tile[row * 2 + 1], bit) << 1 |
                 getBitValue(tile[16 + row * 2], bit) << 2 | getBitValue(tile[16 + row * 2 + 1], bit) << 3);
 
             const bool inGame = x >= sgb::GAME_LEFT && x < sgb::GAME_LEFT + common::GAMEBOY_WIDTH &&
                                 y >= sgb::GAME_TOP && y < sgb::GAME_TOP + common::GAMEBOY_HEIGHT;
-            if (color != 0)
+            if (colorIndex != 0)
             {
                 const uint8_t palette = (entry >> BORDER_PALETTE_SHIFT) & BORDER_PALETTE_MASK;
-                screen.setPixelRGB(x, y, borderPalettes[palette * sgb::SNES_COLORS_PER_PALETTE + color], 0);
+                screen.setPixelRGB(x, y, borderPalettes[palette * sgb::SNES_COLORS_PER_PALETTE + colorIndex]);
             }
             else if (inGame)
             {
                 const uint32_t gameX = x - sgb::GAME_LEFT, gameY = y - sgb::GAME_TOP;
-                screen.setPixelRGB(x, y, game.getPixelRGB(gameX, gameY), static_cast<uint8_t>(game.getPixel(gameX, gameY)));
+                screen.setPixel(x, y, game.getShade(gameX, gameY), game.getPixelRGB(gameX, gameY));
             }
             else
             {
-                screen.setPixelRGB(x, y, palettes[0], 0);
+                screen.setPixelRGB(x, y, palettes[0]);
             }
         }
     }
     return screen;
 }
-uint32_t SGB::getColor(uint8_t palette, uint8_t color, uint8_t x, uint8_t y)
+
+uint32_t SGB::getColor(uint8_t palette, Shade shade, uint8_t x, uint8_t y)
 {
     const size_t index = y * common::GAMEBOY_WIDTH + x;
     if (maskMode == MASK_FREEZE) return previousFrame[index];
-    uint32_t rgb = maskMode == MASK_BLACK ? shadeToRGB(Color::Black) :
+    uint32_t rgb = maskMode == MASK_BLACK ? shadeToRGB(Shade::Black) :
         (maskMode == MASK_COLOR0 ? palettes[0]
-                                : palettes[(palette % sgb::SGB_PALETTE_COUNT) * sgb::SGB_COLORS_PER_PALETTE + (color % sgb::SGB_COLORS_PER_PALETTE)]);
+                                : palettes[(palette % sgb::SGB_PALETTE_COUNT) * sgb::SGB_COLORS_PER_PALETTE + shadeIndex(shade)]);
     previousFrame[index] = rgb;
     return rgb;
 }

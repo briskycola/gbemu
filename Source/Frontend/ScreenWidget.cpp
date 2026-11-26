@@ -24,8 +24,8 @@ std::array<uint32_t, 4> ScreenWidget::colorsFor(GameBoyColors colors)
         case GameBoyColors::Green: return {0x9BBC0F, 0x8BAC0F, 0x306230, 0x0F380F};
         // The gray-green of the Game Boy Pocket's screen
         case GameBoyColors::Pocket: return {0xC4CFA1, 0x8B956D, 0x4D533C, 0x1F1F1F};
-        default: return {shadeToRGB(Color::White), shadeToRGB(Color::LightGray),
-                         shadeToRGB(Color::DarkGray), shadeToRGB(Color::Black)};
+        default: return {shadeToRGB(Shade::White), shadeToRGB(Shade::LightGray),
+                         shadeToRGB(Shade::DarkGray), shadeToRGB(Shade::Black)};
     }
 }
 
@@ -175,7 +175,7 @@ void ScreenWidget::updateFrame(const FrameBuffer &buffer)
         for (uint32_t x = 0; x < width; ++x)
         {
             const uint32_t rgb = recolorShades
-                ? shadeColors[static_cast<uint8_t>(buffer.getPixel(left + x, top + y))]
+                ? shadeColors[shadeIndex(buffer.getShade(left + x, top + y))]
                 : buffer.getPixelRGB(left + x, top + y);
             row[4 * x + 0] = static_cast<uchar>((rgb >> 16) & 0xFF); // red
             row[4 * x + 1] = static_cast<uchar>((rgb >> 8) & 0xFF);  // green

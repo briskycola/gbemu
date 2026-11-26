@@ -1,5 +1,4 @@
 #include "Core/Video/Color.hpp"
-#include <stdexcept>
 
 namespace
 {
@@ -9,41 +8,48 @@ constexpr uint16_t RGB555_CHANNEL_MASK = 0x1F;
 constexpr uint8_t RGB555_GREEN_SHIFT   = 5;
 constexpr uint8_t RGB555_BLUE_SHIFT    = 10;
 
-// BCPS/OCPS: bits 0-5 are the byte index into palette memory,
+// BGPI/OBPI: bits 0-5 are the byte index into palette memory,
 // bit 7 turns on auto-increment, and bit 6 is unused (reads 1)
 constexpr uint8_t PALETTE_INDEX_MASK      = 0x3F;
 constexpr uint8_t AUTO_INCREMENT_FLAG     = 0x80;
 constexpr uint8_t PALETTE_INDEX_UNUSED_BIT = 0x40;
 constexpr uint8_t PALETTE_INDEX_WRITABLE  = AUTO_INCREMENT_FLAG | PALETTE_INDEX_MASK;
 
-// Each palette holds 4 colors of 2 bytes each (little-endian).
+// Color indices and shades are both 2 bits
+constexpr uint8_t COLOR_INDEX_MASK = 0x03;
+constexpr uint8_t SHADE_MASK       = 0x03;
+constexpr uint8_t BITS_PER_SHADE   = 2;
+
+// Each CGB palette holds 4 colors of 2 bytes each (little-endian).
 // Bit 15 of a color is unused.
-constexpr uint8_t PALETTE_NUMBER_MASK = 0x07;
-constexpr uint8_t COLOR_NUMBER_MASK   = 0x03;
-constexpr uint8_t BYTES_PER_COLOR     = 2;
-constexpr uint8_t BYTES_PER_PALETTE   = BYTES_PER_COLOR * 4;
+constexpr uint8_t PALETTE_NUMBER_MASK  = 0x07;
+constexpr uint8_t BYTES_PER_COLOR      = 2;
+constexpr uint8_t BYTES_PER_PALETTE    = BYTES_PER_COLOR * 4;
 constexpr uint8_t COLOR_HIGH_BYTE_MASK = 0x7F;
 }
 
-GBColor getColor(uint8_t pixelValue)
+uint8_t tileColorIndex(uint8_t low, uint8_t high, uint8_t bit)
 {
-    switch (pixelValue)
-    {
-        case 0: return GBColor::Color0;
-        case 1: return GBColor::Color1;
-        case 2: return GBColor::Color2;
-        case 3: return GBColor::Color3;
-        default: throw std::runtime_error("Invalid color code");
-    }
-    //return GBColor::Color0;
-    return {};
+    const uint8_t lowBit = (low >> bit) & 1;
+    const uint8_t highBit = (high >> bit) & 1;
+    return static_cast<uint8_t>(highBit << 1 | lowBit);
 }
 
-uint32_t shadeToRGB(Color color)
+Shade shadeFromPalette(uint8_t palette, uint8_t colorIndex)
+{
+    return static_cast<Shade>((palette >> ((colorIndex & COLOR_INDEX_MASK) * BITS_PER_SHADE)) & SHADE_MASK);
+}
+
+uint8_t shadeIndex(Shade shade)
+{
+    return static_cast<uint8_t>(shade);
+}
+
+uint32_t shadeToRGB(Shade shade)
 {
     // White, light gray, dark gray, and black
-    static constexpr std::array<uint32_t, 4> GRAYSCALE = {0xFFFFFF, 0xAAAAAA, 0x555555, 0x000000};
-    return GRAYSCALE[static_cast<uint8_t>(color) & COLOR_NUMBER_MASK];
+    static constexpr std::array<uint32_t, 4> GRAYS = {0xFFFFFF, 0xAAAAAA, 0x555555, 0x000000};
+    return GRAYS[shadeIndex(shade)];
 }
 
 uint32_t rgb555ToRGB888(uint16_t value)
@@ -86,10 +92,10 @@ void CGBPaletteRAM::writeData(uint8_t value, bool accessible)
     if (index & AUTO_INCREMENT_FLAG) index = static_cast<uint8_t>(AUTO_INCREMENT_FLAG | ((index + 1) & PALETTE_INDEX_MASK));
 }
 
-uint32_t CGBPaletteRAM::getColor(uint8_t palette, uint8_t color) const
+uint32_t CGBPaletteRAM::getColor(uint8_t palette, uint8_t colorIndex) const
 {
     const uint8_t offset = static_cast<uint8_t>((palette & PALETTE_NUMBER_MASK) * BYTES_PER_PALETTE +
-                                                (color & COLOR_NUMBER_MASK) * BYTES_PER_COLOR);
+                                                (colorIndex & COLOR_INDEX_MASK) * BYTES_PER_COLOR);
     const uint16_t value = data[offset] | (static_cast<uint16_t>(data[offset + 1] & COLOR_HIGH_BYTE_MASK) << 8);
     return rgb555ToRGB888(value);
 }

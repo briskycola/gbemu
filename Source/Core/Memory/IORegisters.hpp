@@ -78,10 +78,10 @@ namespace io
     static constexpr uint16_t HDMA_DESTINATION_LOW_REGISTER  = 0xFF54; // HDMA4
     static constexpr uint16_t HDMA_CONTROL_REGISTER          = 0xFF55; // HDMA5
     static constexpr uint16_t INFRARED_PORT_REGISTER         = 0xFF56; // RP
-    static constexpr uint16_t BG_PALETTE_INDEX_REGISTER      = 0xFF68; // BCPS
-    static constexpr uint16_t BG_PALETTE_DATA_REGISTER       = 0xFF69; // BCPD
-    static constexpr uint16_t OBJ_PALETTE_INDEX_REGISTER     = 0xFF6A; // OCPS
-    static constexpr uint16_t OBJ_PALETTE_DATA_REGISTER      = 0xFF6B; // OCPD
+    static constexpr uint16_t BG_PALETTE_INDEX_REGISTER      = 0xFF68; // BGPI (formerly BCPS)
+    static constexpr uint16_t BG_PALETTE_DATA_REGISTER       = 0xFF69; // BGPD (formerly BCPD)
+    static constexpr uint16_t OBJ_PALETTE_INDEX_REGISTER     = 0xFF6A; // OBPI (formerly OCPS)
+    static constexpr uint16_t OBJ_PALETTE_DATA_REGISTER      = 0xFF6B; // OBPD (formerly OCPD)
     static constexpr uint16_t OBJ_PRIORITY_MODE_REGISTER     = 0xFF6C; // OPRI
     static constexpr uint16_t WRAM_BANK_REGISTER             = 0xFF70; // SVBK
 

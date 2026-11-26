@@ -11,6 +11,22 @@
 
 namespace ppu
 {
+    // Tiles are 8x8 pixels, each row two bytes, and the two tile maps are
+    // 32x32 tiles
+    // https://gbdev.io/pandocs/Tile_Data.html
+    // https://gbdev.io/pandocs/Tile_Maps.html
+    static constexpr uint32_t TILE_WIDTH_PX      = 8;
+    static constexpr uint32_t TILE_HEIGHT_PX     = 8;
+    static constexpr uint32_t TILE_BYTES_PER_ROW = 2;
+    static constexpr uint32_t TILE_BYTES         = TILE_BYTES_PER_ROW * TILE_HEIGHT_PX;
+    static constexpr uint32_t TILES_PER_LINE     = 32;
+    static const Address TILE_MAP_ZERO_ADDRESS   = 0x9800;
+    static const Address TILE_MAP_ONE_ADDRESS    = 0x9C00;
+
+    // Each OAM entry is 4 bytes
+    // https://gbdev.io/pandocs/OAM.html
+    static constexpr uint32_t SPRITE_BYTES = 4;
+
     // A scanline lasts 456 dots: mode 2 (OAM scan) takes 80, mode 3 (drawing)
     // at least 172, and mode 0 (HBlank) the rest. Mode 3 runs longer with
     // scrolling, the window and objects, which shortens mode 0 to match.
@@ -184,7 +200,7 @@ enum class VideoMode : uint8_t
 class FifoPixel
 {
     public:
-        uint8_t color = 0;
+        uint8_t colorIndex = 0; // From the tile data, 0-3
         uint8_t palette = 0;
         bool bgPriority = false;
         uint8_t oamIndex = 0xFF;
@@ -345,10 +361,6 @@ class PPU
         bool usesLargeSprites() const;
         bool spritesEnabled() const;
         bool bgEnabled() const;
-
-        Color getRealColor(uint8_t pixelValue);
-        ColorPalette loadPalette(ByteRegister &paletteRegister);
-        Color getColorFromPalette(GBColor color, const ColorPalette &palette) const;
     public:
         PPU(Emulator &emulator);
 

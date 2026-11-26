@@ -33,7 +33,6 @@ class NoCopy
 };
 
 // Some useful bitwise operations
-uint8_t composeBits(const uint8_t high, const uint8_t low);
 uint8_t composeNibbles(const uint8_t high, const uint8_t low);
 uint16_t composeBytes(const uint8_t high, const uint8_t low);
 bool checkBit(const uint8_t value, const uint8_t bit);
