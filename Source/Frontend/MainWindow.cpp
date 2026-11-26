@@ -13,6 +13,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QIODevice>
+#include <QKeyEvent>
 #include <QKeySequence>
 #include <QMediaDevices>
 #include <QMenuBar>
@@ -68,9 +69,46 @@ bool MainWindow::applySettings(const Settings &newSettings)
         return false;
     }
     const bool restart = settings.needsRestart(newSettings);
+    const bool resized = settings.windowScale != newSettings.windowScale;
     settings = newSettings;
+
+    // Video settings take effect straight away
+    screen->applySettings(settings);
+    if (resized) resizeToScale(settings.windowScale);
+
     if (restart && offerRestartOnApply) offerRestart();
     return true;
+}
+
+void MainWindow::resizeToScale(int scale)
+{
+    if (isFullScreen() || isMaximized()) return;
+    // The menu bar's real height is only known once the window is shown,
+    // and with display scaling it can differ from its size hint
+    const int menuHeight = isVisible() ? height() - screen->height() : menuBar()->sizeHint().height();
+    resize(common::GAMEBOY_WIDTH * scale, common::GAMEBOY_HEIGHT * scale + menuHeight);
+}
+
+// Full screen shows only the picture; the menu shortcuts keep working
+void MainWindow::setFullScreen(bool fullScreen)
+{
+    if (fullScreen == isFullScreen()) return;
+    menuBar()->setVisible(!fullScreen);
+    if (fullScreen) showFullScreen();
+    else showNormal();
+    fullScreenAction->setChecked(fullScreen);
+}
+
+// Keys the game doesn't use reach the window: Escape leaves full screen
+void MainWindow::keyPressEvent(QKeyEvent *event)
+{
+    if (event->key() == Qt::Key_Escape && isFullScreen())
+    {
+        setFullScreen(false);
+        event->accept();
+        return;
+    }
+    QMainWindow::keyPressEvent(event);
 }
 
 // Emulation settings only take effect when a game starts, so offer to restart the running one
@@ -86,8 +124,8 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), settings(Settings::load())
 {
     setWindowTitle("gbemu");
-    resize(display::DEFAULT_WIDTH, display::DEFAULT_HEIGHT);
     screen = new ScreenWidget(this);
+    screen->applySettings(settings);
     setCentralWidget(screen);
 
     // Use the same compact menu bar padding on every platform
@@ -104,10 +142,21 @@ MainWindow::MainWindow(QWidget *parent)
     exitAction->setShortcut(QKeySequence::Quit);
     connect(exitAction, &QAction::triggered, qApp, &QApplication::quit);
 
+    QMenu *viewMenu = menuBar()->addMenu(tr("&View"));
+    fullScreenAction = viewMenu->addAction(tr("&Full Screen"));
+    fullScreenAction->setCheckable(true);
+    fullScreenAction->setShortcut(QKeySequence::FullScreen);
+    connect(fullScreenAction, &QAction::triggered, this, &MainWindow::setFullScreen);
+    // The menu bar is hidden in full screen, so the window holds the shortcut too
+    addAction(fullScreenAction);
+
     QMenu *settingsMenu = menuBar()->addMenu(tr("&Settings"));
     QAction *settingsAction = settingsMenu->addAction(tr("&Settings..."));
     settingsAction->setShortcut(QKeySequence::Preferences);
     connect(settingsAction, &QAction::triggered, this, [this] { openSettings(SettingsDialog::Page::BIOS); });
+    resizeToScale(settings.windowScale);
+    // Size it again once it is on screen, from the menu bar's real height
+    QTimer::singleShot(0, this, [this] { resizeToScale(settings.windowScale); });
 
     setUpAudioOutput();
     // Follow the system default output, e.g. when headphones are plugged in.
@@ -201,12 +250,13 @@ bool MainWindow::openROM(const QString &filename)
     if (emulator) saveBatteryState(emulator.get(), currentROMPath);
 
     std::unique_ptr<Emulator> newEmulator;
+    Console console = Console::GameBoy;
     try
     {
         // Run the boot ROM of the console this game will be emulated on,
         // asking for it the first time it is needed
         const HardwareModel model = settings.hardwareModel;
-        const Console console = Emulator::consoleFor(romData, model);
+        console = Emulator::consoleFor(romData, model);
         if (!QFileInfo(settings.bootROM(console)).isFile())
         {
             const QString name = Settings::consoleName(console);
@@ -235,6 +285,8 @@ bool MainWindow::openROM(const QString &filename)
     emulator = std::move(newEmulator);
     currentROMPath = path;
     screen->setEmulator(emulator.get());
+    // Only an original Game Boy shows plain shades, which can be recolored
+    screen->setRecolorShades(console == Console::GameBoy);
     screen->clear();
     setWindowTitle(tr("gbemu - %1").arg(QFileInfo(filename).fileName()));
     screen->setFocus();

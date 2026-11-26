@@ -6,6 +6,7 @@
 #include <QJsonDocument>
 #include <QSaveFile>
 #include <QStandardPaths>
+#include <algorithm>
 
 namespace settings
 {
@@ -18,12 +19,16 @@ namespace settings
     static constexpr const char *SUPER_GAME_BOY_BOOT_ROM = "superGameBoy";
     static constexpr const char *EMULATION               = "emulation";
     static constexpr const char *HARDWARE_MODEL          = "hardwareModel";
+    static constexpr const char *VIDEO                   = "video";
+    static constexpr const char *WINDOW_SCALE            = "windowScale";
+    static constexpr const char *SCALING                 = "scaling";
+    static constexpr const char *GAME_BOY_COLORS         = "gameBoyColors";
+    static constexpr const char *SHOW_SGB_BORDER         = "showSuperGameBoyBorder";
 
-    // Values of HARDWARE_MODEL
-    static constexpr const char *MODEL_AUTOMATIC = "automatic";
-    static constexpr const char *MODEL_GAME_BOY  = "gameBoy";
-    static constexpr const char *MODEL_GAME_BOY_COLOR = "gameBoyColor";
-    static constexpr const char *MODEL_SUPER_GAME_BOY = "superGameBoy";
+    // The words stored for each choice, in the order of its enum
+    static const std::vector<QString> HARDWARE_MODEL_NAMES  = {"automatic", "gameBoy", "gameBoyColor", "superGameBoy"};
+    static const std::vector<QString> SCALING_NAMES         = {"fit", "integer", "stretch"};
+    static const std::vector<QString> GAME_BOY_COLORS_NAMES = {"gray", "green", "pocket"};
 }
 
 const QString& Settings::bootROM(Console console) const
@@ -79,18 +84,25 @@ QJsonObject Settings::toJson() const
     bootROMs[settings::SUPER_GAME_BOY_BOOT_ROM] = superGameBoyBootROM;
 
     QJsonObject emulation;
-    switch (hardwareModel)
-    {
-        case HardwareModel::GameBoy: emulation[settings::HARDWARE_MODEL] = settings::MODEL_GAME_BOY; break;
-        case HardwareModel::GameBoyColor: emulation[settings::HARDWARE_MODEL] = settings::MODEL_GAME_BOY_COLOR; break;
-        case HardwareModel::SuperGameBoy: emulation[settings::HARDWARE_MODEL] = settings::MODEL_SUPER_GAME_BOY; break;
-        default: emulation[settings::HARDWARE_MODEL] = settings::MODEL_AUTOMATIC; break;
-    }
+    emulation[settings::HARDWARE_MODEL] = settings::HARDWARE_MODEL_NAMES[static_cast<int>(hardwareModel)];
+
+    QJsonObject video;
+    video[settings::WINDOW_SCALE] = windowScale;
+    video[settings::SCALING] = settings::SCALING_NAMES[static_cast<int>(scaling)];
+    video[settings::GAME_BOY_COLORS] = settings::GAME_BOY_COLORS_NAMES[static_cast<int>(gameBoyColors)];
+    video[settings::SHOW_SGB_BORDER] = showSuperGameBoyBorder;
 
     QJsonObject root;
     root[settings::BOOT_ROMS] = bootROMs;
     root[settings::EMULATION] = emulation;
+    root[settings::VIDEO] = video;
     return root;
+}
+
+int Settings::nameIndex(const QString &name, const std::vector<QString> &names, int fallback)
+{
+    const auto found = std::find(names.begin(), names.end(), name);
+    return found == names.end() ? fallback : static_cast<int>(found - names.begin());
 }
 
 Settings Settings::fromJson(const QJsonObject &root)
@@ -106,10 +118,18 @@ Settings Settings::fromJson(const QJsonObject &root)
     const QString model = emulation.contains(settings::HARDWARE_MODEL)
         ? emulation.value(settings::HARDWARE_MODEL).toString()
         : root.value(settings::HARDWARE_MODEL).toString();
-    if (model == settings::MODEL_GAME_BOY) loaded.hardwareModel = HardwareModel::GameBoy;
-    else if (model == settings::MODEL_GAME_BOY_COLOR) loaded.hardwareModel = HardwareModel::GameBoyColor;
-    else if (model == settings::MODEL_SUPER_GAME_BOY) loaded.hardwareModel = HardwareModel::SuperGameBoy;
-    else loaded.hardwareModel = HardwareModel::Automatic;
+    loaded.hardwareModel = static_cast<HardwareModel>(nameIndex(
+        model, settings::HARDWARE_MODEL_NAMES, static_cast<int>(loaded.hardwareModel)));
+
+    const QJsonObject video = root.value(settings::VIDEO).toObject();
+    loaded.windowScale = std::clamp(video.value(settings::WINDOW_SCALE).toInt(loaded.windowScale),
+                                    video::MIN_WINDOW_SCALE, video::MAX_WINDOW_SCALE);
+    loaded.scaling = static_cast<ScreenScaling>(nameIndex(
+        video.value(settings::SCALING).toString(), settings::SCALING_NAMES, static_cast<int>(loaded.scaling)));
+    loaded.gameBoyColors = static_cast<GameBoyColors>(nameIndex(
+        video.value(settings::GAME_BOY_COLORS).toString(), settings::GAME_BOY_COLORS_NAMES,
+        static_cast<int>(loaded.gameBoyColors)));
+    loaded.showSuperGameBoyBorder = video.value(settings::SHOW_SGB_BORDER).toBool(loaded.showSuperGameBoyBorder);
     return loaded;
 }
 

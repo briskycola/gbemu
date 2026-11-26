@@ -4,6 +4,7 @@
 #include <QDialog>
 #include <functional>
 
+class QCheckBox;
 class QComboBox;
 class QLineEdit;
 class QListWidget;
@@ -18,6 +19,7 @@ class SettingsDialog final : public QDialog
         {
             BIOS,
             GameBoy,
+            Video,
         };
 
         // apply is called with the edited settings on OK or Apply and
@@ -35,9 +37,14 @@ class SettingsDialog final : public QDialog
         QLineEdit *gameBoyColorBootROMEdit;
         QLineEdit *superGameBoyBootROMEdit;
         QComboBox *hardwareModelBox;
+        QComboBox *windowScaleBox;
+        QComboBox *scalingBox;
+        QComboBox *gameBoyColorsBox;
+        QCheckBox *superGameBoyBorderBox;
 
         QWidget* createBIOSPage(const Settings &settings);
         QWidget* createGameBoyPage(const Settings &settings);
+        QWidget* createVideoPage(const Settings &settings);
         void browseForBootROM(QLineEdit *edit, Console console);
 
         // The settings as currently shown in the window

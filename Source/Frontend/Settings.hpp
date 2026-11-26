@@ -3,6 +3,7 @@
 #include "Core/Emulator.hpp"
 #include <QJsonObject>
 #include <QString>
+#include <vector>
 
 // The emulator's user settings, stored as JSON in the per-user
 // configuration folder (on Windows, %LOCALAPPDATA%\gbemu\settings.json):
@@ -15,8 +16,40 @@
 //     },
 //     "emulation": {
 //         "hardwareModel": "automatic"   (or "gameBoy", "gameBoyColor", "superGameBoy")
+//     },
+//     "video": {
+//         "windowScale": 6,              (1 to 8)
+//         "scaling": "fit",              (or "integer", "stretch")
+//         "gameBoyColors": "gray",       (or "green", "pocket")
+//         "showSuperGameBoyBorder": true
 //     }
 // }
+
+// How the picture fills the window: as large as fits keeping its shape,
+// only whole multiples of the Game Boy's pixels, or stretched to fill it
+enum class ScreenScaling
+{
+    Fit,
+    Integer,
+    Stretch,
+};
+
+// The four shades an original Game Boy game is shown in. Game Boy Color
+// and Super Game Boy games choose their own colors.
+enum class GameBoyColors
+{
+    Gray,
+    Green,
+    Pocket,
+};
+
+namespace video
+{
+    static constexpr int MIN_WINDOW_SCALE     = 1;
+    static constexpr int MAX_WINDOW_SCALE     = 8;
+    static constexpr int DEFAULT_WINDOW_SCALE = 6;
+}
+
 class Settings
 {
     public:
@@ -26,6 +59,12 @@ class Settings
         QString superGameBoyBootROM;
 
         HardwareModel hardwareModel = HardwareModel::Automatic;
+
+        // The window's size in Game Boy pixels, and how the picture is drawn
+        int windowScale = video::DEFAULT_WINDOW_SCALE;
+        ScreenScaling scaling = ScreenScaling::Fit;
+        GameBoyColors gameBoyColors = GameBoyColors::Gray;
+        bool showSuperGameBoyBorder = true;
 
         // The boot ROM path for one console
         const QString& bootROM(Console console) const;
@@ -54,4 +93,8 @@ class Settings
     private:
         QJsonObject toJson() const;
         static Settings fromJson(const QJsonObject &root);
+
+        // Where a name is in a list of names, for settings stored as one of
+        // several words. Unknown names give the fallback.
+        static int nameIndex(const QString &name, const std::vector<QString> &names, int fallback);
 };

@@ -20,6 +20,8 @@ class ScreenWidget;
 class QAudioSink;
 class QIODevice;
 class QMediaDevices;
+class QAction;
+class QKeyEvent;
 class QTimer;
 
 namespace mainwindow
@@ -35,6 +37,7 @@ class MainWindow final : public QMainWindow
 {
     private:
         ScreenWidget *screen;
+        QAction *fullScreenAction;
         QTimer *timer;
         std::unique_ptr<QAudioSink> audioSink;
         QMediaDevices *mediaDevices = nullptr;
@@ -66,6 +69,13 @@ class MainWindow final : public QMainWindow
         // Saves new settings; returns whether that worked
         bool applySettings(const Settings &newSettings);
         void offerRestart();
+
+        // Sizes the window so the picture is scale times the Game Boy's screen
+        void resizeToScale(int scale);
+        void setFullScreen(bool fullScreen);
+
+    protected:
+        void keyPressEvent(QKeyEvent *event) override;
 
     public:
         explicit MainWindow(QWidget *parent = nullptr);

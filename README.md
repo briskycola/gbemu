@@ -14,6 +14,7 @@ and Super Game Boy components.
 - Battery-backed cartridge RAM saved beside the ROM
 - Settings window (saved as JSON) for your own Game Boy and Game Boy Color BIOS files (not included)
 - Hardware setting to run every game on the original Game Boy (DMG)
+- Video settings: window size, scaling, Game Boy colors, Super Game Boy border, and full screen
 
 Emulation coverage is still evolving, so compatibility varies by game.
 
@@ -87,6 +88,12 @@ a BIOS that hasn't been chosen, gbemu offers to open Settings when the game is o
 The **Game Boy** page picks the hardware. **Automatic** runs Game Boy Color games as a Game Boy
 Color and everything else as a Game Boy. **Game Boy (DMG) for every game** runs every game on the
 original Game Boy, which some test ROMs (such as the OAM corruption tests) need.
+
+The **Video** page sets the window size (1× to 8× the Game Boy's screen), how the picture is
+scaled (fit the window, whole multiples only, or stretched), the colors original Game Boy games
+are shown in (gray, green, or Game Boy Pocket), and whether the Super Game Boy border is shown.
+Video settings take effect straight away. **View > Full Screen** (F11) shows only the picture;
+Escape leaves it.
 
 Settings are saved as JSON in `settings.json` in your user configuration folder
 (`%LOCALAPPDATA%\gbemu` on Windows, `~/.config/gbemu` on Linux).

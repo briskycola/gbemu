@@ -1,5 +1,6 @@
 #include "Frontend/SettingsDialog.hpp"
 #include "Core/Memory/MMU.hpp"
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -35,11 +36,13 @@ SettingsDialog::SettingsDialog(const Settings &settings, std::function<bool(cons
     categories = new QListWidget(this);
     categories->addItem(tr("BIOS"));
     categories->addItem(tr("Game Boy"));
+    categories->addItem(tr("Video"));
     categories->setFixedWidth(settings_dialog::CATEGORY_LIST_WIDTH);
 
     pages = new QStackedWidget(this);
     pages->addWidget(createBIOSPage(settings));
     pages->addWidget(createGameBoyPage(settings));
+    pages->addWidget(createVideoPage(settings));
     connect(categories, &QListWidget::currentRowChanged, pages, &QStackedWidget::setCurrentIndex);
     categories->setCurrentRow(0);
 
@@ -118,6 +121,51 @@ QWidget* SettingsDialog::createGameBoyPage(const Settings &settings)
     return page;
 }
 
+QWidget* SettingsDialog::createVideoPage(const Settings &settings)
+{
+    QWidget *page = new QWidget(this);
+    QFormLayout *form = new QFormLayout(page);
+
+    windowScaleBox = new QComboBox;
+    for (int scale = video::MIN_WINDOW_SCALE; scale <= video::MAX_WINDOW_SCALE; ++scale)
+    {
+        windowScaleBox->addItem(tr("%1× (%2 × %3)").arg(scale)
+            .arg(common::GAMEBOY_WIDTH * scale).arg(common::GAMEBOY_HEIGHT * scale), scale);
+    }
+    windowScaleBox->setCurrentIndex(windowScaleBox->findData(settings.windowScale));
+    form->addRow(tr("Window size:"), windowScaleBox);
+
+    // Item order matches ScreenScaling
+    scalingBox = new QComboBox;
+    scalingBox->addItem(tr("Fit the window, keeping the screen's shape"));
+    scalingBox->addItem(tr("Whole multiples only (every pixel the same size)"));
+    scalingBox->addItem(tr("Stretch to fill the window"));
+    scalingBox->setCurrentIndex(static_cast<int>(settings.scaling));
+    form->addRow(tr("Scaling:"), scalingBox);
+
+    // Item order matches GameBoyColors
+    gameBoyColorsBox = new QComboBox;
+    gameBoyColorsBox->addItem(tr("Gray"));
+    gameBoyColorsBox->addItem(tr("Green (original Game Boy screen)"));
+    gameBoyColorsBox->addItem(tr("Pocket (Game Boy Pocket screen)"));
+    gameBoyColorsBox->setCurrentIndex(static_cast<int>(settings.gameBoyColors));
+    form->addRow(tr("Game Boy colors:"), gameBoyColorsBox);
+    QLabel *colorsNote = new QLabel(tr("Used for games running on the original Game Boy. Game Boy Color "
+                                       "and Super Game Boy games choose their own colors."));
+    colorsNote->setWordWrap(true);
+    form->addRow(QString(), colorsNote);
+
+    superGameBoyBorderBox = new QCheckBox(tr("Show the Super Game Boy border"));
+    superGameBoyBorderBox->setChecked(settings.showSuperGameBoyBorder);
+    form->addRow(QString(), superGameBoyBorderBox);
+
+    QLabel *note = new QLabel(tr("Video settings take effect straight away. View > Full Screen (F11) "
+                                 "shows only the picture; Escape leaves it."));
+    note->setWordWrap(true);
+    form->addRow(QString(), note);
+    return page;
+}
+
 void SettingsDialog::browseForBootROM(QLineEdit *edit, Console console)
 {
     const QString current = edit->text().trimmed();
@@ -135,6 +183,10 @@ Settings SettingsDialog::editedSettings() const
     edited.gameBoyColorBootROM = QDir::fromNativeSeparators(gameBoyColorBootROMEdit->text().trimmed());
     edited.superGameBoyBootROM = QDir::fromNativeSeparators(superGameBoyBootROMEdit->text().trimmed());
     edited.hardwareModel = static_cast<HardwareModel>(hardwareModelBox->currentIndex());
+    edited.windowScale = windowScaleBox->currentData().toInt();
+    edited.scaling = static_cast<ScreenScaling>(scalingBox->currentIndex());
+    edited.gameBoyColors = static_cast<GameBoyColors>(gameBoyColorsBox->currentIndex());
+    edited.showSuperGameBoyBorder = superGameBoyBorderBox->isChecked();
     return edited;
 }
 
