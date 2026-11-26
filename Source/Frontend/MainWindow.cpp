@@ -67,12 +67,13 @@ bool MainWindow::applySettings(const Settings &newSettings)
             .arg(QDir::toNativeSeparators(Settings::filePath())));
         return false;
     }
+    const bool restart = settings.needsRestart(newSettings);
     settings = newSettings;
-    if (offerRestartOnApply) offerRestart();
+    if (restart && offerRestartOnApply) offerRestart();
     return true;
 }
 
-// Settings only take effect when a game starts, so offer to restart the running one
+// Emulation settings only take effect when a game starts, so offer to restart the running one
 void MainWindow::offerRestart()
 {
     if (!emulator) return;

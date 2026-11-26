@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Emulator.hpp"
+#include <QJsonObject>
 #include <QString>
 
 // The emulator's user settings, stored as JSON in the per-user
@@ -12,7 +13,9 @@
 //         "gameBoyColor": "C:/path/to/cgb.bin",
 //         "superGameBoy": "C:/path/to/sgb.bin"
 //     },
-//     "hardwareModel": "automatic"   (or "gameBoy", "gameBoyColor", "superGameBoy")
+//     "emulation": {
+//         "hardwareModel": "automatic"   (or "gameBoy", "gameBoyColor", "superGameBoy")
+//     }
 // }
 class Settings
 {
@@ -40,6 +43,15 @@ class Settings
         // Writes the settings file. Returns whether it worked.
         bool save() const;
 
+        // Whether a running game has to restart to switch from these
+        // settings to other ones: the BIOS and hardware only take effect
+        // when a game starts
+        bool needsRestart(const Settings &other) const;
+
         bool operator==(const Settings &other) const;
         bool operator!=(const Settings &other) const { return !(*this == other); }
+
+    private:
+        QJsonObject toJson() const;
+        static Settings fromJson(const QJsonObject &root);
 };
