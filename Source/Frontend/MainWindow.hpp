@@ -17,6 +17,7 @@
 #include <vector>
 
 class ScreenWidget;
+class SerialWindow;
 class QAudioSink;
 class QIODevice;
 class QMediaDevices;
@@ -38,6 +39,7 @@ class MainWindow final : public QMainWindow
 {
     private:
         ScreenWidget *screen;
+        SerialWindow *serialWindow;
         QAction *fullScreenAction;
         QAction *pauseAction;
         QTimer *timer;

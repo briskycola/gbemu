@@ -1,7 +1,6 @@
 #include "Core/IO/Serial.hpp"
 #include "Core/Common/Common.hpp"
 #include "Core/Emulator.hpp"
-#include <iostream>
 
 Serial::Serial(Emulator &emulator) :
     emulator(emulator)
@@ -31,13 +30,16 @@ void Serial::writeControl(const uint8_t byte)
     // Setting bit 7 starts a transfer of SB; clearing it stops one
     bitsRemaining = checkBit(control, io::SERIAL_TRANSFER_START_BIT) ? io::SERIAL_BITS_PER_TRANSFER : 0;
 
-    // Test ROMs (such as Blargg's) report their results by sending text over
-    // the link port, so show each byte sent on the console
-    if (bitsRemaining)
-    {
-        std::cout << data;
-        std::cout.flush();
-    }
+    // Keep each byte sent, for the frontend to show. Test ROMs (such as
+    // Blargg's) report their results by sending text this way.
+    if (bitsRemaining) sentBytes.push_back(data);
+}
+
+std::vector<uint8_t> Serial::takeSentBytes()
+{
+    std::vector<uint8_t> bytes;
+    bytes.swap(sentBytes);
+    return bytes;
 }
 
 bool Serial::internalClock() const

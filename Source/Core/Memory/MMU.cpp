@@ -296,10 +296,10 @@ void MMU::write(const Address &address, const uint8_t value, bool bypassPPURestr
         return;
     }
 
-    // Reading from unsuable memory
+    // Writes to the unusable area ($FEA0-$FEFF) are ignored
+    // https://gbdev.io/pandocs/Memory_Map.html
     if (address.inRange(mmu::UNUSABLE_ADDRESS_START, mmu::UNUSABLE_ADDRESS_END))
     {
-        //std::cerr << "Writing to unusable memory: " << std::hex << address.getValue() << "\n";
         return;
     }
 

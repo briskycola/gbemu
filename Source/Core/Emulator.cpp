@@ -65,6 +65,11 @@ std::vector<int16_t> Emulator::takeAudioSamples()
     return apu.takeSamples();
 }
 
+std::vector<uint8_t> Emulator::takeSerialOutput()
+{
+    return serial.takeSentBytes();
+}
+
 void Emulator::tick()
 {
     // Bus accesses already advanced the system by one machine cycle each

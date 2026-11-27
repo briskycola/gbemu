@@ -101,6 +101,8 @@ class Emulator
         // The game's cartridge header: its title, controller and sizes
         const CartridgeInfo &getCartridgeInfo() const { return cartridge->info(); }
         std::vector<int16_t> takeAudioSamples();
+        // The bytes the game sent through the serial port since the last call
+        std::vector<uint8_t> takeSerialOutput();
         void runFrame(const std::function<void(const FrameBuffer&)> &vblankCallback);
 
         void buttonPressed(GBButton button);

@@ -123,6 +123,9 @@ gbemu starts a copy of itself that runs on its own and returns right away, so th
 prompt back. The copy doesn't depend on the terminal: closing the terminal doesn't close gbemu,
 and gbemu prints nothing to it.
 
+**View > Serial** opens a window with the bytes the game sends through the serial port (the link
+cable). Test ROMs, such as Blargg's, print their results there.
+
 ### Keyboard controls
 
 The default keys are below. To change them, open the **Input** page in Settings, click a button,

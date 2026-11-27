@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <vector>
 
 // https://gbdev.io/pandocs/Serial_Data_Transfer_(Link_Cable).html
 
@@ -35,6 +36,7 @@ class Serial
         uint8_t data = 0;         // SB
         uint8_t control = 0;      // SC
         uint8_t bitsRemaining = 0;
+        std::vector<uint8_t> sentBytes; // Sent since the frontend last took them
 
         bool internalClock() const;
 
@@ -51,4 +53,7 @@ class Serial
 
         // Called by the Timer on each falling edge of that bit
         void clock();
+
+        // The bytes sent since the last call, in order
+        std::vector<uint8_t> takeSentBytes();
 };

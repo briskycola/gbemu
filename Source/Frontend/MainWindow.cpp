@@ -3,6 +3,7 @@
 #include "Core/Common/File.hpp"
 #include "Core/Video/FrameBuffer.hpp"
 #include "Frontend/ScreenWidget.hpp"
+#include "Frontend/SerialWindow.hpp"
 #include <QAction>
 #include <QApplication>
 #include <QAudioDevice>
@@ -163,6 +164,15 @@ MainWindow::MainWindow(QWidget *parent)
     fullScreenAction->setCheckable(true);
     fullScreenAction->setShortcut(QKeySequence::FullScreen);
     connect(fullScreenAction, &QAction::triggered, this, &MainWindow::setFullScreen);
+    serialWindow = new SerialWindow(this);
+    QAction *serialAction = viewMenu->addAction(tr("&Serial"));
+    connect(serialAction, &QAction::triggered, this, [this]
+        {
+            serialWindow->show();
+            serialWindow->raise();
+            serialWindow->activateWindow();
+        });
+
     // The menu bar is hidden in full screen, so the window holds the shortcuts too
     addAction(fullScreenAction);
     addAction(pauseAction);
@@ -380,6 +390,7 @@ bool MainWindow::openROM(const QString &filename)
     // Only an original Game Boy shows plain shades, which can be recolored
     screen->setRecolorShades(console == Console::GameBoy);
     screen->clear();
+    serialWindow->clear();
     screen->showMessage(describeGame(emulator->getCartridgeInfo(), console));
     updateWindowTitle();
     screen->setFocus();
@@ -437,6 +448,7 @@ void MainWindow::runFrame()
     try
     {
         emulator->runFrame([this](const FrameBuffer &buffer) { screen->updateFrame(buffer); });
+        serialWindow->append(emulator->takeSerialOutput());
         std::vector<int16_t> newSamples = emulator->takeAudioSamples();
         if (!newSamples.empty() && !fastForwarding)
         {
