@@ -29,7 +29,8 @@ file(GLOB_RECURSE CORE_FILES CONFIGURE_DEPENDS Source/Core/*.cpp)
 add_library(gbemu_core STATIC ${CORE_FILES})
 target_include_directories(gbemu_core PUBLIC Source)
 
-# The Qt application
+# The Qt application. WIN32 makes it a Windows GUI program, so it doesn't
+# open a console window; other platforms ignore it.
 file(GLOB FRONTEND_FILES CONFIGURE_DEPENDS Source/Frontend/*.cpp)
-add_executable(gbemu Source/Main.cpp ${FRONTEND_FILES})
+add_executable(gbemu WIN32 Source/Main.cpp ${FRONTEND_FILES})
 target_link_libraries(gbemu PRIVATE gbemu_core Qt6::Widgets Qt6::Multimedia)

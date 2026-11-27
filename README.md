@@ -119,6 +119,10 @@ A ROM can also be passed on the command line:
 ./build/gbemu path/to/game.gbc
 ```
 
+gbemu starts a copy of itself that runs on its own and returns right away, so the shell gets its
+prompt back. The copy doesn't depend on the terminal: closing the terminal doesn't close gbemu,
+and gbemu prints nothing to it.
+
 ### Keyboard controls
 
 The default keys are below. To change them, open the **Input** page in Settings, click a button,
