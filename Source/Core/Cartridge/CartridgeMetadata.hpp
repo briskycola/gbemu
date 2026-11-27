@@ -46,8 +46,8 @@ namespace cartridge
 enum class CartridgeType
 {
     ROMOnly, MBC1, MBC2,
-    MBC3, MBC4, MBC5,
-    NotImplemented,
+    MBC3, MBC5,
+    Unsupported,
 };
 
 enum class ROMSize
@@ -75,7 +75,8 @@ class CartridgeInfo
     public:
         std::string title;
 
-        // Cartridge info
+        // Cartridge info: header byte $0147, and the controller it means
+        uint8_t typeCode = 0;
         CartridgeType type;
         Destination destination;
         ROMSize romSize;
@@ -105,7 +106,11 @@ CartridgeType getCartridgeType(uint8_t type);
 bool cartridgeHasBattery(uint8_t type);
 bool cartridgeHasTimer(uint8_t type);
 bool cartridgeHasRumble(uint8_t type);
-std::string describeCartridge(CartridgeType type);
+// Pan Docs' name for a cartridge type code, such as "MBC3+TIMER+RAM+BATTERY",
+// or empty for a code it doesn't list
+std::string cartridgeTypeName(uint8_t type);
+// Why a cartridge type can't run, naming it as Pan Docs does
+std::string unsupportedCartridgeMessage(uint8_t type);
 std::string getTitleFromCartridge(const std::vector<uint8_t> &rom);
 
 ROMSize getROMSize(uint8_t size);

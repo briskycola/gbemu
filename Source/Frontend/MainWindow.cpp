@@ -402,11 +402,7 @@ QString MainWindow::describeGame(const CartridgeInfo &info, Console console)
     if (info.version != 0) title += tr(" (version %1)").arg(info.version);
 
     // The cartridge type as Pan Docs lists it, e.g. MBC5+RUMBLE+RAM+BATTERY
-    QString hardware = QString::fromStdString(describeCartridge(info.type)).toUpper();
-    if (info.hasTimer) hardware += "+TIMER";
-    if (info.hasRumble) hardware += "+RUMBLE";
-    if (info.ramSize != RAMSize::None) hardware += "+RAM";
-    if (info.hasBattery) hardware += "+BATTERY";
+    const QString hardware = QString::fromStdString(cartridgeTypeName(info.typeCode));
 
     QString sizes = tr("ROM %1").arg(QString::fromStdString(describeROM(info.romSize)));
     if (info.ramSize != RAMSize::None) sizes += tr(" · RAM %1").arg(QString::fromStdString(describeRAM(info.ramSize)));

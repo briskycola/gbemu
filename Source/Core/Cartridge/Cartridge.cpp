@@ -100,16 +100,12 @@ std::shared_ptr<Cartridge> getCartridge(const std::vector<uint8_t> &rom,
             return std::make_shared<MBC2>(rom, ram, std::move(cartridgeInfo));
         case CartridgeType::MBC3:
             return std::make_shared<MBC3>(rom, ram, std::move(cartridgeInfo));
-        case CartridgeType::MBC4:
-            throw std::runtime_error("MBC4 is not implemented");
         case CartridgeType::MBC5:
             return std::make_shared<MBC5>(rom, ram, std::move(cartridgeInfo));
-        case CartridgeType::NotImplemented:
-            throw std::runtime_error("Not implemented");
-        default:
-            throw std::runtime_error("Unknown cartridge type");
+        case CartridgeType::Unsupported:
+            break;
     }
-    return nullptr;
+    throw std::runtime_error(unsupportedCartridgeMessage(cartridgeInfo->typeCode));
 }
 
 const std::vector<uint8_t>& Cartridge::getCartridgeRAM() const

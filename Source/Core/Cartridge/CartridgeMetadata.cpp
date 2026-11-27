@@ -1,5 +1,6 @@
 #include "Core/Cartridge/CartridgeMetadata.hpp"
 #include <algorithm>
+#include <map>
 #include <vector>
 #include <string>
 #include <memory>
@@ -9,12 +10,15 @@
 
 // Header byte 0x147. Each case lists the codes for one
 // controller, with and without RAM, battery, and so on.
+// https://gbdev.io/pandocs/The_Cartridge_Header.html#0147--cartridge-type
 CartridgeType getCartridgeType(uint8_t type)
 {
     switch (type)
     {
         case 0x00: case 0x08: case 0x09:
             return CartridgeType::ROMOnly;
+        // $FF is HuC1+RAM+BATTERY, which banks like an MBC1, so it runs as
+        // one (without the HuC1's infrared port)
         case 0x01: case 0x02: case 0x03:
         case 0xFF:
             return CartridgeType::MBC1;
@@ -23,18 +27,48 @@ CartridgeType getCartridgeType(uint8_t type)
         case 0x0F: case 0x10: case 0x11:
         case 0x12: case 0x13:
             return CartridgeType::MBC3;
-        case 0x15: case 0x16: case 0x17:
-            return CartridgeType::MBC4;
         case 0x19: case 0x1A: case 0x1B:
         case 0x1C: case 0x1D: case 0x1E:
             return CartridgeType::MBC5;
-        case 0x0B: case 0x0C: case 0x0D:
-        case 0x20: case 0x22: case 0xFC:
-        case 0xFD: case 0xFE:
-            return CartridgeType::NotImplemented;
         default:
-            return CartridgeType::NotImplemented;
+            return CartridgeType::Unsupported;
     }
+}
+
+// The names Pan Docs gives each code
+// https://gbdev.io/pandocs/The_Cartridge_Header.html#0147--cartridge-type
+std::string cartridgeTypeName(uint8_t type)
+{
+    static const std::map<uint8_t, std::string> NAMES =
+    {
+        {0x00, "ROM ONLY"},
+        {0x01, "MBC1"}, {0x02, "MBC1+RAM"}, {0x03, "MBC1+RAM+BATTERY"},
+        {0x05, "MBC2"}, {0x06, "MBC2+BATTERY"},
+        {0x08, "ROM+RAM"}, {0x09, "ROM+RAM+BATTERY"},
+        {0x0B, "MMM01"}, {0x0C, "MMM01+RAM"}, {0x0D, "MMM01+RAM+BATTERY"},
+        {0x0F, "MBC3+TIMER+BATTERY"}, {0x10, "MBC3+TIMER+RAM+BATTERY"},
+        {0x11, "MBC3"}, {0x12, "MBC3+RAM"}, {0x13, "MBC3+RAM+BATTERY"},
+        {0x19, "MBC5"}, {0x1A, "MBC5+RAM"}, {0x1B, "MBC5+RAM+BATTERY"},
+        {0x1C, "MBC5+RUMBLE"}, {0x1D, "MBC5+RUMBLE+RAM"}, {0x1E, "MBC5+RUMBLE+RAM+BATTERY"},
+        {0x20, "MBC6"},
+        {0x22, "MBC7+SENSOR+RUMBLE+RAM+BATTERY"},
+        {0xFC, "POCKET CAMERA"},
+        {0xFD, "BANDAI TAMA5"},
+        {0xFE, "HuC3"},
+        {0xFF, "HuC1+RAM+BATTERY"},
+    };
+    const auto found = NAMES.find(type);
+    return found == NAMES.end() ? std::string() : found->second;
+}
+
+std::string unsupportedCartridgeMessage(uint8_t type)
+{
+    static const std::string HEX_DIGITS = "0123456789ABCDEF";
+    const std::string code = std::string("$") + HEX_DIGITS[type >> 4] + HEX_DIGITS[type & 0x0F];
+    const std::string name = cartridgeTypeName(type);
+    if (name.empty())
+        return "This game's cartridge type, " + code + ", isn't one Pan Docs lists.";
+    return "This game's cartridge is " + name + " (type " + code + "), which gbemu doesn't support.";
 }
 
 // Cartridge types with a battery: MBC1, MBC2, ROM, MMM01, MBC3 (with or without
@@ -61,29 +95,6 @@ bool cartridgeHasTimer(uint8_t type)
 bool cartridgeHasRumble(uint8_t type)
 {
     return type == 0x1C || type == 0x1D || type == 0x1E;
-}
-
-std::string describeCartridge(CartridgeType type)
-{
-    switch (type)
-    {
-        case CartridgeType::ROMOnly:
-            return "ROM Only";
-        case CartridgeType::MBC1:
-            return "MBC1";
-        case CartridgeType::MBC2:
-            return "MBC2";
-        case CartridgeType::MBC3:
-            return "MBC3";
-        case CartridgeType::MBC4:
-            return "MBC4";
-        case CartridgeType::MBC5:
-            return "MBC5";
-        case CartridgeType::NotImplemented:
-            return "Not Implemented";
-        default:
-            return "Not Implemented";
-    }
 }
 
 // The title fills $0134-$0143, padded with zero bytes. On games with a CGB
@@ -267,7 +278,8 @@ std::unique_ptr<CartridgeInfo> getInfo(const std::vector<uint8_t> &rom)
     info = std::make_unique<CartridgeInfo>();
 
     info->title = getTitleFromCartridge(rom);
-    info->type = getCartridgeType(rom[cartridge::CARTRIDGE_TYPE_START_ADDRESS]);
+    info->typeCode = rom[cartridge::CARTRIDGE_TYPE_START_ADDRESS];
+    info->type = getCartridgeType(info->typeCode);
     info->supportsCGB = (rom[cartridge::CGB_FLAG_START_ADDRESS] & cartridge::CGB_SUPPORT_FLAG) != 0;
     info->cgbOnly = rom[cartridge::CGB_FLAG_START_ADDRESS] == cartridge::CGB_ONLY_FLAG;
     info->supportsSGB = rom[cartridge::SGB_FLAG_START_ADDRESS] == cartridge::SGB_SUPPORT_FLAG &&
