@@ -80,6 +80,9 @@ a folder to enter it, or type a path into the bar at the top of the browser and 
 Double-click a ROM or select it and click **Open** to start it. The game pauses while
 the browser is open. **File > Close ROM** saves battery-backed RAM and stops the game.
 
+When a game starts, its title, the console it runs on, its cartridge type, and its ROM and RAM
+sizes show over the picture for 3 seconds.
+
 ### BIOS (boot ROMs)
 
 gbemu does not include any BIOS. Every game starts by running a real boot ROM, which you

@@ -1,5 +1,5 @@
 #include "Core/Cartridge/CartridgeMetadata.hpp"
-#include <iostream>
+#include <algorithm>
 #include <vector>
 #include <string>
 #include <memory>
@@ -86,10 +86,24 @@ std::string describeCartridge(CartridgeType type)
     }
 }
 
+// The title fills $0134-$0143, padded with zero bytes. On games with a CGB
+// flag, $0143 is that flag, and on newer ones $013F-$0142 hold a 4-character
+// manufacturer code. Pan Docs gives no way to tell whether a game has one,
+// so on CGB games four uppercase letters or digits there are taken as one.
+// https://gbdev.io/pandocs/The_Cartridge_Header.html#0134-0143--title
 std::string getTitleFromCartridge(const std::vector<uint8_t> &rom)
 {
+    const bool hasCGBFlag = (rom[cartridge::CGB_FLAG_START_ADDRESS] & cartridge::CGB_SUPPORT_FLAG) != 0;
+    const auto manufacturerCode = rom.begin() + cartridge::MANUFACTURER_CODE_START_ADDRESS;
+    const bool hasManufacturerCode = hasCGBFlag && std::all_of(
+        manufacturerCode, manufacturerCode + cartridge::MANUFACTURER_CODE_LENGTH,
+        [](uint8_t character) { return (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9'); });
+
+    const size_t length = hasManufacturerCode ? cartridge::TITLE_LENGTH_WITH_MANUFACTURER_CODE
+                        : hasCGBFlag ? cartridge::TITLE_LENGTH_WITH_CGB_FLAG
+                        : cartridge::TITLE_LENGTH;
     const auto start = rom.begin() + cartridge::TITLE_START_ADDRESS;
-    return std::string(start, start + cartridge::TITLE_LENGTH);
+    return std::string(start, std::find(start, start + length, 0));
 }
 
 // Header byte 0x148
@@ -129,27 +143,27 @@ std::string describeROM(ROMSize size)
     switch (size)
     {
         case ROMSize::KB32:
-            return "32KB (no ROM banking)";
+            return "32 KiB (no banking)";
         case ROMSize::KB64:
-            return "64KB (4 banks)";
+            return "64 KiB (4 banks)";
         case ROMSize::KB128:
-            return "128KB (8 banks)";
+            return "128 KiB (8 banks)";
         case ROMSize::KB256:
-            return "256KB (16 banks)";
+            return "256 KiB (16 banks)";
         case ROMSize::KB512:
-            return "512KB (32 banks)";
+            return "512 KiB (32 banks)";
         case ROMSize::MB1:
-            return "1MB (64 banks)";
+            return "1 MiB (64 banks)";
         case ROMSize::MB2:
-            return "2MB (128 banks)";
+            return "2 MiB (128 banks)";
         case ROMSize::MB4:
-            return "4MB (256 banks)";
+            return "4 MiB (256 banks)";
         case ROMSize::MB1p1:
-            return "1.1MB (72 banks)";
+            return "1.1 MiB (72 banks)";
         case ROMSize::MB1p2:
-            return "1.2MB (80 banks)";
+            return "1.2 MiB (80 banks)";
         case ROMSize::MB1p5:
-            return "1.5MB (96 banks)";
+            return "1.5 MiB (96 banks)";
         default:
             return "Unknown ROM size";
     }
@@ -206,15 +220,15 @@ std::string describeRAM(RAMSize size)
         case RAMSize::None:
             return "No RAM";
         case RAMSize::KB2:
-            return "2KB";
+            return "2 KiB";
         case RAMSize::KB8:
-            return "8KB";
+            return "8 KiB";
         case RAMSize::KB32:
-            return "32KB";
+            return "32 KiB";
         case RAMSize::KB128:
-            return "128KB";
+            return "128 KiB";
         case RAMSize::KB64:
-            return "64KB";
+            return "64 KiB";
         default:
             return "Unknown RAM size";
     }
@@ -264,11 +278,5 @@ std::unique_ptr<CartridgeInfo> getInfo(const std::vector<uint8_t> &rom)
     info->hasRumble = cartridgeHasRumble(rom[cartridge::CARTRIDGE_TYPE_START_ADDRESS]);
     info->romSize = getRomSize(rom[cartridge::ROM_SIZE_START_ADDRESS]);
     info->ramSize = getRamSize(rom[cartridge::RAM_SIZE_START_ADDRESS]);
-
-    std::cout << "Title: " << info->title << "\n";
-    std::cout << "Type: " << describeCartridge(info->type) << "\n";
-    std::cout << "Version: " << std::hex << info->version << std::dec << "\n";
-    std::cout << "ROM Size: " << describeROM(info->romSize) << "\n";
-    std::cout << "RAM Size: " << describeRAM(info->ramSize) << "\n";
     return info;
 }

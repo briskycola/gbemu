@@ -4,7 +4,9 @@
 #include "Core/IO/Input.hpp"
 #include "Frontend/Settings.hpp"
 #include <QImage>
+#include <QPainter>
 #include <QRect>
+#include <QString>
 #include <QWidget>
 #include <array>
 #include <cstdint>
@@ -14,6 +16,17 @@ class FrameBuffer;
 class QFocusEvent;
 class QKeyEvent;
 class QPaintEvent;
+class QTimer;
+
+namespace display
+{
+    // A message over the picture shows for 3 seconds
+    static constexpr int MESSAGE_MILLISECONDS = 3000;
+    // Its text is a 30th of the picture's height, but at least 12 pixels
+    static constexpr int MESSAGE_LINES_PER_PICTURE = 30;
+    static constexpr int MESSAGE_MIN_FONT_PIXELS   = 12;
+    static constexpr int MESSAGE_BACKGROUND_ALPHA  = 190;
+}
 
 // Draws the Game Boy screen and turns key presses into button presses,
 // using the keys chosen in the settings.
@@ -31,6 +44,11 @@ class ScreenWidget final : public QWidget
         std::array<int, input::BUTTON_COUNT> buttonKeys = input::DEFAULT_BUTTON_KEYS;
         int fastForwardKey = input::DEFAULT_FAST_FORWARD_KEY;
         bool fastForwardHeld = false;
+        // The message shown over the picture, and the timer that clears it
+        QString message;
+        QTimer *messageTimer;
+
+        void paintMessage(QPainter &painter) const;
 
         // The Game Boy button a key is bound to, if any
         bool tryToGetGBButton(int key, GBButton &button) const;
@@ -66,4 +84,8 @@ class ScreenWidget final : public QWidget
 
         // Whether the fast-forward key is held
         bool isFastForwarding() const { return fastForwardHeld; }
+
+        // Shows a message over the top left of the picture for a few
+        // seconds. Lines are separated by "\n".
+        void showMessage(const QString &text);
 };

@@ -7,7 +7,12 @@
 
 namespace cartridge
 {
-    static constexpr uint8_t TITLE_LENGTH = 11;
+    // The title's length: 16 bytes, 15 with a CGB flag after it, or 11 with
+    // a manufacturer code after it
+    static constexpr uint8_t TITLE_LENGTH                         = 16;
+    static constexpr uint8_t TITLE_LENGTH_WITH_CGB_FLAG           = 15;
+    static constexpr uint8_t TITLE_LENGTH_WITH_MANUFACTURER_CODE  = 11;
+    static constexpr uint8_t MANUFACTURER_CODE_LENGTH             = 4;
     
     // Start memory addresses for values
     // in the Game Boy cartridge header
@@ -101,7 +106,7 @@ bool cartridgeHasBattery(uint8_t type);
 bool cartridgeHasTimer(uint8_t type);
 bool cartridgeHasRumble(uint8_t type);
 std::string describeCartridge(CartridgeType type);
-std::string getTitleFromCartridge(std::vector<uint8_t> &rom);
+std::string getTitleFromCartridge(const std::vector<uint8_t> &rom);
 
 ROMSize getROMSize(uint8_t size);
 ROMSize getRomSize(uint8_t size);

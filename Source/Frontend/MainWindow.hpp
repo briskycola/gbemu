@@ -63,6 +63,8 @@ class MainWindow final : public QMainWindow
         void applyVolume();
         void setUpAudioOutput();
         void showError(const QString &message);
+        // The game's title, console and cartridge, shown when it starts
+        static QString describeGame(const CartridgeInfo &info, Console console);
         void updateWindowTitle();
         void closeROM();
         bool openROM(const QString &filename);

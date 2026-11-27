@@ -98,6 +98,8 @@ class Emulator
         // What the cartridge's battery keeps (RAM, and the MBC3 clock); empty
         // for cartridges without a battery
         std::vector<uint8_t> getSaveData() const;
+        // The game's cartridge header: its title, controller and sizes
+        const CartridgeInfo &getCartridgeInfo() const { return cartridge->info(); }
         std::vector<int16_t> takeAudioSamples();
         void runFrame(const std::function<void(const FrameBuffer&)> &vblankCallback);
 

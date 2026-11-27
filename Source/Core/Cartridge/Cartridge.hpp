@@ -169,6 +169,8 @@ class Cartridge
         bool supportsCGB() const;
         bool isCGBOnly() const;
         bool supportsSGB() const;
+        // What the cartridge header says about the game and its hardware
+        const CartridgeInfo &info() const { return *cartridgeInfo; }
 };
 
 class MBC2 : public Cartridge

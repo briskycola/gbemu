@@ -1,5 +1,4 @@
 #include "Core/Common/File.hpp"
-#include <iostream>
 #include <fstream>
 #include <vector>
 #include <cstdint>
@@ -17,11 +16,8 @@ std::vector<uint8_t> readFile(const std::string &filename)
     //
     // This will easily give us the size of the file.
     romFile.open(filename.c_str(), std::ios::binary | std::ios::ate);
-    if (!romFile)
-    {
-        std::cerr << "Could not open file: " << filename << "\n";
-        return romData;
-    }
+    // A file that can't be opened reads as empty, which the caller reports
+    if (!romFile) return romData;
 
     // Get the current read position, which
     // will give us the size of the file.

@@ -6,6 +6,7 @@
 #include <QKeyEvent>
 #include <QPainter>
 #include <QPaintEvent>
+#include <QTimer>
 #include <algorithm>
 
 bool ScreenWidget::tryToGetGBButton(int key, GBButton &button) const
@@ -36,6 +37,21 @@ ScreenWidget::ScreenWidget(QWidget *parent) : QWidget(parent), shadeColors(color
     setFocusPolicy(Qt::StrongFocus);
     setMinimumSize(common::GAMEBOY_WIDTH, common::GAMEBOY_HEIGHT);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+
+    messageTimer = new QTimer(this);
+    messageTimer->setSingleShot(true);
+    connect(messageTimer, &QTimer::timeout, this, [this]
+        {
+            message.clear();
+            update();
+        });
+}
+
+void ScreenWidget::showMessage(const QString &text)
+{
+    message = text;
+    messageTimer->start(display::MESSAGE_MILLISECONDS);
+    update();
 }
 
 void ScreenWidget::applySettings(const Settings &settings)
@@ -89,6 +105,29 @@ void ScreenWidget::paintEvent(QPaintEvent *event)
     // centered on black. Smooth scaling is off by default, so pixels stay
     // sharp (nearest-neighbor).
     painter.drawImage(pictureRect(), image);
+    if (!message.isEmpty()) paintMessage(painter);
+}
+
+// White text on a dark, see-through box in the picture's top left corner,
+// sized to the picture so it reads the same at every window size
+void ScreenWidget::paintMessage(QPainter &painter) const
+{
+    const QRect picture = pictureRect();
+    QFont font = painter.font();
+    font.setPixelSize(std::max(display::MESSAGE_MIN_FONT_PIXELS, picture.height() / display::MESSAGE_LINES_PER_PICTURE));
+    painter.setFont(font);
+
+    const int margin = font.pixelSize() / 2;
+    const int flags = Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap;
+    const QRect space = picture.adjusted(2 * margin, 2 * margin, -2 * margin, -2 * margin);
+    const QRect text = painter.fontMetrics().boundingRect(space, flags, message);
+
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(0, 0, 0, display::MESSAGE_BACKGROUND_ALPHA));
+    painter.drawRoundedRect(text.adjusted(-margin, -margin, margin, margin), margin, margin);
+    painter.setPen(Qt::white);
+    painter.drawText(text, flags, message);
 }
 
 void ScreenWidget::keyPressEvent(QKeyEvent *event)
@@ -148,6 +187,8 @@ void ScreenWidget::clear()
 {
     image = QImage(common::GAMEBOY_WIDTH, common::GAMEBOY_HEIGHT, QImage::Format_RGBA8888);
     image.fill(Qt::white);
+    message.clear();
+    messageTimer->stop();
     update();
 }
 

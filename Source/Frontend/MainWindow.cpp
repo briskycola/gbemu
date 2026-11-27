@@ -338,9 +338,38 @@ bool MainWindow::openROM(const QString &filename)
     // Only an original Game Boy shows plain shades, which can be recolored
     screen->setRecolorShades(console == Console::GameBoy);
     screen->clear();
+    screen->showMessage(describeGame(emulator->getCartridgeInfo(), console));
     updateWindowTitle();
     screen->setFocus();
     return true;
+}
+
+// What the cartridge header says, in Pan Docs' terms, e.g.
+//   POKEMON BLUE
+//   Super Game Boy · MBC3+RAM+BATTERY
+//   ROM 1 MiB (64 banks) · RAM 32 KiB
+// https://gbdev.io/pandocs/The_Cartridge_Header.html
+QString MainWindow::describeGame(const CartridgeInfo &info, Console console)
+{
+    // The title is padded with zero bytes, and may hold other non-text bytes
+    QString title;
+    for (const char character : info.title)
+        if (character >= ' ' && character <= '~') title += QChar(character);
+    title = title.trimmed();
+    if (title.isEmpty()) title = tr("Untitled");
+    if (info.version != 0) title += tr(" (version %1)").arg(info.version);
+
+    // The cartridge type as Pan Docs lists it, e.g. MBC5+RUMBLE+RAM+BATTERY
+    QString hardware = QString::fromStdString(describeCartridge(info.type)).toUpper();
+    if (info.hasTimer) hardware += "+TIMER";
+    if (info.hasRumble) hardware += "+RUMBLE";
+    if (info.ramSize != RAMSize::None) hardware += "+RAM";
+    if (info.hasBattery) hardware += "+BATTERY";
+
+    QString sizes = tr("ROM %1").arg(QString::fromStdString(describeROM(info.romSize)));
+    if (info.ramSize != RAMSize::None) sizes += tr(" · RAM %1").arg(QString::fromStdString(describeRAM(info.ramSize)));
+
+    return title + '\n' + Settings::consoleName(console) + QStringLiteral(" · ") + hardware + '\n' + sizes;
 }
 
 void MainWindow::openROMDialog()
