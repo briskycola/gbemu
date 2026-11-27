@@ -20,9 +20,9 @@
 #include <QMessageBox>
 #include <QTimer>
 #include <algorithm>
+#include <cstdlib>
 #include <exception>
 #include <fstream>
-#include <iostream>
 #include <iterator>
 #include <utility>
 
@@ -260,8 +260,50 @@ void MainWindow::setUpAudioOutput()
 
 void MainWindow::showError(const QString &message)
 {
-    std::cerr << message.toStdString() << "\n";
     QMessageBox::critical(this, tr("gbemu"), message);
+}
+
+// The emulator hit a state it can't continue from. The game's save is
+// written first, since its RAM is still intact, then the error is shown and
+// gbemu closes when it is dismissed.
+void MainWindow::fatalError(const QString &message)
+{
+    timer->stop();
+    if (audioSink) audioSink->stop();
+
+    QString text = tr("gbemu ran into an error it can't recover from and has to close.\n\n%1").arg(message);
+    if (emulator)
+    {
+        if (!emulator->getSaveData().empty()) text += tr("\n\nThe game's save was written before closing.");
+        saveBatteryState(emulator.get(), currentROMPath);
+        // Closing the window must not run or save it again
+        screen->setEmulator(nullptr);
+        emulator.reset();
+    }
+
+    QMessageBox::critical(this, tr("gbemu"), text);
+    QApplication::exit(EXIT_FAILURE);
+}
+
+// An exception that nothing caught, even one passing through Qt's event
+// loop, ends the program here. Say why before it does.
+void MainWindow::reportUncaughtException()
+{
+    QString message = tr("An unknown error occurred.");
+    try
+    {
+        if (std::current_exception()) std::rethrow_exception(std::current_exception());
+    }
+    catch (const std::exception &error)
+    {
+        message = QString::fromStdString(error.what());
+    }
+    catch (...)
+    {
+    }
+    QMessageBox::critical(nullptr, tr("gbemu"),
+        tr("gbemu ran into an error it can't recover from and has to close.\n\n%1").arg(message));
+    std::abort();
 }
 
 void MainWindow::closeROM()
@@ -442,7 +484,6 @@ void MainWindow::runFrame()
     }
     catch (const std::exception &error)
     {
-        closeROM();
-        showError(tr("Emulation stopped: %1").arg(QString::fromStdString(error.what())));
+        fatalError(QString::fromStdString(error.what()));
     }
 }

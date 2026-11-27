@@ -1,6 +1,7 @@
 #include "Frontend/MainWindow.hpp"
 #include <QApplication>
 #include <QString>
+#include <exception>
 
 // Usage: gbemu [rom]
 // Boot ROMs are chosen in the Settings window.
@@ -14,6 +15,8 @@ int main(int argc, char **argv)
     QApplication application(argc, argv);
     application.setApplicationName("gbemu");
     application.setApplicationDisplayName("gbemu");
+    // Errors the window doesn't catch still get a message before gbemu ends
+    std::set_terminate(MainWindow::reportUncaughtException);
 
     MainWindow window;
     window.show();

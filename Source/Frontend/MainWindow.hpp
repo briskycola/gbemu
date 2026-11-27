@@ -62,7 +62,11 @@ class MainWindow final : public QMainWindow
         QAudioDevice chosenAudioDevice() const;
         void applyVolume();
         void setUpAudioOutput();
+        // A problem the user can fix, like a missing file. gbemu stays open.
         void showError(const QString &message);
+        // A problem the emulator can't continue from: saves the game, shows
+        // the error and closes gbemu once it is dismissed
+        void fatalError(const QString &message);
         // The game's title, console and cartridge, shown when it starts
         static QString describeGame(const CartridgeInfo &info, Console console);
         void updateWindowTitle();
@@ -89,4 +93,8 @@ class MainWindow final : public QMainWindow
         ~MainWindow() override;
 
         void loadInitialROM(const QString &filename);
+
+        // Called by std::terminate for an exception nothing caught: shows
+        // the error, then ends the program
+        [[noreturn]] static void reportUncaughtException();
 };
