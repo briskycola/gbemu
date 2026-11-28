@@ -28,7 +28,7 @@ function(gbemu_find_visual_studio_vcpkg out_toolchain)
     if(NOT EXISTS "${toolchain}")
         message(FATAL_ERROR "Visual Studio's vcpkg wasn't found. Install Visual Studio 2026 with "
             "the Desktop development with C++ workload, or build from the MSYS2 UCRT64 shell. "
-            "See README.md.")
+            "See BUILD_WINDOWS.md.")
     endif()
     set(${out_toolchain} "${toolchain}" PARENT_SCOPE)
 endfunction()
@@ -62,15 +62,15 @@ function(gbemu_vcpkg_use_installed_tools vcpkg_root)
     if(NOT GBEMU_PWSH)
         message(FATAL_ERROR "vcpkg needs PowerShell 7 (pwsh), which isn't installed. Install it with "
             "\"winget install --id Microsoft.PowerShell --source winget --installer-type wix\" "
-            "and open a new terminal. See README.md.")
+            "and open a new terminal. See BUILD_WINDOWS.md.")
     endif()
     if(NOT GBEMU_GIT)
         message(FATAL_ERROR "vcpkg needs Git, which isn't installed. Install it with "
-            "\"winget install --id Git.Git --source winget\" and open a new terminal. See README.md.")
+            "\"winget install --id Git.Git --source winget\" and open a new terminal. See BUILD_WINDOWS.md.")
     endif()
     if(NOT GBEMU_NINJA)
         message(FATAL_ERROR "vcpkg needs Ninja, which comes with Visual Studio's C++ CMake tools. "
-            "See README.md.")
+            "See BUILD_WINDOWS.md.")
     endif()
 
     set(tool_folders)

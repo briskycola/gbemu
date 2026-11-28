@@ -13,7 +13,7 @@ include(DeployQt)
 # On Windows, gbemu builds with MSVC (Qt from vcpkg) or with GCC from MSYS2's
 # UCRT64 environment (MSYS2's Qt).
 if(WIN32 AND NOT MSVC AND NOT (MINGW AND "$ENV{MSYSTEM}" STREQUAL "UCRT64"))
-    message(FATAL_ERROR "On Windows, build gbemu with MSVC or from the MSYS2 UCRT64 shell. See README.md.")
+    message(FATAL_ERROR "On Windows, build gbemu with MSVC or from the MSYS2 UCRT64 shell. See BUILD_WINDOWS.md.")
 endif()
 
 # Compiler settings

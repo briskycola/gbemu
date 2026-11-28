@@ -7,5 +7,8 @@ gb-bootroms/
 # Downloaded test ROM suites (mooneye, acid2, Mealybug)
 test-roms/
 
-# vcpkg downloads, builds and installs Qt here for MSVC builds
+# vcpkg downloads, builds and installs Qt here for MSVC builds (see BUILD_WINDOWS.md)
 .vcpkg/
+
+# Linked from a build folder for editors (see BUILD_LINUX.md)
+compile_commands.json

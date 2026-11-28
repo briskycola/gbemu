@@ -35,44 +35,35 @@ Emulation coverage is still evolving, so compatibility varies by game.
 | --- | --- |
 | ![Super Mario Land 2 gameplay](images/sml2_1.png) | ![Super Mario Land 2 gameplay](images/sml2_2.png) |
 
-## Requirements
-
-- C++17-compatible compiler: GCC 9 or newer, Clang 9 or newer
-- CMake 3.23 or newer
-- Qt 6 development packages with the Widgets and Multimedia modules
-- On Windows: [MSYS2](https://www.msys2.org/), building from the **UCRT64** shell
-
 ## Build
 
-From the repository root:
+gbemu uses CMake and Qt 6. Follow the instructions for your system:
 
-```sh
-cmake -B build
-cmake --build build --parallel
-```
+- [Building on Linux](BUILD_LINUX.md)
+- [Building on Windows](BUILD_WINDOWS.md), with MSVC (Visual Studio 2026) or MSYS2 UCRT64
 
-The executable is created at `build/gbemu` (`build/gbemu.exe` on Windows).
-
-### Windows (MSYS2 UCRT64)
-
-Windows builds are only supported from the MSYS2 **UCRT64** shell. Install the
-compiler, CMake and Qt there:
-
-```sh
-pacman -S --needed mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake \
-    mingw-w64-ucrt-x86_64-qt6-base mingw-w64-ucrt-x86_64-qt6-multimedia
-```
-
-Use `mingw-w64-ucrt-x86_64-cmake`, not the plain `cmake` package: that one is
-built for the MSYS environment and fails to configure Qt.
-
-Then build with the same commands as above. Run `build/gbemu.exe` from the
-UCRT64 shell so it can find the Qt and GCC DLLs.
+Each covers what to install, and how to make a Release build (optimized, for playing games) or a
+Debug build (for debugging the emulator).
 
 ## Run
 
+Start the executable your build made. Its location depends on your system and build type, as
+described in the build instructions. For a Release build on Linux:
+
 ```sh
 ./build/gbemu
+```
+
+On Windows with MSYS2 UCRT64, from the UCRT64 shell:
+
+```sh
+./build/gbemu.exe
+```
+
+On Windows with MSVC:
+
+```powershell
+.\build\Release\gbemu.exe
 ```
 
 Use **File > Open ROM...** to browse for a `.gb`, `.gbc`, or `.sgb` file. Double-click
@@ -146,7 +137,11 @@ When the cartridge has battery-backed RAM, the emulator stores it in a
 ## Project layout
 
 - `Source/` — `Core/` holds the emulator (no Qt), `Frontend/` the Qt application, and `Main.cpp` starts it
+- `BUILD_LINUX.md` and `BUILD_WINDOWS.md` — build instructions
 - `CMakeLists.txt` — build configuration
+- `cmake/` — CMake helpers: `VcpkgSetup.cmake` gets Qt from Visual Studio's vcpkg for MSVC builds,
+  and `DeployQt.cmake` copies Qt's plugins next to the MSVC executable
+- `CMakePresets.json` and `vcpkg.json` — the MSVC build and the Qt it gets from vcpkg
 
 ## Contributing
 
