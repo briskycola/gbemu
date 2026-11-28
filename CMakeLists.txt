@@ -56,3 +56,6 @@ file(GLOB FRONTEND_FILES CONFIGURE_DEPENDS Source/Frontend/*.cpp)
 add_executable(gbemu WIN32 Source/Main.cpp ${FRONTEND_FILES})
 target_link_libraries(gbemu PRIVATE gbemu_core Qt6::Widgets Qt6::Multimedia)
 gbemu_deploy_qt(gbemu)
+
+# A Visual Studio solution starts gbemu when debugging, instead of ALL_BUILD
+set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT gbemu)
