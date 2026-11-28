@@ -1,0 +1,23 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "gbemu",
+  "builtin-baseline": "99541cc939bf01ae3c42f928266d648f5acb88fd",
+  "dependencies": [
+    {
+      "name": "qtbase",
+      "default-features": false,
+      "features": [
+        "widgets",
+        "png",
+        {
+          "name": "windeployqt",
+          "platform": "windows"
+        }
+      ]
+    },
+    {
+      "name": "qtmultimedia",
+      "default-features": false
+    }
+  ]
+}

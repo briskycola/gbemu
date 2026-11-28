@@ -6,3 +6,6 @@ gb-bootroms/
 
 # Downloaded test ROM suites (mooneye, acid2, Mealybug)
 test-roms/
+
+# vcpkg downloads, builds and installs Qt here for MSVC builds
+.vcpkg/
